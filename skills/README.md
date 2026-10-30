@@ -111,6 +111,13 @@ Verified 2026-09-30: reinstalling all 38 existing shared skills with `-a claude-
 
 Verified 2026-06-10: `codex exec "list your skills"` sees every `~/.agents/skills` install. No extra wiring belongs in `install.sh`.
 
+## Versions
+
+The repository has one version for all its skills. Skills have no version of their own.
+Each version is a git tag on `main`, such as `v0.1.0`, with a GitHub Release that says what changed in each skill. Write these notes by hand.
+A 0.x version is a beta: a skill can still change its name, triggers, or output. Mark its GitHub Release as a pre-release. Move to `v1.0.0` when the skills stop changing in those ways.
+The `skills` CLI ignores versions. `npx skills update` compares the hash of each skill folder, so an installed copy updates whenever its files change.
+
 ## PR workflow skills
 
 The `open-pr`, `review-pr`, and `understand-pr` skills are maintained in this repository and covered by the links that `scripts/link_skills.py` creates.

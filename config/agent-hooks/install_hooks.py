@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Register the guard_irreversible PreToolUse hook in Claude Code and Codex settings.
+"""Register the dotfiles agent hooks in Claude Code and Codex settings, and the Claude Code telemetry env.
 
 Usage:
   install_hooks.py <json-file>...
 
 Each file is ~/.claude/settings.json or ~/.codex/hooks.json; both keep hooks under a top-level "hooks" object.
-The script adds one PreToolUse group that runs guard_irreversible.py beside this script on the Bash tool.
-It updates an existing entry whose command ends with guard_irreversible.py in place, and keeps every other key
-and hook. It creates a missing file, refuses a file that is not a JSON object, and writes atomically, only on a change.
+The script adds two groups that match the Bash tool:
+  - PreToolUse: guard_irreversible.py beside this script. An entry whose command ends with guard_irreversible.py
+    is ours.
+  - PostToolUse: `agent-trace hook` from tools/agent-trace, which records PR creates and merges in the run trace.
+    An entry whose command ends with `agent-trace hook` is ours.
+It updates our existing entry in place, drops a second copy, and keeps every other key and hook.
+For a file named settings.json (Claude Code) it also adds each TELEMETRY_ENV key that "env" lacks, so Claude Code
+exports its native spans to `agent-trace collect`. A value that is already set stays, so a machine can opt out.
+It creates a missing file, refuses a file that is not a JSON object, and writes atomically, only on a change.
 install.sh, scripts/cloud-bootstrap, and `dotfiles-pr sync` run it. Standard library only.
 """
 
@@ -21,42 +27,69 @@ import sys
 import tempfile
 from pathlib import Path
 
-GUARD = Path(__file__).resolve().parent / "guard_irreversible.py"
+HERE = Path(__file__).resolve().parent
+GUARD = HERE / "guard_irreversible.py"
+TRACE = HERE.parent.parent / "tools" / "agent-trace" / "bin" / "agent-trace"
 ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(GUARD))}", "timeout": 10}
+TRACE_ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(TRACE))} hook", "timeout": 5}
+# (event, our entry, how to recognise our entry from its command with quotes and spaces stripped at the end)
+HOOKS = (("PreToolUse", ENTRY, "guard_irreversible.py"), ("PostToolUse", TRACE_ENTRY, "agent-trace hook"))
+# Claude Code exports OTLP traces with these. config/claude/settings.template.json holds the same keys.
+TELEMETRY_ENV = {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+}
 
 
-def is_guard(hook: object) -> bool:
-    return isinstance(hook, dict) and str(hook.get("command", "")).rstrip("'\" ").endswith("guard_irreversible.py")
+def is_ours(hook: object, suffix: str) -> bool:
+    if not isinstance(hook, dict):
+        return False
+    return str(hook.get("command", "")).replace("'", "").replace('"', "").rstrip().endswith(suffix)
 
 
-def with_guard(settings: dict) -> dict:
-    """Return a copy of settings with exactly one guard entry in hooks.PreToolUse."""
-    merged = copy.deepcopy(settings)
-    hooks = merged.setdefault("hooks", {})
-    if not isinstance(hooks, dict):
-        raise ValueError('"hooks" is not a JSON object')
-    groups = hooks.setdefault("PreToolUse", [])
+def with_hook(hooks: dict, event: str, entry: dict, suffix: str) -> None:
+    """Leave exactly one copy of entry in hooks[event], updating our first entry in place."""
+    groups = hooks.setdefault(event, [])
     if not isinstance(groups, list):
-        raise ValueError('"hooks.PreToolUse" is not a JSON list')
+        raise ValueError(f'"hooks.{event}" is not a JSON list')
     found = False
     kept_groups = []
     for group in groups:
         entries = group.get("hooks") if isinstance(group, dict) else None
-        if not isinstance(entries, list) or not any(is_guard(hook) for hook in entries):
+        if not isinstance(entries, list) or not any(is_ours(hook, suffix) for hook in entries):
             kept_groups.append(group)
             continue
         kept = []
         for hook in entries:
-            if not is_guard(hook):
+            if not is_ours(hook, suffix):
                 kept.append(hook)
             elif not found:  # Update the first entry in place; drop any later copy.
-                kept.append(dict(ENTRY))
+                kept.append(dict(entry))
                 found = True
         if kept:
             kept_groups.append({**group, "hooks": kept})
     if not found:
-        kept_groups.append({"matcher": "Bash", "hooks": [dict(ENTRY)]})
-    hooks["PreToolUse"] = kept_groups
+        kept_groups.append({"matcher": "Bash", "hooks": [dict(entry)]})
+    hooks[event] = kept_groups
+
+
+def with_agent_hooks(settings: dict, claude: bool = False) -> dict:
+    """Return a copy of settings with exactly one entry of each of our hooks, plus the telemetry env for Claude."""
+    merged = copy.deepcopy(settings)
+    hooks = merged.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        raise ValueError('"hooks" is not a JSON object')
+    for event, entry, suffix in HOOKS:
+        with_hook(hooks, event, entry, suffix)
+    if claude:
+        env = merged.setdefault("env", {})
+        if not isinstance(env, dict):
+            raise ValueError('"env" is not a JSON object')
+        for key, value in TELEMETRY_ENV.items():
+            env.setdefault(key, value)
     return merged
 
 
@@ -68,7 +101,7 @@ def install(path: Path) -> str:
         raise ValueError(f"{path} is not valid JSON ({error}); file left untouched") from None
     if not isinstance(settings, dict):
         raise ValueError(f"{path} is not a JSON object; file left untouched")
-    merged = with_guard(settings)
+    merged = with_agent_hooks(settings, claude=path.name == "settings.json")
     if merged == settings and path.exists():
         return "already current"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,7 +126,7 @@ def main(argv: list[str]) -> int:
     for target in argv:
         path = Path(target).expanduser()
         try:
-            print(f"  {path}: guard_irreversible hook {install(path)}")
+            print(f"  {path}: agent hooks {install(path)}")
         except (OSError, ValueError) as error:
             print(f"install_hooks.py: {error}", file=sys.stderr)
             status = 1

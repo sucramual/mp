@@ -1,0 +1,245 @@
+{
+ "resourceLogs": [
+  {
+   "resource": {
+    "attributes": [
+     {
+      "key": "service.name",
+      "value": {
+       "stringValue": "codex_exec"
+      }
+     },
+     {
+      "key": "service.version",
+      "value": {
+       "stringValue": "0.157.0"
+      }
+     },
+     {
+      "key": "host.name",
+      "value": {
+       "stringValue": "test-host"
+      }
+     }
+    ]
+   },
+   "scopeLogs": [
+    {
+     "scope": {
+      "name": "codex_otel.log_only"
+     },
+     "logRecords": [
+      {
+       "timeUnixNano": "0",
+       "observedTimeUnixNano": "1793350806000000000",
+       "severityNumber": 9,
+       "body": null,
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000005",
+       "attributes": [
+        {
+         "key": "conversation.id",
+         "value": {
+          "stringValue": "bbbbbbbb-0000-4000-8000-000000000002"
+         }
+        },
+        {
+         "key": "user.email",
+         "value": {
+          "stringValue": "user@example.com"
+         }
+        },
+        {
+         "key": "user.account_id",
+         "value": {
+          "stringValue": "00000000-0000-4000-8000-0000000000cc"
+         }
+        },
+        {
+         "key": "event.name",
+         "value": {
+          "stringValue": "codex.tool_result"
+         }
+        },
+        {
+         "key": "tool_name",
+         "value": {
+          "stringValue": "exec_command"
+         }
+        },
+        {
+         "key": "call_id",
+         "value": {
+          "stringValue": "c1"
+         }
+        },
+        {
+         "key": "arguments",
+         "value": {
+          "stringValue": "{\"cmd\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}"
+         }
+        },
+        {
+         "key": "output",
+         "value": {
+          "stringValue": "SECRET-OUTPUT"
+         }
+        },
+        {
+         "key": "success",
+         "value": {
+          "boolValue": false
+         }
+        },
+        {
+         "key": "duration_ms",
+         "value": {
+          "stringValue": "900"
+         }
+        }
+       ]
+      },
+      {
+       "timeUnixNano": "0",
+       "observedTimeUnixNano": "1793350805000000000",
+       "severityNumber": 9,
+       "body": null,
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000004",
+       "attributes": [
+        {
+         "key": "conversation.id",
+         "value": {
+          "stringValue": "bbbbbbbb-0000-4000-8000-000000000002"
+         }
+        },
+        {
+         "key": "user.email",
+         "value": {
+          "stringValue": "user@example.com"
+         }
+        },
+        {
+         "key": "user.account_id",
+         "value": {
+          "stringValue": "00000000-0000-4000-8000-0000000000cc"
+         }
+        },
+        {
+         "key": "event.name",
+         "value": {
+          "stringValue": "codex.tool_decision"
+         }
+        },
+        {
+         "key": "tool_name",
+         "value": {
+          "stringValue": "exec_command"
+         }
+        },
+        {
+         "key": "decision",
+         "value": {
+          "stringValue": "approved"
+         }
+        }
+       ]
+      },
+      {
+       "timeUnixNano": "0",
+       "observedTimeUnixNano": "1793350801000000000",
+       "severityNumber": 9,
+       "body": null,
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000001",
+       "attributes": [
+        {
+         "key": "conversation.id",
+         "value": {
+          "stringValue": "bbbbbbbb-0000-4000-8000-000000000002"
+         }
+        },
+        {
+         "key": "user.email",
+         "value": {
+          "stringValue": "user@example.com"
+         }
+        },
+        {
+         "key": "user.account_id",
+         "value": {
+          "stringValue": "00000000-0000-4000-8000-0000000000cc"
+         }
+        },
+        {
+         "key": "event.name",
+         "value": {
+          "stringValue": "codex.user_prompt"
+         }
+        },
+        {
+         "key": "prompt",
+         "value": {
+          "stringValue": "[REDACTED]"
+         }
+        },
+        {
+         "key": "prompt_length",
+         "value": {
+          "stringValue": "52"
+         }
+        }
+       ]
+      },
+      {
+       "timeUnixNano": "0",
+       "observedTimeUnixNano": "1793350802000000000",
+       "severityNumber": 9,
+       "body": null,
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000003",
+       "attributes": [
+        {
+         "key": "conversation.id",
+         "value": {
+          "stringValue": "bbbbbbbb-0000-4000-8000-000000000002"
+         }
+        },
+        {
+         "key": "user.email",
+         "value": {
+          "stringValue": "user@example.com"
+         }
+        },
+        {
+         "key": "user.account_id",
+         "value": {
+          "stringValue": "00000000-0000-4000-8000-0000000000cc"
+         }
+        },
+        {
+         "key": "event.name",
+         "value": {
+          "stringValue": "codex.api_request"
+         }
+        },
+        {
+         "key": "success",
+         "value": {
+          "boolValue": true
+         }
+        },
+        {
+         "key": "attempt",
+         "value": {
+          "intValue": 0
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

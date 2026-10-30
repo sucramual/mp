@@ -7,6 +7,12 @@ sandbox_mode = "workspace-write"
 model = "gpt-6-sol"
 model_reasoning_effort = "high"
 
+# Export traces and tool-result events to `agent-trace collect` (tools/agent-trace), which keeps only the
+# useful Codex spans. When collect is not running, Codex drops them.
+[otel]
+trace_exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/traces", protocol = "json" } }
+exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/logs", protocol = "json" } }
+
 [sandbox_workspace_write]
 writable_roots = ["~/Documents/Obsidian/Default"]
 

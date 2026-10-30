@@ -82,6 +82,8 @@ SYNC_PLIST = f"Library/LaunchAgents/{SYNC_LABEL}.plist"
 
 
 LEGACY_SYNC_PLIST = "Library/LaunchAgents/com.sucramual.dotfiles-sync.plist"
+COLLECT_LABEL = "com.sucramual.agent-trace-collect"
+COLLECT_PLIST = f"Library/LaunchAgents/{COLLECT_LABEL}.plist"
 
 
 BREWFILE = REPO_ROOT / "Brewfile"
@@ -273,11 +275,26 @@ def test_install_loads_the_sync_job_once_and_retires_the_legacy_job(installed: I
         f"unload {home / LEGACY_SYNC_PLIST}",
         f"bootout {domain}/{SYNC_LABEL}",
         f"bootstrap {domain} {plist_path}",
+        f"bootout {domain}/{COLLECT_LABEL}",
+        f"bootstrap {domain} {home / COLLECT_PLIST}",
         f"print {domain}/{SYNC_LABEL}",
-    ], "the first install should load the job; the second should only check that it is loaded"
+        f"print {domain}/{COLLECT_LABEL}",
+    ], "the first install should load the jobs; the second should only check that they are loaded"
     assert file_state(plist_path) == installed.sync_plist_after_first, (
         "a second install should not rewrite the current sync plist (content, mtime, inode)"
     )
+
+
+# Protects: launchd runs agent-trace collect from this checkout on the Mac, rendered for the current HOME.
+# Bug caught: install.sh never loads the collect job, so Claude Code and Codex export spans to nothing.
+def test_install_loads_the_agent_trace_collect_job(installed: Installed):
+    home = installed.home
+    job = plistlib.loads((home / COLLECT_PLIST).read_bytes())
+
+    assert job["Label"] == COLLECT_LABEL
+    assert job["ProgramArguments"][-2:] == [f"{home}/dotfiles/tools/agent-trace/bin/agent-trace", "collect"]
+    assert job["StandardErrorPath"] == f"{home}/Library/Logs/agent-trace/collect.log"
+    assert (home / "Library/Logs/agent-trace").is_dir(), "install should create the log directory for launchd"
 
 
 # Protects: a machine without the work overlay gets no bench config, and keeps the config.toml it has.
@@ -548,8 +565,10 @@ def test_install_neither_installs_nor_runs_ro(
     )
     assert not (isolated_env.home / "ro.log").exists(), "install.sh should not run ro"
     settings = json.loads((isolated_env.home / ".claude/settings.json").read_text())
-    # install.sh adds only its own guard_irreversible hook, which test_install_registers_the_guard_hook covers.
-    owner_commands = [command for command in hook_commands(settings) if not command.endswith(GUARD_NAME)]
+    # install.sh adds only its own guard_irreversible and agent-trace hooks, which other tests cover.
+    owner_commands = [
+        command for command in hook_commands(settings) if not command.endswith((GUARD_NAME, TRACE_SUFFIX))
+    ]
     assert sorted(owner_commands) == sorted(KEPT_COMMANDS), "install.sh should keep the owner's hooks"
     assert (isolated_env.home / ".config/review-pr/reviewers.json").is_symlink(), "the reviewers link should stay"
 
@@ -557,6 +576,7 @@ def test_install_neither_installs_nor_runs_ro(
 # ---- guard_irreversible hook ----------------------------------------------------------------------
 
 GUARD_NAME = "guard_irreversible.py"
+TRACE_SUFFIX = "agent-trace hook"
 
 
 # Protects: install.sh registers the guard hook for both Claude Code and Codex, and keeps the owner's hooks.
@@ -580,4 +600,5 @@ def test_install_registers_the_guard_hook(isolated_env: IsolatedEnv, fake_exe: C
         assert len(groups) == 1, f"{target} should hold the guard hook once: {settings}"
         assert groups[0]["matcher"] == "Bash"
     claude = json.loads((isolated_env.home / ".claude/settings.json").read_text())
-    assert set(hook_commands(claude)) == KEPT_COMMANDS | {expected}, "install.sh should keep the owner's hooks"
+    trace = f"python3 {checkout / 'tools/agent-trace/bin/agent-trace'} hook"
+    assert set(hook_commands(claude)) == KEPT_COMMANDS | {expected, trace}, "install.sh should keep the owner's hooks"

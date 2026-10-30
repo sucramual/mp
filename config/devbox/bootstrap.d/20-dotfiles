@@ -1,5 +1,5 @@
 #!/bin/bash
-# Devbox bootstrap step: clone the dotfiles repository and run install.sh.
+# Devbox bootstrap step: clone the dotfiles repository and the private work overlay, then run install.sh.
 # It never prompts. Without a gh login, it prints the command to run and stops.
 # Exit 0 means done. A re-run is safe: it keeps an existing checkout.
 set -u
@@ -13,6 +13,12 @@ fi
 
 if [ ! -d "$HOME/dotfiles" ]; then
   gh repo clone sucramual/mp "$HOME/dotfiles" || exit $?
+fi
+
+# install.sh runs the overlay's install.sh when it exists. The overlay is optional, so a failed clone only warns.
+work_overlay_dir="${DOTFILES_WORK_DIR:-$HOME/dotfiles-work}"
+if [ ! -d "$work_overlay_dir" ] && ! gh repo clone sucramual/mp-private "$work_overlay_dir"; then
+  echo "WARNING: dotfiles: could not clone sucramual/mp-private to $work_overlay_dir; installing without the work overlay" >&2
 fi
 
 "$HOME/dotfiles/install.sh"

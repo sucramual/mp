@@ -50,6 +50,20 @@ link() {
 # and points to ~/.claude/work.md, which the private work overlay links. The root AGENTS.md holds dotfiles-only rules.
 link "$DOTFILES_DIR/agents/global.md" "$HOME/.claude/CLAUDE.md"
 link "$DOTFILES_DIR/agents" "$HOME/.agent-guidance"
+# A cloud session clones its selected repositories under /home/user, so a selected sucramual/mp-private is there.
+# Link ~/dotfiles-work to it. Then every later reader finds it at the default path: the steps below, the pre-push
+# leak check, and dotfiles-pr. An explicit DOTFILES_WORK_DIR or an existing ~/dotfiles-work overlay wins.
+cloud_overlay_dir="${DOTFILES_CLOUD_WORK_DIR:-/home/user/mp-private}"
+if [ -z "${DOTFILES_WORK_DIR:-}" ] && [ ! -x "$HOME/dotfiles-work/install.sh" ] && [ -x "$cloud_overlay_dir/install.sh" ]; then
+  if [ -e "$HOME/dotfiles-work" ] || [ -L "$HOME/dotfiles-work" ]; then
+    # Something else is at the default path. Use the overlay here, but later processes will not find it.
+    echo "  WARNING: $HOME/dotfiles-work exists, so the pre-push leak check will not find $cloud_overlay_dir" >&2
+    export DOTFILES_WORK_DIR="$cloud_overlay_dir"
+  else
+    ln -s "$cloud_overlay_dir" "$HOME/dotfiles-work"
+    echo "  $HOME/dotfiles-work -> $cloud_overlay_dir"
+  fi
+fi
 work_overlay_dir="${DOTFILES_WORK_DIR:-$HOME/dotfiles-work}"
 if [ -x "$work_overlay_dir/install.sh" ]; then
   "$work_overlay_dir/install.sh"

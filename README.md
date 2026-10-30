@@ -45,6 +45,7 @@ cd ~/dotfiles
 
 Employer-specific agent guidance is in a private work overlay repo, not in this repo.
 When `$DOTFILES_WORK_DIR/install.sh` (default `~/dotfiles-work/install.sh`) is executable, `install.sh` and `scripts/cloud-bootstrap` run it. Otherwise they print one line and continue.
+`dotfiles-pr sync` fast-forwards the overlay checkout when it is on a clean `main`, and runs its `install.sh` when it moved. See [tools/dotfiles-pr/README.md](tools/dotfiles-pr/README.md#work-overlay).
 The overlay links its guidance into `~/.claude`, including `~/.claude/work.md`, which `agents/global.md` names.
 
 Create the local secrets file, and add the secrets that you need:
@@ -79,7 +80,7 @@ On Linux, `install.sh` skips `brew bundle`, so install Node.js and either npm or
 
 A Claude Code cloud session starts in a new container without the user-level `~/.claude`. `scripts/cloud-bootstrap` installs the guidance, skills, tool links, settings, and guard hook into it. The setup script runs `scripts/cloud-bootstrap` from the session's checkout of this repository. It does not clone the repository, so the session must select it.
 
-Open the cloud environment menu in the session title bar and select **Edit**. Add `sucramual/mp` under **Repositories**, and set the **Setup script**:
+Open the cloud environment menu in the session title bar and select **Edit**. Add `sucramual/mp` and `sucramual/mp-private` under **Repositories**, and set the **Setup script**:
 
 ```bash
 #!/bin/bash
@@ -94,6 +95,7 @@ echo "WARNING: no dotfiles checkout; select sucramual/mp for this session" >&2
 ```
 
 - Select `sucramual/mp` in each new session. Without it, the script only warns, and the session starts without this config.
+- Also select `sucramual/mp-private`, the private work overlay. The session clones it to `/home/user/mp-private`. `scripts/cloud-bootstrap` links `~/dotfiles-work` to it and runs its `install.sh`, so the session gets the work guidance, the work settings, and the leak-check terms for the pre-push hook. Without it, the session starts without the work guidance, and the leak check only warns.
 - The network policy must allow GitHub and the npm registry. Without them, the third-party skills and plugin marketplaces do not install.
 - Put secrets such as `LINEAR_API_KEY` in the environment variables, or use a claude.ai connector. `~/.env` is a laptop file.
 - Allow rules do not stop prompts for claude.ai connector tools. To stop them, set the tool to always allow at <https://claude.ai/customize/connectors>.

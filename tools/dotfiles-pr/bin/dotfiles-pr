@@ -10,7 +10,9 @@ Usage:
   dotfiles-pr sync [--no-prune]
       Return the main checkout to an up-to-date main when that loses nothing:
       leave a merged branch, restore edits that main already has, and
-      fast-forward. Refuses and changes nothing otherwise. Then merge
+      fast-forward. Refuses and changes nothing otherwise. Before that, fast-forward
+      the work overlay checkout when it is on a clean main, and run its install.sh
+      when it moved; an overlay problem is only a warning. Then merge
       config/codex/config.toml, plus the work overlay's config/codex/config.toml
       when it exists, into ~/.codex/config.toml (a legacy symlink
       into the repo is first converted to a real file), link the skills in
@@ -29,7 +31,7 @@ Environment:
   DOTFILES_DIR   Repository root. Default: ~/dotfiles, or, when that does not exist, the
                  repository that contains this script (for a cloud session's clone).
   DOTFILES_BU_CONFIG  bu config for `sync`. Default: ~/.config/bu/dotfiles.toml.
-  DOTFILES_WORK_DIR   The private work overlay checkout. Default: ~/dotfiles-work.
+  DOTFILES_WORK_DIR   The private work overlay checkout, which `sync` also updates. Default: ~/dotfiles-work.
   CLAUDECODE     When set, the default prefix is "claude".
   CODEX_*        When any is set (and CLAUDECODE is not), the default prefix is "codex".
 
@@ -282,16 +284,20 @@ def run_or_explain(args: list[str], repo: Path, action: str) -> None:
     raise Failure(f"cannot {action} (exit {result.returncode}): {shlex.join(args)}")
 
 
+def refuse_operation_in_progress(repo: Path) -> None:
+    for name, operation in IN_PROGRESS.items():
+        marker = query(["git", "rev-parse", "--path-format=absolute", "--git-path", name], repo)
+        if marker and os.path.lexists(marker):
+            raise Failure(f"a {operation} is in progress in {repo}; finish or abort it first")
+
+
 def sync_main_checkout(repo: Path) -> SyncResult:
     """Return the main checkout to origin/main without losing work. Expects a fresh `git fetch origin`.
 
     Every refusal comes before any change, except a blocked switch or
     fast-forward, which can follow the lossless restores.
     """
-    for name, operation in IN_PROGRESS.items():
-        marker = query(["git", "rev-parse", "--path-format=absolute", "--git-path", name], repo)
-        if marker and os.path.lexists(marker):
-            raise Failure(f"a {operation} is in progress in {repo}; finish or abort it first")
+    refuse_operation_in_progress(repo)
     branch = query(["git", "symbolic-ref", "--short", "-q", "HEAD"], repo)
     if not branch:
         raise Failure(f"the main checkout ({repo}) has a detached HEAD; check out a branch first")
@@ -612,6 +618,68 @@ def link_global_guidance(repo: Path) -> None:
             print(f"{PROG}: warning: {target} not relinked to {source}: {error}", file=sys.stderr)
 
 
+# --- sync: work overlay -------------------------------------------------------------
+# The private work overlay is a separate checkout. Sync moves it only by a fast-forward of a clean main,
+# so overlay work is never reset, stashed, or overwritten. The overlay is optional, so each problem is a warning.
+
+
+def fast_forward_overlay(overlay: Path) -> tuple[str, str]:
+    """Fast-forward the overlay's main to origin/main. Returns (HEAD before, HEAD after).
+
+    Raises Failure, before any change, unless the overlay is on main with no uncommitted tracked changes,
+    and local main has no commits that origin/main lacks. Untracked files stay; git refuses to overwrite them.
+    """
+    refuse_operation_in_progress(overlay)
+    branch = query(["git", "symbolic-ref", "--short", "-q", "HEAD"], overlay)
+    if branch != BASE_BRANCH:
+        raise Failure(f"it is not on {BASE_BRANCH} ({branch or 'detached HEAD'})")
+    changed = [path for code, path in status_entries(overlay) if code != "??"]
+    if changed:
+        raise Failure(f"it has uncommitted changes: {', '.join(changed)}")
+    fetch = run(["git", "fetch", "origin"], overlay, capture=True, check=False)
+    if fetch.returncode != 0:
+        raise Failure(f"git fetch failed (exit {fetch.returncode})")
+    if not ref_exists(overlay, f"refs/remotes/{ORIGIN_MAIN}"):
+        raise Failure(f"{ORIGIN_MAIN} does not exist")
+    before = query(["git", "rev-parse", "HEAD"], overlay) or ""
+    if not is_ancestor(overlay, before, ORIGIN_MAIN):
+        raise Failure(f"local {BASE_BRANCH} has commits that {ORIGIN_MAIN} lacks")
+    run_or_explain(["git", "merge", "--ff-only", ORIGIN_MAIN], overlay, f"fast-forward {BASE_BRANCH}")
+    return before, query(["git", "rev-parse", "HEAD"], overlay) or ""
+
+
+def sync_work_overlay() -> str | None:
+    """Fast-forward the work overlay checkout, then run its install.sh when HEAD moved.
+
+    Returns a summary line, or None when the overlay directory is missing or is not the top of a Git checkout.
+    Never raises: a refusal or a failed install.sh prints a warning.
+    """
+    overlay = work_overlay_dir()
+    if not overlay.is_dir():
+        return None
+    top = query(["git", "rev-parse", "--show-toplevel"], overlay)
+    if top is None or Path(top).resolve() != overlay.resolve():
+        return None
+    try:
+        before, after = fast_forward_overlay(overlay)
+    except Failure as error:
+        print(f"{PROG}: warning: work overlay not updated: {error}", file=sys.stderr)
+        return "work overlay not updated; see the warning"
+    if before == after:
+        return f"work overlay is at {short(overlay, after)}"
+    # Run install.sh so that the new overlay files get their links.
+    install = overlay / "install.sh"
+    if os.access(install, os.X_OK):
+        try:
+            reason = f"exit {run([str(install)], overlay, check=False).returncode}"
+        except OSError as error:
+            reason = str(error)
+        if reason != "exit 0":
+            warning = f"work overlay install.sh failed ({reason}); fix it, then run {install}"
+            print(f"{PROG}: warning: {warning}", file=sys.stderr)
+    return f"work overlay is at {short(overlay, after)} (was {short(overlay, before)})"
+
+
 def sync_live_checkout(repo: Path) -> SyncResult:
     """Convert a legacy Codex config link, sync the main checkout, merge the Codex config, then link and install.
 
@@ -636,7 +704,11 @@ def sync_live_checkout(repo: Path) -> SyncResult:
 def cmd_sync(args: argparse.Namespace) -> str:
     repo, common = resolve_repo()
     run(["git", "fetch", "origin"], repo)
+    # The overlay goes first, so the Codex merge in sync_live_checkout reads the overlay's new config.
+    overlay = sync_work_overlay()
     summary = sync_summary(sync_live_checkout(repo))
+    if overlay:
+        summary = f"{summary}\n{overlay}"
     if not args.no_prune:
         try:
             prune_scratch_worktrees(repo, common)

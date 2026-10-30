@@ -35,11 +35,13 @@ RunTool = Callable[..., subprocess.CompletedProcess[str]]
 FakeExe = Callable[..., Path]
 
 # Fake gh: `auth status` follows $HOME/gh.authed.
-# `repo clone <repo> <dir>` logs, then makes <dir> with a fake install.sh.
+# `repo clone <repo> <dir>` logs, then makes <dir> with a fake install.sh. It fails, and makes nothing, when
+# $HOME/gh.fail.<repo with / as _> exists.
 FAKE_GH = """printf '%s\\n' "$*" >>"$HOME/gh.log"
 case "$1 $2" in
   "auth status") [ -e "$HOME/gh.authed" ] || { echo "You are not logged in" >&2; exit 1; } ;;
   "repo clone")
+    [ -e "$HOME/gh.fail.${3//\\//_}" ] && { echo "GraphQL: Could not resolve to a Repository" >&2; exit 1; }
     mkdir -p "$4"
     printf '#!/bin/bash\\necho install >>"$HOME/install.log"\\n' >"$4/install.sh"
     printf 'exit "$(cat "$HOME/install.exit" 2>/dev/null || echo 0)"\\n' >>"$4/install.sh"
@@ -127,12 +129,60 @@ def test_bootstrap_step_keeps_an_existing_checkout_and_is_idempotent(bootstrap, 
     (home / "dotfiles").mkdir()
     (home / "dotfiles/install.sh").write_text('#!/bin/bash\necho install >>"$HOME/install.log"\n')
     (home / "dotfiles/install.sh").chmod(0o755)
+    (home / "dotfiles-work").mkdir()
 
     assert bootstrap().returncode == 0
     assert bootstrap().returncode == 0
 
     assert not any(line.startswith("repo clone") for line in lines(home / "gh.log")), "an existing checkout is kept"
     assert lines(home / "install.log") == ["install", "install"]
+
+
+def write_overlay_aware_install(home: Path, overlay: Path) -> None:
+    """An existing ~/dotfiles whose install.sh logs whether the overlay checkout existed when it ran."""
+    (home / "dotfiles").mkdir()
+    install = home / "dotfiles/install.sh"
+    install.write_text(
+        f'#!/bin/bash\n[ -d "{overlay}" ] && word=with-overlay || word=install\necho "$word" >>"$HOME/install.log"\n'
+    )
+    install.chmod(0o755)
+
+
+# Protects: a rebuilt devbox gets the work overlay, so install.sh links the work guidance.
+# Bug caught: the step clones only sucramual/mp, or clones the overlay after install.sh ran, or ignores
+# DOTFILES_WORK_DIR, or clones again over an existing overlay.
+@pytest.mark.parametrize("custom_dir", [False, True])
+def test_bootstrap_step_clones_the_work_overlay_before_install(
+    isolated_env: IsolatedEnv, fake_exe: FakeExe, run_tool: RunTool, home: Path, custom_dir: bool
+):
+    fake_exe("gh", FAKE_GH)
+    (home / "gh.authed").touch()
+    overlay = isolated_env.root / "work" if custom_dir else home / "dotfiles-work"
+    env = {"DOTFILES_WORK_DIR": str(overlay)} if custom_dir else {}
+    write_overlay_aware_install(home, overlay)
+
+    first = run_tool(["/bin/bash", BOOTSTRAP_STEP], cwd=isolated_env.root, **env)
+    second = run_tool(["/bin/bash", BOOTSTRAP_STEP], cwd=isolated_env.root, **env)
+
+    assert first.returncode == 0 and second.returncode == 0, first.stdout + first.stderr
+    clones = [line for line in lines(home / "gh.log") if line.startswith("repo clone")]
+    assert clones == [f"repo clone sucramual/mp-private {overlay}"], "the overlay should be cloned once"
+    assert lines(home / "install.log") == ["with-overlay", "with-overlay"], "install.sh should run after the clone"
+
+
+# Bug caught: a devbox login without access to the private overlay stops the public install.
+def test_bootstrap_step_still_installs_when_the_overlay_clone_fails(bootstrap, home: Path):
+    (home / "gh.authed").touch()
+    (home / "gh.fail.sucramual_mp-private").touch()
+
+    result = bootstrap()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "repo clone sucramual/mp-private" in "\n".join(lines(home / "gh.log")), "the step should try the clone"
+    assert not (home / "dotfiles-work").exists()
+    assert lines(home / "install.log") == ["install"], "install.sh should still run"
+    warnings = [line for line in (result.stdout + result.stderr).splitlines() if "WARNING" in line]
+    assert len(warnings) == 1 and "sucramual/mp-private" in warnings[0], result.stdout + result.stderr
 
 
 def test_bootstrap_step_exits_with_the_install_status(bootstrap, home: Path):

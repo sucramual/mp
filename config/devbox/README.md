@@ -11,7 +11,7 @@ These files make the dotfiles work on the work devbox. The devbox is a headless 
    scripts/devbox.sh run 'gh repo clone sucramual/mp ~/dotfiles && ~/dotfiles/install.sh'
    ```
 
-3. Run `scripts/devbox.sh bootstrap` after a rebuild. Step `20-dotfiles` clones the repository and runs `install.sh` again. It prints the `gh auth login` command and stops when the devbox has no login. Step `30-verify-browser` installs the verify-browser Chrome. Neither step prompts.
+3. Run `scripts/devbox.sh bootstrap` after a rebuild. Step `20-dotfiles` clones the repository and runs `install.sh` again. Before `install.sh`, it also clones the private work overlay `sucramual/mp-private` to `$DOTFILES_WORK_DIR`, else `~/dotfiles-work`, when that folder is missing. When that clone fails, for example because the login has no access, the step prints a warning and installs without the overlay. It prints the `gh auth login` command and stops when the devbox has no login. Step `30-verify-browser` installs the verify-browser Chrome. Neither step prompts.
 4. After the first install, step `30-verify-browser` is not linked yet when the bootstrap starts. Run `verify-browser install` once, or run the bootstrap again. Then [sign in to Okta](#sign-in-to-okta-once).
 
 ## What `install.sh` links
@@ -20,7 +20,7 @@ These files make the dotfiles work on the work devbox. The devbox is a headless 
 
 | Link | Target | Purpose |
 | --- | --- | --- |
-| `~/.config/devbox/bootstrap.d/20-dotfiles` | `config/devbox/bootstrap.d/20-dotfiles` | Bootstrap step that clones and installs |
+| `~/.config/devbox/bootstrap.d/20-dotfiles` | `config/devbox/bootstrap.d/20-dotfiles` | Bootstrap step that clones the repository and the work overlay, and installs |
 | `~/.config/devbox/bootstrap.d/30-verify-browser` | `config/devbox/bootstrap.d/30-verify-browser` | Bootstrap step that runs `verify-browser install` |
 | `~/.config/devbox/on-start` | `config/devbox/on-start` | Starts the `dotfiles-sync` tmux session, and `verify-browser` when its Chrome is installed, on each devbox start |
 | `~/bin/verify-browser` | `config/devbox/verify-browser/verify-browser` | The verify-browser command |
@@ -31,7 +31,7 @@ A re-run changes nothing. A regular file at a target moves to `<target>.bak`. An
 
 ## Sync and logs
 
-The `dotfiles-sync` tmux session runs `tools/dotfiles-pr/sync-loop`. The loop runs `dotfiles-pr sync --no-prune` every 900 seconds. A failed run does not stop the loop. Each round also runs `agent-trace collect --ensure`, which starts the agent-trace receiver when none answers on port 4318.
+The `dotfiles-sync` tmux session runs `tools/dotfiles-pr/sync-loop`. The loop runs `dotfiles-pr sync --no-prune` every 900 seconds. Sync also fast-forwards the work overlay checkout when it is on a clean `main`. A failed run does not stop the loop. Each round also runs `agent-trace collect --ensure`, which starts the agent-trace receiver when none answers on port 4318.
 
 - `~/.local/state/dotfiles-pr/sync.log`: one line when the outcome changes.
 - `~/.local/state/dotfiles-pr/sync-last-run.log`: the full output of the last run.

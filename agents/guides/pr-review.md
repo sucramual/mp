@@ -21,13 +21,15 @@ The reviewer and the controller are separate roles. The reviewer never merges.
 
 - For a design verdict, bring me the shared root, the proposed root change, its 2 to 4 options with the recommended option, and the per-comment table from the [Round summary](../../skills/review-pr/references/round-summary.md). Wait for my decision before you change code.
 - After my decision, restart `review-pr` on the PR, and give it my words verbatim. When I pick an option, my words name its letter. Its own loop applies the decided claims; do not apply them in parallel.
-- For edges in the dotfiles repository, merge only when all of these are true:
+- For edges in the dotfiles repository (`sucramual/mp`) or its private work overlay (`sucramual/mp-private`, checked out at `~/dotfiles-work`), merge only when all of these are true:
   - `review-pr` stopped, and [Ready to merge](../../skills/review-pr/references/ready-to-merge.md) reports `ready` on the current head. Never merge a PR that is `ready with gaps` or `not ready`. Report its gaps to me instead.
   - Each round summary on the PR shows the verdict edges. A round with nothing actionable posts no summary. For it, check on GitHub that the PR has no unresolved review thread. Read the PR yourself. Do not rely on the reviewer's report.
   - The PR head is still the SHA that the reviewer reported.
   - The PR changes no file in [Merge-rule files](#merge-rule-files). Marcus merges a PR that changes one, whatever its verdict.
+  - In the overlay, the PR changes only files in the [Overlay merge allowlist](#overlay-merge-allowlist). Marcus merges any other overlay PR, whatever its verdict.
 - Before you merge, post one line to `issues/<number>/comments` that says why, as a colleague does when they merge for you. Name the reviewed SHA, the ready verdict, the review rounds, and the CI result. For example: `Merging 4cf0af9 for Marcus: ready, 1 round with no findings, checks and leaks passed.`
 - To merge, run `gh pr merge <number> --repo sucramual/mp --squash --match-head-commit <reviewed SHA>`. Where GraphQL is blocked, as in a cloud session, use the REST form with the same pin: `gh api -X PUT repos/sucramual/mp/pulls/<number>/merge -f sha=<reviewed SHA> -f merge_method=squash`. Then read the receipt: `gh api repos/sucramual/mp/pulls/<number> --jq '{merged, merge_commit_sha}'` shows `merged: true`. Then run `dotfiles-pr sync`.
+  For the overlay, use the same commands with `sucramual/mp-private` in place of `sucramual/mp`. After the receipt, run `git -C ~/dotfiles-work pull --ff-only`, because `dotfiles-pr sync` does not update the overlay.
 - If GitHub blocks the merge for unresolved threads or failed checks, return the PR to `review-pr`. Never resolve threads yourself to unblock a merge. Never pass `--admin` to `gh pr merge`.
 - For edges in all other repositories, report that the PR is ready. Do not merge.
 
@@ -59,6 +61,16 @@ These files decide when an agent may merge, what blocks a merge or a push, or wh
 - `config/git-hooks/pre-push`
 - `scripts/install_git_hooks.sh`
 - `.github/workflows/checks.yml`
+
+### Overlay merge allowlist
+
+In the private work overlay `sucramual/mp-private`, an agent may merge only a PR whose every changed file is on this list. These files hold project knowledge, not permissions, gates, reviewer settings, or installed skills. Every other overlay file, such as `config/**`, `install.sh`, `work.md`, `skills/**`, `tests/**`, and `.github/**`, is for Marcus to merge.
+
+- `agents/local.md`
+- `agents/glossary.md`
+- `agents/best-practices.md`
+- `agents/vocabulary.md`
+- `README.md`
 
 ## Ready to merge
 

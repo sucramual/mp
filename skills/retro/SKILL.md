@@ -32,7 +32,7 @@ A gap between turns is idle time. A gap inside a turn is a stall. A gap while a 
 
 New runs record friction with `agent-trace note friction`, and `agent-trace show` lists those notes. Older runs wrote `LOG run | …` and `LOG friction | category=… | what=… | fix=… | at=…` lines in the agent's output, and the oldest have none; review those from the transcripts alone.
 
-- Save the `LOG` lines to a file and parse them with `python3 <skill-dir>/../log/scripts/log.py <file>`. Do not parse the fields yourself. When it exits 1, report the malformed line it names, remove it, and run it again.
+- Save the `LOG` lines to a file and parse them with `python3 <skill-dir>/scripts/log.py <file>`. [Old `LOG` lines](references/log-lines.md) gives the format. Do not parse the fields yourself. When it exits 1, report the malformed line it names, remove it, and run it again.
 - Merge duplicate friction entries across runs, and pair each with transcript evidence near its `at=` pointer.
 - For each check that the ticket records as passed, find the command that proves it in the transcript. Report a check with no proof.
 - Report a stall or a permission wait that no friction entry names.

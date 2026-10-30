@@ -41,6 +41,8 @@ Always reserved for Marcus, and no grant covers them: messages to people outside
 
 ## Steps
 
+Each time you hit friction that you want fixed, run `agent-trace note friction --category <permission|doc|flaky|workaround|missing-tool> --what <text> --fix <text>`. When `agent-trace` is not on `PATH`, list the friction in the run's final report instead.
+
 1. **Plan** the change and the files it touches.
 2. **Implement** through workers. Run the repository's checks.
 3. **Fresh-context review.** Run `/age` in a new read-only worker with the diff, the goal, and the done-checks, not the chat. A removed or skipped test is important. Fix every important finding, and record the reviewed head SHA. After a clean rebase whose `git range-diff` shows every commit unchanged, rerun the tests and reuse this review.

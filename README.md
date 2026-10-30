@@ -1,4 +1,4 @@
-# dotfiles
+# mp
 
 <p align="center">
   <img src=".github/readme-banner.webp" alt="Oil painting of Victoria Harbour in Hong Kong: a Star Ferry crosses below the skyline, while a person on the promenade looks at a phone, near a cat on a bollard and a gull">

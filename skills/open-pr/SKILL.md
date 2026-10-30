@@ -29,7 +29,7 @@ In the dotfiles repository, read `references/dotfiles.md` before step 1.
    When `--stack` is passed, the caller names two or more layers, or the stack check of step 1 succeeds, read this skill's `references/stack.md` before step 3, not the one that step 1 links. It replaces steps 3, 4, and 8 and the step 9 follow-up.
 
 2. **Write the PR description.** Change step 5 as follows:
-   - List the terms as step 5 describes. Check each word against `~/.agent-guidance/vocabulary.md`. Use its pinned meaning, or the replacement that its entry gives. Tell me about a possible new entry; do not add it yourself.
+   - List the terms as step 5 describes. When `~/.agent-guidance/vocabulary.md` exists, check each word against it. Use its pinned meaning, or the replacement that its entry gives. Tell me about a possible new entry; do not add it yourself. When the file does not exist, skip this check.
    - If `./scripts/generate-pr-description.sh` exists, run `./scripts/generate-pr-description.sh --base-branch "origin/${DEFAULT_BRANCH}"` and capture its output.
    - If the repository-local helper is absent, resolve the installed skill directory from this `SKILL.md`; when `<skill-dir>/scripts/generate-pr-description.sh` exists, run it with `--base-branch "origin/${DEFAULT_BRANCH}"` and capture its output.
    - Only if neither generator is available, write the draft yourself, as step 5 describes.

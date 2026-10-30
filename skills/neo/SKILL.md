@@ -24,7 +24,7 @@ Make reversible choices yourself and continue. Write to the ticket only at the s
 
 ## Hard limits
 
-- Irreversible or guarded changes wait for Marcus: data, migrations, infra applies, auth, IAM, secrets, CI workflows, agent settings, messages outside his team, product decisions the ticket does not settle, and in `sucramual/mp` each file that [Merge-rule files](../../agents/guides/pr-review.md#merge-rule-files) lists. Park only that item and keep working.
+- Irreversible or guarded changes wait for Marcus: data, migrations, infra applies, auth, IAM, secrets, CI workflows, agent settings, messages outside his team, product decisions the ticket does not settle, and in `sucramual/mp` each file that [Merge-rule files](https://github.com/sucramual/mp/blob/main/agents/guides/pr-review.md#merge-rule-files) lists. Park only that item and keep working.
 - A removed or weakened test is intended only when the ticket or the intake approved it. Otherwise park it.
 - Before a merge, classify the PR's tier with [Risk tiers](../review-pr/references/risk-tiers.md). Merge only a Low or Medium PR that changes no reserved path. Park a High PR. When you are not sure, the tier is High.
 - Spacelift is read-only for the agent. Never confirm, apply, or discard a Spacelift run.

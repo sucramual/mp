@@ -29,7 +29,7 @@ The [Ready to merge](references/ready-to-merge.md) check reads it to decide revi
 | A design batch stops, leaves its threads open, and messages Marcus. | Marcus owns design. An open thread blocks the merge until he decides. |
 | Reviewer mode posts one review through `gh api .../reviews` with `commit_id`. | The pin ties the verdict to the head that was read. `gh pr review` cannot pin it. |
 | The agent never merges, never dismisses a human review, and never force-pushes. | Marcus owns the merge. No command enforces these rules, so they stay in prose. |
-| Part 3 follows `agents/guides/pr-review.md`. | That guide holds the design-verdict rules that Marcus decided. |
+| Part 3 follows `references/comment-triage.md`. | That file holds the design-verdict rules that Marcus decided. |
 
 ## Before you merge a change to this skill
 

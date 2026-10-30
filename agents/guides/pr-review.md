@@ -19,7 +19,7 @@ The reviewer and the controller are separate roles. The reviewer never merges.
 
 **Controller:** the main agent. It owns final acceptance.
 
-- For a design verdict, bring me the shared root, the proposed root change, its 2 to 4 options with the recommended option, and the per-comment table. Wait for my decision before you change code.
+- For a design verdict, bring me the shared root, the proposed root change, its 2 to 4 options with the recommended option, and the per-comment table from the [Round summary](../../skills/review-pr/references/round-summary.md). Wait for my decision before you change code.
 - After my decision, restart `review-pr` on the PR, and give it my words verbatim. When I pick an option, my words name its letter. Its own loop applies the decided claims; do not apply them in parallel.
 - For edges in the dotfiles repository, merge only when all of these are true:
   - `review-pr` stopped, and [Ready to merge](../../skills/review-pr/references/ready-to-merge.md) reports `ready` on the current head. Never merge a PR that is `ready with gaps` or `not ready`. Report its gaps to me instead.

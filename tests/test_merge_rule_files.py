@@ -87,7 +87,8 @@ def test_both_lists_name_the_same_files() -> None:
         (ROGUE_SKILL, "and the merge and authority rules that [Repository specifics]"),
         (
             NEO_SKILL,
-            "each file that [Merge-rule files](../../agents/guides/pr-review.md#merge-rule-files) lists",
+            "each file that [Merge-rule files]"
+            "(https://github.com/sucramual/mp/blob/main/agents/guides/pr-review.md#merge-rule-files) lists",
         ),
     ],
 )

@@ -26,7 +26,7 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
    - The `copilot-pull-request-reviewer` check is not the PR's. When it fails with HTTP 402, "You have exceeded your monthly quota", say once in a PR comment that it is a quota failure. Do not investigate or re-run it, and do not let it block ready.
 3. **Judge each claim.**
    - Decide validity first: valid, already addressed, incorrect, or uncertain.
-   - Classify the open claims as one batch, design or edges, with [Review comment triage](../../agents/guides/pr-review.md#review-comment-triage).
+   - Classify the open claims as one batch, design or edges, with [Review comment triage](references/comment-triage.md).
    - Give each claim one disposition: **Fix**, **No change** (incorrect, equivalent author choice, or disproportionate; cite the evidence), **Already addressed**, **Follow-up** (link its issue), or **Needs decision**. A CI failure that this PR caused is Fix.
    - **Guard claims.** A guard decides whether an action goes ahead: a gate, a check, or a permission rule. If the claim is true and the PR merges unchanged, does it fail unsafe (a false green, a wrong merge, push, post, or resolve, or lost data)? Then keep it as Fix or Needs decision; it blocks ready. If it fails safe (the worst result is a longer wait or a stop), settle it as No change, and name the bound that stops it in the reply. Do not push for it, because every push starts a new full review. When unsure, it fails unsafe.
 4. **Design: stop.** In a design batch, change no code and push nothing. Leave the design threads open. Post one summary with the shared root, the proposed root change, and 2 to 4 options with one recommended. Then stop and message Marcus. Continue only on his words.

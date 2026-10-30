@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse the tagged `LOG` lines that the log skill writes into agent output.
+"""Parse the tagged `LOG` lines that earlier runs wrote into agent output, before `agent-trace`.
 
 Usage: python3 log.py [file ...]   (reads stdin when no file is given)
 Prints a JSON array of entries. Exits 1 on a malformed `LOG` line.

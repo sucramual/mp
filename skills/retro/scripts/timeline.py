@@ -6,7 +6,8 @@ Reads saved claude-code-remote ``list_events`` pages (the saved MCP wrapper, ``{
 events are deduplicated and sorted by time.
 
 Marks: failing tool calls (grouped), permission waits, gaps between events, loops (the same call repeated),
-turns that ended with "no action needed", and the ``LOG `` lines that the log skill writes in assistant text.
+turns that ended with "no action needed", and the ``LOG `` lines that earlier runs wrote in assistant text,
+before agent-trace.
 Prints compact text, or one JSON object with ``--json``.
 Exits 2 with one stderr line when a file cannot be read or holds no recognisable events.
 """
@@ -364,7 +365,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                         run[0], run[1] = name, canonical
                     run[2].append(event.time)
                 elif block.get("type") == "text":
-                    # Tagged lines that the log skill writes. Another tool parses the fields; keep the raw line.
+                    # Tagged lines that earlier runs wrote, before agent-trace. Another tool parses them.
                     for line in str(block.get("text") or "").splitlines():
                         line = line.strip()
                         if line.startswith("LOG "):

@@ -9,11 +9,11 @@ The fix ships as its own PR. It merges without Marcus only when [Risk tiers](../
 ## Not a bug
 
 - A guard, gate, check, permission prompt, or review finding that stopped you did its job. Park the item or ask Marcus. Never change it to get past it.
-- A bug in another repository is out of scope. Write a `LOG friction` line, work around the bug, and do not fix it under this guide.
+- A bug in another repository is out of scope. Run `agent-trace note friction --category workaround --what <the bug> --fix <suggested fix>`, work around the bug, and do not fix it under this guide.
 
 ## Steps
 
-1. Write a friction line in the [log](../../skills/log/SKILL.md) format: `LOG friction | category=workaround | what=<the bug> | fix=self-repair | at=<command or step>`. After the PR opens, write the line again with `fix=<PR URL>`.
+1. Run `agent-trace note friction --category workaround --what <the bug> --fix self-repair`. After the PR opens, run it again with `--fix <PR URL>`.
 2. Start a separate worktree with `dotfiles-pr start <slug>`, as [Git and worktrees](git-and-worktrees.md) describes. Never put the fix in the task's PR or worktree.
 3. Write a test that fails on the bug. Then fix the bug, and run `scripts/check`.
 4. Publish with `open-pr`. Let `review-pr` take the PR to a verdict.

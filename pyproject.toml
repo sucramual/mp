@@ -16,7 +16,7 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "skills/log/scripts", "skills/daily-digest/scripts"]
+testpaths = ["tests", "skills/retro/scripts", "skills/daily-digest/scripts"]
 # -n auto: run tests in parallel (pytest-xdist), one worker per CPU. Pass -n0 to run serially.
 addopts = ["-ra", "--strict-markers", "-n", "auto"]
 

@@ -2,6 +2,7 @@
   "sucramual/mp": {
     "login": "chatgpt-codex-connector[bot]",
     "doneReaction": "+1",
-    "retrigger": "@codex review"
+    "retrigger": "@codex review",
+    "doneComment": "\"code_review\":{\"commit_sha\":\"{head}\",\"has_any_findings\":false,\"has_unresolved_findings\":false,\"status\":\"completed\"}"
   }
 }

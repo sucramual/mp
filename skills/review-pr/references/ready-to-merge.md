@@ -13,6 +13,7 @@ The PR is `ready` only when all of these hold:
    - the configured reviewer `APPROVED` with `commit_id` equal to the head;
    - the configured reviewer `COMMENTED` with `commit_id` equal to the head, and the review has at least 1 inline comment (`gh api repos/<owner>/<repo>/pulls/<pr>/reviews/<id>/comments`);
    - the configured reviewer added its `doneReaction` to the PR (`gh api repos/<owner>/<repo>/issues/<pr>/reactions`) after the head's first check suite was created (`gh api repos/<owner>/<repo>/commits/<head>/check-suites`, the earliest `created_at`);
+   - when the reviewer's entry has a `doneComment`: an issue comment by the configured reviewer `login` contains its `doneComment`, with `{head}` replaced by the full head SHA. Read `gh api --paginate repos/<owner>/<repo>/issues/<pr>/comments --jq '.[] | select(.user.login == "<login>") | .body'` and check for the exact text, character for character. A comment that names an older head, or a comment by any other login, is not coverage;
    - a human `APPROVED` with `commit_id` equal to the head.
 
    A bot `COMMENTED` review with a body and no inline comment is not coverage.

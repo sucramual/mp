@@ -44,7 +44,7 @@ def test_frontmatter_names_the_skill_and_triggers_on_reviewing_another_persons_p
         assert word in description.lower(), f"the description should trigger on {word!r}"
 
 
-ALLOWED_REVIEWER_KEYS = {"login", "retrigger", "doneReaction"}
+ALLOWED_REVIEWER_KEYS = {"login", "retrigger", "doneReaction", "doneComment"}
 REACTIONS = {"+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"}
 
 
@@ -60,12 +60,18 @@ def test_reviewers_file_has_the_shape_the_ready_check_reads() -> None:
             assert isinstance(entry["retrigger"], str) and entry["retrigger"]
         if "doneReaction" in entry:
             assert entry["doneReaction"] in REACTIONS
+        if "doneComment" in entry:
+            # Without {head}, a comment about an older head would count as coverage of the new one.
+            assert isinstance(entry["doneComment"], str) and "{head}" in entry["doneComment"], (
+                f"{repo} doneComment should name the head with {{head}}"
+            )
 
 
 @pytest.mark.parametrize(
     ("needle", "message"),
     [
         ("Push only with a plain `git push`. Never force-push. Never merge.", "the reviewer must not rewrite or merge"),
+        ("Never sleep longer than 30 seconds at a time.", "a long blind sleep delays the reviewer's answer by minutes"),
         ("Never dismiss a human review", "standing human review decisions should remain protected"),
         (
             "Resolve only a thread that a bot or the PR author opened.",
@@ -140,6 +146,11 @@ def test_reviewer_mode_has_no_separate_reference() -> None:
         (
             "A bot `COMMENTED` review with a body and no inline comment is not coverage.",
             "a body-only bot summary must not count as a review of the head",
+        ),
+        (
+            "an issue comment by the configured reviewer `login` contains its `doneComment`, with `{head}` replaced by "
+            "the full head SHA",
+            "only the reviewer's own comment about this exact head may count as coverage",
         ),
         (
             "An agent never merges a PR that is `ready with gaps`.",

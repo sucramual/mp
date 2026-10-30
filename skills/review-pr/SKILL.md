@@ -20,7 +20,7 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
 
 ## Loop
 
-1. **Wait.** In a cloud session, subscribe to PR activity and end the turn; the next event wakes you. Locally, run `perl -e 'alarm 600; exec @ARGV' gh pr checks <pr> --watch`. macOS has no `timeout`.
+1. **Wait.** In a cloud session, subscribe to PR activity and end the turn; the next event wakes you. Locally, run `perl -e 'alarm 600; exec @ARGV' gh pr checks <pr> --watch`. macOS has no `timeout`. When the checks are done and you wait only for the reviewer, run `perl -e 'sleep 30'`, then read again (step 2). Never sleep longer than 30 seconds at a time. A long sleep missed a reviewer comment for 10 minutes.
 2. **Read** the head (`gh api repos/<o>/<r>/pulls/<pr> --jq .head.sha`), the review comments (`pulls/<pr>/comments`), the reviews, the issue comments, and the failing checks (`gh run view <run-id> --log-failed`). Skip your own posts and progress notices. When the reviewer in `config/review-pr/reviewers.json` (or, for a work repository, `~/.config/review-pr/work-reviewers.json`) has not covered the head after 15 minutes, post its `retrigger` text once.
    - An edit to the Nx Cloud bot's status comment is not a review event. End that wake with no work and no reply, and act only on the check-run result.
    - The `copilot-pull-request-reviewer` check is not the PR's. When it fails with HTTP 402, "You have exceeded your monthly quota", say once in a PR comment that it is a quota failure. Do not investigate or re-run it, and do not let it block ready.

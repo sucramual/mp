@@ -75,6 +75,7 @@ Delegate implementation, fixes, and routine validation when workers are availabl
 This default prevails over generic skill guidance permitting inline implementation, unless higher-priority instructions or the runtime prevent delegation.
 If workers are unavailable, explain the limitation and work inline. Workers still consume tokens.
 Read the delegated-work guide before dispatching workers. Keep one writer for overlapping files. Workers must not redelegate unless instructed.
+When the user invokes `/briesearch`, run the whole skill in one fresh-context worker by default, so raw sources stay out of the main context. Give the worker the full question. Relay its report. If the harness does not let that worker start its own sub-agents, it gathers inline. This default does not apply to the internal `/cheese` tier-2 call.
 
 Never commit feature work on `main` or a long-lived bench branch that a work overlay names, or open a feature PR from either.
 Never force-push a stacked head branch onto its base. Push the base by commit SHA.

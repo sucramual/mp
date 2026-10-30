@@ -35,7 +35,7 @@ For each check: run it, keep the evidence, mark it pass or fail. If a check fail
 
 1. Confirm that the deploy of the merged commit reached the target environment. For Cloud Deploy, the rollout to the target succeeded and its release names an image built from the merged SHA. A rollout for an older commit is not proof.
 2. Smoke-test the real behaviour that each check names, in that environment: a request, a job run, or a page. If the project has a project-local verification skill (from `create-verification-skill`), use it and its feature map to drive the app.
-   On the devbox, drive each page check in the `verify-browser` Chrome through the `chrome-devtools` MCP server. Sign in to an app only through its Okta button. Never type a password. Keep a screenshot, the accessibility tree, and the console and network errors of each check as evidence. If `auth-helper check --require okta` is not `ok`, the check needs Marcus.
+   On the devbox, drive each page check in the `verify-browser` Chrome through the `chrome-devtools` MCP server. Sign in to an app only through its Okta button. Never type a password. Keep a screenshot, the accessibility tree, and the console and network errors of each check as evidence. If `auth-helper check --require okta` is not `ok`, the check needs Marcus. `auth-helper` comes from the `tools/` folder of the dotfiles repository ([README](https://github.com/sucramual/mp/blob/main/tools/auth-helper/README.md)). When it is not on `PATH`, the check also needs Marcus.
 3. Read the logs and errors for the new code path since the rollout. New errors on that path fail the check.
 
 **Infra (Spacelift).** Spacelift is read-only for you. Never confirm, apply, or discard a Spacelift run. Never run `spacectl stack deploy`.

@@ -23,7 +23,9 @@ After Marcus accepts, post the message to the ticket as one comment headed `## /
 
 ## Preflight
 
-Run `auth-helper check --require <logins the plan needs> --horizon <expected run length> --json`, for example `--require gh,gcloud,spacelift`. `rogue-auth` is an alias of `auth-helper`. If `ok` is false, each provider whose status is not `ok` is a missing item; show its `fix`. When `auth-helper` is not on `PATH`, use `gh auth status` and check the other logins by hand, such as `gcloud auth print-access-token` or `spacectl whoami`.
+Run `auth-helper check --require <logins the plan needs> --horizon <expected run length> --json`, for example `--require gh,gcloud,spacelift`. `rogue-auth` is an alias of `auth-helper`. If `ok` is false, each provider whose status is not `ok` is a missing item; show its `fix`. When `auth-helper` is not on `PATH`, use `gh auth status` and check the other logins by hand, such as `gcloud auth print-access-token` or `spacectl whoami`. `auth-helper` comes from the `tools/` folder of the dotfiles repository; see its [README](https://github.com/sucramual/mp/blob/main/tools/auth-helper/README.md).
+
+Read the merge rules once, at preflight, and use them for the whole run: [Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md), [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), and [PR review](https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/pr-review.md) for its Merge-rule files. Read each with `curl -fsSL <URL>` or `gh api`. Do not use a web-fetch tool: it returns a summary, not the exact text. If a read fails, treat each PR as High tier and park it. Never merge without these rules.
 
 - **Blocks the start:** `gh`, the Linear connector, and a clean worktree on a feature branch (never `main` or `main-NN`). If one fails, stop and list each fix.
 - **Parks only its steps:** every other login. List each failure with its fix in the intake message, start the run, and check again before that step.
@@ -39,14 +41,14 @@ Always reserved for Marcus, and no grant covers them: messages to people outside
 
 ## Steps
 
-Each time you hit friction that you want fixed, run `agent-trace note friction --category <permission|doc|flaky|workaround|missing-tool> --what <text> --fix <text>`.
+Each time you hit friction that you want fixed, run `agent-trace note friction --category <permission|doc|flaky|workaround|missing-tool> --what <text> --fix <text>`. When `agent-trace` is not on `PATH`, list the friction in the run's final report instead.
 
 1. **Plan** the change and the files it touches.
 2. **Implement** through workers. Run the repository's checks.
 3. **Fresh-context review.** Run `/age` in a new read-only worker with the diff, the goal, and the done-checks, not the chat. A removed or skipped test is important. Fix every important finding, and record the reviewed head SHA. After a clean rebase whose `git range-diff` shows every commit unchanged, rerun the tests and reuse this review.
 4. **PR and review.** Run `open-pr --no-review`. The PR body links the contract comment and has a `## Proof` section. Then run `review-pr`. If it stops on a design batch, a decision, or its round limit, park the PR.
-5. **Risk tier**, from the diff, as [Risk tiers](../review-pr/references/risk-tiers.md) defines it. High tier or a reserved path: do not merge; park the PR. The one exception is a [Spacelift PR](#spacelift).
-6. **Merge.** Run [Ready to merge](../review-pr/references/ready-to-merge.md). Merge only on `ready`. Park `ready with gaps` and `not ready`, and report the gaps.
+5. **Risk tier**, from the diff, as [Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md) defines it. High tier or a reserved path: do not merge; park the PR. The one exception is a [Spacelift PR](#spacelift).
+6. **Merge.** Run [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md). Merge only on `ready`. Park `ready with gaps` and `not ready`, and report the gaps.
    Exception, for a low-tier PR only: a gap that is only a missing reviewer or missing reviewer configuration does not park it. Record the gap in the proof bundle (the PR body's `## Proof` section and the closing comment). Classify the tier (step 5) before you decide to park on this gap. A missing CI check on the head parks the PR at every tier.
    If the head differs from the step 3 SHA, run step 3 again on the current head, then step 4.
    - Without a merge queue: `gh pr merge <pr> --repo <owner/repo> --squash --match-head-commit <reviewed SHA>`. Where GraphQL is blocked: `gh api -X PUT repos/<owner>/<repo>/pulls/<pr>/merge -f sha=<reviewed SHA> -f merge_method=squash`.
@@ -64,8 +66,8 @@ Each time you hit friction that you want fixed, run `agent-trace note friction -
 
 Also reserved, at every tier:
 
-- Each path in the [Reserved paths](../review-pr/references/risk-tiers.md#reserved-paths) section of Risk tiers.
-- Merge and authority rules in `sucramual/mp`. `agents/guides/pr-review.md` lists the same files:
+- Each path in the [Reserved paths](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md#reserved-paths) section of Risk tiers.
+- Merge and authority rules in `sucramual/mp`. The Merge-rule files section of [PR review](https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/pr-review.md#merge-rule-files) lists the same files:
   - `AGENTS.md`
   - `agents/global.md`
   - `agents/guides/pr-review.md`

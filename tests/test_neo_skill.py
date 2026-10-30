@@ -98,6 +98,14 @@ def test_guarded_line_names_each_guarded_item(item: str) -> None:
             "Done means every ticket check passes on the merged result, not that the PR merged.",
             "a merged PR must not stand in for the ticket's checks",
         ),
+        (
+            "[Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md)",
+            "a relative link breaks in a neo-only install, so the run cannot classify a PR's tier",
+        ),
+        (
+            "Do not start the loop until Marcus installs them.",
+            "a neo-only install must stop at intake, not improvise open-pr, review-pr, and verify",
+        ),
     ],
 )
 def test_safety_line(needle: str, message: str) -> None:

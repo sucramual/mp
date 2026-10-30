@@ -20,6 +20,7 @@ README = REPO_ROOT / "skills" / "review-pr" / "README.md"
 REVIEWERS = REPO_ROOT / "config" / "review-pr" / "reviewers.json"
 CONTROLLER_GUIDE = REPO_ROOT / "agents" / "guides" / "pr-review.md"
 READY_CHECK = REPO_ROOT / "skills" / "review-pr" / "references" / "ready-to-merge.md"
+RAW_MAIN = "https://raw.githubusercontent.com/sucramual/mp/main/"
 
 
 def _frontmatter(path: Path) -> dict[str, str]:
@@ -180,7 +181,9 @@ def test_every_ready_check_link_reaches_the_reference(path: Path) -> None:
     links = re.findall(r"\[Ready to merge\]\(([^)\s]+)\)", path.read_text(encoding="utf-8"))
     assert links, f"{path.name} should link the ready check"
     for link in links:
-        assert (path.parent / link).resolve() == READY_CHECK.resolve(), f"{path.name} links {link}"
+        # A skill outside review-pr links the file on main, so the link works when the skill is installed alone.
+        target = REPO_ROOT / link.removeprefix(RAW_MAIN) if link.startswith(RAW_MAIN) else path.parent / link
+        assert target.resolve() == READY_CHECK.resolve(), f"{path.name} links {link}"
 
 
 @pytest.mark.parametrize("path", [CONTROLLER_GUIDE, READY_CHECK])

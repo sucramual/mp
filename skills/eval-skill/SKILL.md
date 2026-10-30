@@ -6,7 +6,7 @@ description: Run behaviour evals on a dotfiles skill, with and without the skill
 # Eval Skill
 
 Prove what a skill makes an agent do. `scripts/eval_skill.py` copies the skill into a temporary plugin, runs its eval cases on each harness, and applies one pass rule.
-This skill is opt-in: run it only when Marcus asks for it. No skill change must pass it to ship. `~/.agent-guidance/guides/skill-development.md` owns the rule.
+This skill is opt-in: run it only when Marcus asks for it. No skill change must pass it to ship. [Skill development](https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/skill-development.md) owns the rule.
 
 ## Before you run
 

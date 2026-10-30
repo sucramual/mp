@@ -22,6 +22,7 @@ The [Ready to merge](references/ready-to-merge.md) check reads it to decide revi
 | One ready check, in `references/ready-to-merge.md`, for this skill, the controller, and `/rogue`. | Two copies drift. The check reads REST only, because cloud sessions block GraphQL. It lives in the skill folder because `/eval-skill` copies only that folder, so an isolated eval can read it. |
 | One risk-tier definition, in `references/risk-tiers.md`, for `/rogue`, `/neo`, and the self-repair guide. | Copies of the tier rules drift. It sits next to the ready check so that an isolated eval can read it. |
 | Wait with PR-activity wakes in cloud sessions, and `gh pr checks --watch` locally. | The harness wakes the agent. In-process polling cost minutes per round and died on proxy errors. |
+| One round-summary format, in `references/round-summary.md`, for the design stop and each published round. | The controller reads the summaries to check every round's verdict, so they need one shape. It sits in the skill folder so that an isolated eval can read it. |
 | Push with plain `git push`, never force. | A plain push already refuses when the remote moved. |
 | Replies go through `gh api` with the `agent on behalf of` footer. | The footer shows that an agent wrote the text, not Marcus. |
 | Resolve only threads that a bot or the PR author opened. | A person's thread is theirs to close. |

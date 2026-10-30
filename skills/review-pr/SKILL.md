@@ -29,13 +29,13 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
    - Classify the open claims as one batch, design or edges, with [Review comment triage](references/comment-triage.md).
    - Give each claim one disposition: **Fix**, **No change** (incorrect, equivalent author choice, or disproportionate; cite the evidence), **Already addressed**, **Follow-up** (link its issue), or **Needs decision**. A CI failure that this PR caused is Fix.
    - **Guard claims.** A guard decides whether an action goes ahead: a gate, a check, or a permission rule. If the claim is true and the PR merges unchanged, does it fail unsafe (a false green, a wrong merge, push, post, or resolve, or lost data)? Then keep it as Fix or Needs decision; it blocks ready. If it fails safe (the worst result is a longer wait or a stop), settle it as No change, and name the bound that stops it in the reply. Do not push for it, because every push starts a new full review. When unsure, it fails unsafe.
-4. **Design: stop.** In a design batch, change no code and push nothing. Leave the design threads open. Post one summary with the shared root, the proposed root change, and 2 to 4 options with one recommended. Then stop and message Marcus. Continue only on his words.
+4. **Design: stop.** In a design batch, change no code and push nothing. Leave the design threads open. Post one [round summary](references/round-summary.md) with the shared root, the proposed root change, and 2 to 4 options with one recommended. Then stop and message Marcus. Continue only on his words.
 5. **Fix.** Send the accepted claims to one fixer worker as one batch. A risky or semantic fix (behaviour, contracts, data, security, or several files) also gets one fresh read-only verifier, which checks only that the claims are resolved and the scope did not grow. Run the repository's focused checks.
 6. **Publish, in this order.** A round with nothing actionable posts nothing.
    1. Commit the named paths, then `git push`. If the push fails, post no "Fixed" reply and no summary that says fixed.
    2. Reply to each thread: `gh api repos/<o>/<r>/pulls/<pr>/comments/<comment-id>/replies -F body=@<file>`. End each body with a line `---`, then `agent on behalf of <login>` (from `gh api user --jq .login`).
    3. Resolve the Fixed, Already addressed, and No change threads, and a Follow-up thread whose reply links its issue. Leave Needs decision open. In a cloud session: `gh api -X POST repos/<o>/<r>/pulls/<pr>/ccr/comments/<comment-id>/resolve`. Locally: GraphQL `resolveReviewThread`.
-   4. Post one round summary to `issues/<pr>/comments`, with the same footer: the verdict, one line per claim with its disposition and fix commit, and the open gaps.
+   4. Post one round summary to `issues/<pr>/comments`, in the [Round summary](references/round-summary.md) format.
 
    Write each body to a file outside the worktree. If a post fails, read the comments before you post again.
 7. **Repeat** from step 1 on the new head.

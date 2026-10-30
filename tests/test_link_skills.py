@@ -8,6 +8,8 @@ Set DOTFILES_PR_PYTHON (e.g. /opt/homebrew/bin/python3.13) to pick the interpret
 from __future__ import annotations
 
 import os
+import pty
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +22,7 @@ from conftest import REPO_ROOT, IsolatedEnv
 
 RunTool = Callable[..., subprocess.CompletedProcess[str]]
 OLD_BACKUP = "20200101T000000Z"
+SUMMARY_TIME = r" in \d+(ms|\.\d\ds)$"
 
 
 class Setup:
@@ -60,7 +63,8 @@ def setup(isolated_env: IsolatedEnv, run_tool: RunTool) -> Setup:
 def test_first_run_links_with_an_absolute_claude_link_and_a_second_run_is_silent(setup: Setup) -> None:
     setup.skill("zoom-out")
     first = setup.run()
-    assert (first.returncode, first.stdout.splitlines()) == (0, ["linked zoom-out", "linked zoom-out (claude)"])
+    assert (first.returncode, first.stdout.splitlines()[:-1]) == (0, ["linked zoom-out", "linked zoom-out (claude)"])
+    assert re.match(r"^Linked 1 skill" + SUMMARY_TIME, first.stdout.splitlines()[-1])
     assert os.readlink(setup.agents / "zoom-out") == str(setup.repo / "skills" / "zoom-out")
     assert os.readlink(setup.claude / "zoom-out") == str(setup.agents / "zoom-out")
     assert (setup.claude / "zoom-out" / "SKILL.md").read_text() == "v1\n"
@@ -203,7 +207,8 @@ def test_a_retired_owned_dangling_link_is_removed_with_its_claude_link_and_a_ren
     setup.skill("write-project-updates")
     result = setup.run()
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [
+    assert re.match(r"^Linked 1 skill, unlinked 1 skill" + SUMMARY_TIME, result.stdout.splitlines()[-1])
+    assert result.stdout.splitlines()[:-1] == [
         "linked write-project-updates",
         "linked write-project-updates (claude)",
         "removed link for drive-meeting-summaries",
@@ -232,3 +237,148 @@ def test_a_linked_worktree_exits_2(setup: Setup, isolated_env: IsolatedEnv) -> N
     result = setup.run(repo=worktree)
     assert result.returncode == 2 and "linked worktree" in result.stderr
     assert not setup.agents.exists()
+
+
+# --- Per-machine selection file (skills.txt), --list, --pick, and the summary line ---
+
+
+def choose(setup: Setup, text: str, xdg: bool = True) -> str:
+    """Write the selection file under XDG_CONFIG_HOME (or ~/.config). Return the XDG_CONFIG_HOME value."""
+    config = setup.iso.root / "xdg-config" if xdg else setup.iso.home / ".config"
+    (config / "dotfiles").mkdir(parents=True, exist_ok=True)
+    (config / "dotfiles" / "skills.txt").write_text(text)
+    return str(config)
+
+
+def linked(setup: Setup, name: str) -> bool:
+    return (setup.agents / name).is_symlink() and (setup.claude / name).is_symlink()
+
+
+@pytest.mark.parametrize("xdg", [True, False])
+def test_a_selection_file_links_only_the_listed_skills_and_a_new_skill_stays_unlinked(setup: Setup, xdg: bool) -> None:
+    setup.skill("zoom-out")
+    setup.skill("handoff")
+    config = choose(setup, "zoom-out\n", xdg)
+
+    def run() -> subprocess.CompletedProcess[str]:
+        return setup.run(XDG_CONFIG_HOME=config) if xdg else setup.run()
+
+    result = run()
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    assert linked(setup, "zoom-out")
+    assert not os.path.lexists(setup.agents / "handoff") and not os.path.lexists(setup.claude / "handoff")
+    setup.skill("new-skill")
+    again = run()
+    assert (again.returncode, again.stdout, again.stderr) == (0, "", "")
+    assert not os.path.lexists(setup.agents / "new-skill")
+
+
+def test_an_unselected_skill_loses_our_links_and_other_entries_stay(setup: Setup) -> None:
+    for name in ("zoom-out", "handoff", "real-copy", "foreign"):
+        setup.skill(name)
+    assert setup.run().returncode == 0
+    (setup.agents / "real-copy").unlink()
+    (setup.claude / "real-copy").unlink()
+    setup.real(setup.agents, "real-copy")
+    for folder in (setup.agents, setup.claude):
+        (folder / "foreign").unlink()
+        (folder / "foreign").symlink_to(setup.iso.root)
+    result = setup.run(XDG_CONFIG_HOME=choose(setup, "zoom-out\n"))
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    assert linked(setup, "zoom-out")
+    assert not os.path.lexists(setup.agents / "handoff") and not os.path.lexists(setup.claude / "handoff")
+    assert "removed link for handoff" in result.stdout
+    assert (setup.agents / "real-copy").is_dir() and not (setup.agents / "real-copy").is_symlink()
+    for folder in (setup.agents, setup.claude):
+        assert os.readlink(folder / "foreign") == str(setup.iso.root)
+    assert "real-copy" not in result.stdout and "foreign" not in result.stdout
+
+
+def test_an_unknown_name_warns_exits_1_and_the_valid_names_still_link(setup: Setup) -> None:
+    setup.skill("zoom-out")
+    setup.skill("handoff")
+    result = setup.run(XDG_CONFIG_HOME=choose(setup, "zoom-out\nno-such-skill\n"))
+    assert result.returncode == 1
+    assert "warning:" in result.stderr and "no-such-skill" in result.stderr
+    assert linked(setup, "zoom-out") and not os.path.lexists(setup.agents / "handoff")
+
+
+def test_comments_and_blank_lines_in_the_selection_file_are_ignored(setup: Setup) -> None:
+    setup.skill("zoom-out")
+    setup.skill("handoff")
+    result = setup.run(XDG_CONFIG_HOME=choose(setup, "# my picks\n\n  zoom-out  # daily\n# handoff\n"))
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    assert linked(setup, "zoom-out") and not os.path.lexists(setup.agents / "handoff")
+
+
+def test_a_selection_file_with_no_names_links_nothing(setup: Setup) -> None:
+    setup.skill("zoom-out")
+    result = setup.run(XDG_CONFIG_HOME=choose(setup, "# nothing yet\n"))
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    assert not os.path.lexists(setup.agents / "zoom-out")
+
+
+def test_a_run_that_changes_something_ends_with_one_summary_line(setup: Setup) -> None:
+    setup.skill("zoom-out")
+    setup.skill("handoff")
+    first = setup.run()
+    assert first.returncode == 0 and re.match(r"^Linked 2 skills" + SUMMARY_TIME, first.stdout.splitlines()[-1])
+    second = setup.run(XDG_CONFIG_HOME=choose(setup, "zoom-out\n"))
+    assert second.returncode == 0 and re.match(r"^Unlinked 1 skill" + SUMMARY_TIME, second.stdout.splitlines()[-1])
+
+
+def test_list_marks_selected_skills_and_shows_descriptions_and_changes_nothing(setup: Setup) -> None:
+    setup.skill("zoom-out", "---\nname: zoom-out\ndescription: Climb to the system.\n---\nbody\n")
+    setup.skill("handoff", '---\nname: handoff\ndescription: "Save where we are."\n---\n')
+    result = setup.run("--list", COLUMNS="100", XDG_CONFIG_HOME=choose(setup, "zoom-out\n"))
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    rows = {line.split()[1]: line for line in result.stdout.splitlines()}
+    assert rows["zoom-out"].startswith("●") and rows["zoom-out"].endswith("Climb to the system.")
+    assert rows["handoff"].startswith("○") and rows["handoff"].endswith("Save where we are.")
+    assert not setup.agents.exists() and not setup.claude.exists()
+    narrow = setup.run("--list", COLUMNS="20", XDG_CONFIG_HOME=choose(setup, "zoom-out\n"))
+    assert narrow.stdout.splitlines() and all(len(line) <= 20 for line in narrow.stdout.splitlines())
+
+
+def test_list_without_a_selection_file_marks_every_skill_selected(setup: Setup) -> None:
+    setup.skill("zoom-out")
+    setup.skill("handoff")
+    result = setup.run("--list")
+    lines = result.stdout.splitlines()
+    assert result.returncode == 0 and len(lines) == 2 and all(line.startswith("●") for line in lines)
+
+
+def test_pick_without_a_terminal_exits_2_and_writes_nothing(setup: Setup) -> None:
+    setup.skill("zoom-out")
+    config = setup.iso.root / "xdg-config"
+    result = setup.run("--pick", XDG_CONFIG_HOME=str(config))
+    assert result.returncode == 2 and "--pick needs a terminal" in result.stderr
+    assert not config.exists() and not setup.agents.exists()
+
+
+def test_pick_without_uv_exits_2_and_writes_nothing(setup: Setup) -> None:
+    setup.skill("zoom-out")
+    config = setup.iso.root / "xdg-config"
+    only_git = setup.iso.root / "only-git"
+    only_git.mkdir()
+    git = shutil.which("git")
+    assert git
+    (only_git / "git").symlink_to(git)
+    leader, follower = pty.openpty()  # --pick checks for a terminal before it looks for uv.
+    try:
+        interpreter = os.environ.get("DOTFILES_PR_PYTHON") or sys.executable
+        result = subprocess.run(
+            [interpreter, str(setup.repo / "scripts" / "link_skills.py"), "--pick"],
+            cwd=setup.iso.root,
+            env={**setup.iso.env, "PATH": str(only_git), "XDG_CONFIG_HOME": str(config)},
+            stdin=follower,
+            stdout=follower,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60,
+        )
+    finally:
+        os.close(follower)
+        os.close(leader)
+    assert result.returncode == 2 and "--pick needs uv" in result.stderr
+    assert not config.exists() and not setup.agents.exists()

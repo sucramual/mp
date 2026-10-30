@@ -22,12 +22,28 @@ Skills in this repository are symlinks to the live checkout. `scripts/link_skill
 `install.sh` and `dotfiles-pr sync` (and so `dotfiles-pr start`) run it. A merged skill change is live after `dotfiles-pr sync`.
 
 ```bash
-# Link every skill in this repository. Add --dry-run to preview.
+# Link the selected skills (all of them when there is no selection file). Add --dry-run to preview.
 # Run it in the main checkout: it refuses a scratch worktree, whose links would dangle after a prune.
 python3 scripts/link_skills.py
+# Choose the skills for this machine in a terminal checklist, then link them.
+python3 scripts/link_skills.py --pick
+# Show each skill, whether it is selected, and its description.
+python3 scripts/link_skills.py --list
 ```
 
-For each skill in `skills/` (a folder with a `SKILL.md`), the script makes `~/.agents/skills/<name>` a link to `~/dotfiles/skills/<name>`, and `~/.claude/skills/<name>` an absolute link to that entry.
+### Choose skills per machine
+
+The selection file is `~/.config/dotfiles/skills.txt`, or `$XDG_CONFIG_HOME/dotfiles/skills.txt` when `XDG_CONFIG_HOME` is set. Git does not track it.
+It holds one skill name per line. A `#` starts a comment.
+When the file is missing, the script links every skill. When it exists, the script links only the names it lists. So a skill that a later PR adds stays unlinked until you pick it.
+For a skill that is not selected, the script removes only its own links. A real directory or another link at that name stays.
+A name that is not a skill in `skills/` gets a warning, and the script exits 1. It still links the other names.
+
+`--pick` needs a terminal and `uv`. It runs `scripts/pick_skills.py`, a [questionary](https://github.com/tmbo/questionary) checklist, through `uv run --script`, so `link_skills.py` stays stdlib-only.
+Type to filter by name. Use up and down to move, space to toggle, ctrl-a to toggle all, and ctrl-i (tab) to invert.
+Enter saves the file and links. Ctrl-C cancels and changes nothing. `--pick --dry-run` writes no file and prints what would change.
+
+For each selected skill in `skills/` (a folder with a `SKILL.md`), the script makes `~/.agents/skills/<name>` a link to `~/dotfiles/skills/<name>`, and `~/.claude/skills/<name>` an absolute link to that entry.
 It moves a real file or directory at either path aside before it links. It does not compare the copy with the skill.
 It leaves any other link alone, and warns.
 

@@ -1,4 +1,7 @@
-"""IDs, TRACEPARENT parsing, and OTLP JSON encoding and decoding.
+"""Scope hash ids, and OTLP JSON decoding (flattening) and encoding. Standard library only.
+
+The OpenTelemetry SDK builds and sends the spans (see export.py); this module only does what collect and show need
+on top: turn an OTLP request into stored records, and encode stored records again for --forward and --jaeger.
 
 The stored record shape (one JSON object per line) is the same for collect and for the fallback file:
 
@@ -12,13 +15,12 @@ sends it as a string); arrayValue becomes a list; kvlistValue becomes a dict.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
-import re
-import secrets
 import time
 from typing import Any
 
-TRACEPARENT = re.compile(r"^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$")
 STATUS_NAMES = {"STATUS_CODE_UNSET": 0, "STATUS_CODE_OK": 1, "STATUS_CODE_ERROR": 2}
 
 Record = dict[str, Any]
@@ -38,16 +40,31 @@ def trace_id_for(scope: str) -> str:
     return hashlib.sha256(f"agent-trace\0{scope}".encode()).hexdigest()[:32]
 
 
-def random_span_id() -> str:
-    return secrets.token_hex(8)
+ID_KEYS = ("traceId", "spanId", "parentSpanId")
 
 
-def parse_traceparent(value: str | None) -> tuple[str, str] | None:
-    """Return (trace id, span id) from a W3C TRACEPARENT value, or None when it is absent or malformed."""
-    match = TRACEPARENT.match((value or "").strip().lower())
-    if not match or set(match.group(1)) == {"0"} or set(match.group(2)) == {"0"}:
-        return None
-    return match.group(1), match.group(2)
+def ids_to_hex(doc: Any) -> Any:
+    """Convert the base64 ids that protobuf's MessageToDict writes into the hex ids that OTLP JSON uses."""
+
+    def convert(item: dict[str, Any]) -> None:
+        for key in ID_KEYS:
+            if isinstance(item.get(key), str) and item[key]:
+                try:
+                    item[key] = base64.b64decode(item[key], validate=True).hex()
+                except (binascii.Error, ValueError):
+                    pass
+
+    for block in _blocks(doc, "resourceSpans"):
+        for scope in block.get("scopeSpans") or []:
+            for span in (scope or {}).get("spans") or []:
+                convert(span)
+                for link in span.get("links") or []:
+                    convert(link)
+    for block in _blocks(doc, "resourceLogs"):
+        for scope in block.get("scopeLogs") or []:
+            for log in (scope or {}).get("logRecords") or []:
+                convert(log)
+    return doc
 
 
 def flatten_value(value: Any) -> Any:

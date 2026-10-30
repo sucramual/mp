@@ -6,11 +6,11 @@ The OTLP requests are small hand-built fixtures in tests/fixtures/agent_trace/ w
 
 from __future__ import annotations
 
+import base64
 import gzip
 import json
 import socket
 import stat
-import subprocess
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +29,8 @@ from test_agent_trace_support import (
     recorder,
     run,
 )
+
+ID_KEYS = {"traceId", "spanId", "parentSpanId"}
 
 
 def fixture(name: str) -> dict[str, Any]:
@@ -128,11 +130,14 @@ def test_gzip_body_is_accepted(isolated_env: IsolatedEnv, tmp_path: Path) -> Non
     assert len(records) == 5
 
 
-def test_protobuf_gets_415_and_bad_json_400_and_nothing_is_stored(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+def test_unknown_type_gets_415_and_bad_bodies_400_and_nothing_is_stored(
+    isolated_env: IsolatedEnv, tmp_path: Path
+) -> None:
     state = tmp_path / "state"
     env = base_env(isolated_env.env, state, "")
     with collect(env) as port:
-        assert post(port, "/v1/traces", b"\x0a\x00", content_type="application/x-protobuf") == 415
+        assert post(port, "/v1/traces", b"hello", content_type="text/plain") == 415
+        assert post(port, "/v1/traces", b"\xff\xff\xff", content_type="application/x-protobuf") == 400
         assert post(port, "/v1/traces", b"{not json") == 400
         assert post(port, "/v1/logs", b"[1, 2]") == 400
         assert post(port, "/v1/metrics", b"{}") == 404
@@ -140,6 +145,46 @@ def test_protobuf_gets_415_and_bad_json_400_and_nothing_is_stored(isolated_env: 
         assert stored(state / "spans") == []
         assert post(port, "/v1/traces", (FIXTURES / "claude_traces.json").read_bytes()) == 200
         assert len(wait_for_records(state / "spans", 5)) == 5
+
+
+def test_protobuf_requests_are_decoded_like_json(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    from google.protobuf.json_format import ParseDict
+    from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+
+    def to_base64_ids(doc: Any) -> Any:
+        # Protobuf JSON writes bytes as base64; OTLP JSON fixtures use hex ids.
+        if isinstance(doc, dict):
+            return {
+                k: base64.b64encode(bytes.fromhex(v)).decode() if k in ID_KEYS and v else to_base64_ids(v)
+                for k, v in doc.items()
+            }
+        if isinstance(doc, list):
+            return [to_base64_ids(item) for item in doc]
+        return doc
+
+    traces = ParseDict(to_base64_ids(fixture("claude_traces.json")), ExportTraceServiceRequest())
+    logs = ParseDict(to_base64_ids(fixture("codex_logs.json")), ExportLogsServiceRequest())
+    state = tmp_path / "state"
+    env = base_env(isolated_env.env, state, "")
+    with collect(env) as port:
+        assert post(port, "/v1/traces", traces.SerializeToString(), content_type="application/x-protobuf") == 200
+        assert post(port, "/v1/logs", logs.SerializeToString(), content_type="application/x-protobuf") == 200
+        records = wait_for_records(state / "spans", 7)
+    spans = {r["name"]: r for r in records if r["type"] == "span"}
+    assert len(spans) == 5
+    execution = spans["claude_code.tool.execution"]
+    assert execution["traceId"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert execution["spanId"] == "1000000000000005"
+    assert execution["parentSpanId"] == "1000000000000003"
+    assert execution["status"] == {"code": 2, "message": "ShellError"}
+    assert execution["attrs"]["success"] is False
+    assert spans["claude_code.llm_request"]["attrs"]["attempt"] == 2
+    assert spans["claude_code.interaction"]["start"] == 1793350800_000_000_000
+    logs_by_name = {r["attrs"]["event.name"]: r for r in records if r["type"] == "log"}
+    assert sorted(logs_by_name) == ["codex.tool_decision", "codex.tool_result"]
+    assert "output" not in logs_by_name["codex.tool_result"]["attrs"]
+    assert logs_by_name["codex.tool_result"]["spanId"] == "2000000000000005"
 
 
 def test_forward_sends_native_records_but_not_agent_trace_ones(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
@@ -190,9 +235,8 @@ def test_ensure_starts_one_detached_collect(isolated_env: IsolatedEnv, tmp_path:
         assert answer is not None and answer[1]["X-Agent-Trace"] == "collect"
         second = run(["collect", "--ensure", "--port", str(port)], env)
         assert second.returncode == 0, second.stderr
-        procs = subprocess.run(["pgrep", "-f", str(state)], capture_output=True, text=True).stdout.split()
-        assert len(procs) == 1
-        assert (state / "collect.log").exists()
+        log = (state / "collect.log").read_text()
+        assert log.count("agent-trace collect: listening on") == 1
     finally:
         kill_matching(str(state))
 

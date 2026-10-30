@@ -1,10 +1,11 @@
 """`agent-trace span start|end` and `agent-trace note friction|none`.
 
 Every input is checked first. Any invalid value exits 2 with one line `agent-trace: <message>` on stderr, and
-nothing is sent or written. A valid call builds one zero-length span record, POSTs it as OTLP JSON to
-AGENT_TRACE_ENDPOINT/v1/traces (timeout 1 s), and prints nothing. The POST counts as delivered only when the answer
-is 200 with the X-Agent-Trace header, which tells collect apart from another OTLP receiver such as Jaeger. Otherwise
-the record goes to fallback.jsonl with one stderr warning, and the exit code stays 0.
+nothing is sent or written. All of that is standard library. A valid call then hands one zero-length span to the
+OpenTelemetry SDK (launch.send runs export.py under `uv run --script`), which exports it to
+AGENT_TRACE_ENDPOINT/v1/traces and prints nothing. A span that collect does not take (collect down, or another
+receiver such as Jaeger, which sends no X-Agent-Trace header) goes to fallback.jsonl with one stderr warning, and
+the exit code stays 0.
 
 Scope (the namespace of span ids) is the ticket, else the session, else the TRACEPARENT trace id.
 """
@@ -12,11 +13,9 @@ Scope (the namespace of span ids) is the ticket, else the session, else the TRAC
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +29,7 @@ STATUSES = ("ok", "error", "parked")
 CATEGORIES = ("permission", "doc", "flaky", "workaround", "missing-tool")
 TEXT_LIMIT = 300
 DEFAULT_ENDPOINT = "http://127.0.0.1:4318"
+TRACEPARENT_TRACE = re.compile(r"^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$")
 
 
 class Invalid(Exception):
@@ -71,17 +71,12 @@ def endpoint() -> str:
 
 
 class Context:
-    """The ids that every record of one call shares."""
+    """What every span of one call shares: ticket, session, and scope (the namespace of span ids)."""
 
-    def __init__(self, ticket: str | None, session: str | None, traceparent: tuple[str, str] | None) -> None:
+    def __init__(self, ticket: str | None, session: str | None, traceparent_trace: str | None) -> None:
         self.ticket = ticket
         self.session = session
-        self.traceparent = traceparent
-        self.scope = ticket or session or (traceparent[0] if traceparent else None)
-
-    @property
-    def trace_id(self) -> str:
-        return self.traceparent[0] if self.traceparent else otlp.trace_id_for(self.scope or "")
+        self.scope = ticket or session or traceparent_trace
 
     def attrs(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -91,6 +86,25 @@ class Context:
             out["run.ticket"] = self.ticket
         out["agent_trace.scope"] = self.scope
         return out
+
+    def span_id(self, ident: str) -> str:
+        return otlp.span_id_for(self.scope or "", ident)
+
+    def request(self, specs: list[dict[str, Any]]) -> dict[str, Any]:
+        """The send request for launch.send: one zero-length span per spec, all at this moment."""
+        spans = [{**spec, "attrs": {**self.attrs(), **spec["attrs"]}} for spec in specs]
+        return {
+            "time": otlp.now_ns(),
+            "trace_id": otlp.trace_id_for(self.scope or ""),
+            "endpoint": endpoint(),
+            "spans": spans,
+        }
+
+
+def traceparent_trace() -> str | None:
+    """The trace id of TRACEPARENT, used only as the last scope. The SDK reads TRACEPARENT for the parent."""
+    match = TRACEPARENT_TRACE.match((os.environ.get("TRACEPARENT") or "").strip().lower())
+    return match.group(1) if match and set(match.group(1)) != {"0"} else None
 
 
 def resolve_context(flag_ticket: str | None, session: str | None, base: Path) -> tuple[Context, str | None]:
@@ -104,7 +118,7 @@ def resolve_context(flag_ticket: str | None, session: str | None, base: Path) ->
     if ticket is None:
         bound = store.read_ticket(base, session)
         ticket = bound if bound and TICKET.match(bound) else None
-    context = Context(ticket, session, otlp.parse_traceparent(os.environ.get("TRACEPARENT")))
+    context = Context(ticket, session, traceparent_trace())
     if context.scope is None:
         raise Invalid(
             "no scope: pass --ticket, or set AGENT_TRACE_TICKET, CLAUDE_CODE_SESSION_ID, "
@@ -113,68 +127,14 @@ def resolve_context(flag_ticket: str | None, session: str | None, base: Path) ->
     return context, given
 
 
-def span_record(
-    context: Context,
-    *,
-    span_id: str,
-    name: str,
-    parent: str | None,
-    attrs: dict[str, Any],
-    status_code: int = 0,
-    event: str | None = None,
-) -> otlp.Record:
-    now = otlp.now_ns()
-    merged = {**context.attrs(), **attrs}
-    return {
-        "type": "span",
-        "service": "agent-trace",
-        "traceId": context.trace_id,
-        "spanId": span_id,
-        "parentSpanId": parent,
-        "name": name,
-        "start": now,
-        "end": now,
-        "status": {"code": status_code, "message": ""},
-        "attrs": merged,
-        "events": [{"name": event, "time": now, "attrs": {}}] if event else [],
-    }
+def spec(
+    name: str, attrs: dict[str, Any], *, span_id: str | None = None, parent: str | None = None, **extra: Any
+) -> dict[str, Any]:
+    """One span for export.py. ``span_id`` None means random; ``parent`` None means TRACEPARENT, if any."""
+    return {"name": name, "span_id": span_id, "parent_span_id": parent, "attrs": attrs, **extra}
 
 
-def post_json(url: str, body: dict[str, Any], timeout: float) -> tuple[int, dict[str, str]]:
-    """POST JSON without proxies. Returns (status, headers). Raises OSError (including HTTPError) on failure."""
-    request = urllib.request.Request(
-        url, data=json.dumps(body).encode(), method="POST", headers={"Content-Type": "application/json"}
-    )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(request, timeout=timeout) as response:
-        response.read()
-        return response.status, {key.lower(): value for key, value in response.headers.items()}
-
-
-def deliver(records: list[otlp.Record], base: Path, *, quiet: bool = False) -> None:
-    """Send span records to collect, or append them to fallback.jsonl. Never raises for transport errors."""
-    url = endpoint() + "/v1/traces"
-    try:
-        status, headers = post_json(url, otlp.encode_traces(records), timeout=1.0)
-        if status == 200 and "x-agent-trace" in headers:
-            return
-    except (OSError, ValueError):
-        pass
-    fallback = base / "fallback.jsonl"
-    try:
-        store.append_records(fallback, records)
-    except OSError as error:
-        if not quiet:
-            print(
-                f"agent-trace: collect not reachable at {endpoint()}; could not write {fallback}: {error}",
-                file=sys.stderr,
-            )
-        return
-    if not quiet:
-        print(f"agent-trace: collect not reachable at {endpoint()}; wrote {fallback}", file=sys.stderr)
-
-
-def build(args: argparse.Namespace, base: Path) -> tuple[list[otlp.Record], Context, str | None]:
+def build(args: argparse.Namespace, base: Path) -> tuple[dict[str, Any], Context, str | None]:
     session = session_id()
     if args.command == "span" and args.action == "start":
         ident = check_pattern("--id", args.id, IDENT)
@@ -185,14 +145,8 @@ def build(args: argparse.Namespace, base: Path) -> tuple[list[otlp.Record], Cont
         attrs: dict[str, Any] = {"agent_trace.phase": "start", "agent_trace.id": ident, "agent_trace.kind": kind}
         if parent:
             attrs["agent_trace.parent"] = parent
-        parent_span = otlp.span_id_for(context.scope or "", parent) if parent else None
-        if parent_span is None and context.traceparent:
-            parent_span = context.traceparent[1]
-        record = span_record(
-            context, span_id=otlp.span_id_for(context.scope or "", ident), name=name, parent=parent_span, attrs=attrs
-        )
-        return [record], context, given
-    if args.command == "span":
+        one = spec(name, attrs, span_id=context.span_id(ident), parent=context.span_id(parent) if parent else None)
+    elif args.command == "span":
         ident = check_pattern("--id", args.id, IDENT)
         status = check_choice("--status", args.status, STATUSES)
         note = check_text("--note", args.note) if args.note is not None else None
@@ -200,16 +154,8 @@ def build(args: argparse.Namespace, base: Path) -> tuple[list[otlp.Record], Cont
         attrs = {"agent_trace.phase": "end", "agent_trace.id": ident, "agent_trace.status": status}
         if note:
             attrs["agent_trace.note"] = note
-        record = span_record(
-            context,
-            span_id=otlp.span_id_for(context.scope or "", ident),
-            name=ident,
-            parent=context.traceparent[1] if context.traceparent else None,
-            attrs=attrs,
-            status_code=2 if status == "error" else 0,
-        )
-        return [record], context, given
-    if args.action == "friction":
+        one = spec(ident, attrs, span_id=context.span_id(ident), error=status == "error")
+    elif args.action == "friction":
         category = check_choice("--category", args.category, CATEGORIES)
         what = check_text("--what", args.what)
         fix = check_text("--fix", args.fix)
@@ -222,27 +168,19 @@ def build(args: argparse.Namespace, base: Path) -> tuple[list[otlp.Record], Cont
             "agent_trace.fix": fix,
             "agent_trace.refs": refs,
         }
-        event = "friction"
+        one = spec("agent_trace.note", attrs, event="friction")
     else:
         refs = [check_pattern("--ref", ref, REF) for ref in args.ref]
         context, given = resolve_context(args.ticket, session, base)
         attrs = {"agent_trace.note_kind": "none", "agent_trace.refs": refs}
-        event = "none"
-    record = span_record(
-        context,
-        span_id=otlp.random_span_id(),
-        name="agent_trace.note",
-        parent=context.traceparent[1] if context.traceparent else None,
-        attrs=attrs,
-        event=event,
-    )
-    return [record], context, given
+        one = spec("agent_trace.note", attrs, event="none")
+    return context.request([one]), context, given
 
 
 def run(args: argparse.Namespace) -> int:
     base = store.state_dir()
     try:
-        records, context, given = build(args, base)
+        request, context, given = build(args, base)
     except Invalid as error:
         print(f"agent-trace: {error}", file=sys.stderr)
         return 2
@@ -251,5 +189,7 @@ def run(args: argparse.Namespace) -> int:
             store.write_ticket(base, context.session, given)
         except OSError as error:
             print(f"agent-trace: could not bind the ticket to the session: {error}", file=sys.stderr)
-    deliver(records, base)
+    from agent_trace import launch
+
+    launch.send(request, base)
     return 0

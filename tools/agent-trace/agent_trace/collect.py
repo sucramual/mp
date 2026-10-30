@@ -1,7 +1,16 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["opentelemetry-proto==1.45.2"]
+# ///
 """`agent-trace collect`: a local OTLP/HTTP receiver that stores a filtered copy of agent telemetry.
 
-Endpoints (JSON only; gzip Content-Encoding is accepted):
-  POST /v1/traces, POST /v1/logs  -> 200 `{}`. Protobuf (no `json` in Content-Type) -> 415. Bad JSON -> 400.
+`bin/agent-trace collect` runs this file with `uv run --script`, so the pinned `opentelemetry-proto` package decodes
+protobuf requests. `--ensure` stays in the standard library (ensure.py).
+
+Endpoints (gzip Content-Encoding is accepted):
+  POST /v1/traces, POST /v1/logs  -> 200. The body is OTLP protobuf (`application/x-protobuf`, as the OpenTelemetry
+                                     SDK exporters send) or OTLP JSON (as Claude Code and Codex send). Any other
+                                     Content-Type -> 415. A body that does not decode -> 400.
   GET /health                     -> 200 `{"agent_trace": "collect"}`.
 Every answer carries `X-Agent-Trace: collect`, so emitters can tell collect from another receiver such as Jaeger.
 
@@ -12,9 +21,8 @@ output), and cut `arguments` to 200 characters.
 Kept records are appended, one flat JSON line each, to `<spans dir>/<UTC receive day>.jsonl`. With --forward (or
 AGENT_TRACE_FORWARD), kept native records (not `agent-trace` ones) are also re-encoded and POSTed to that OTLP base
 URL in a background thread; errors there are ignored.
-
---ensure: when a collect already answers /health on the port, exit 0. Otherwise start a detached collect with the
-same arguments (output to collect.log) and exit 0 once it answers, or exit 1 after 3 s.
+Both encodings go through the same flatten, allowlist, and store path: a protobuf request is converted with
+MessageToDict, and its base64 ids are turned into hex, before the OTLP JSON decoder sees it.
 """
 
 from __future__ import annotations
@@ -22,28 +30,42 @@ from __future__ import annotations
 import argparse
 import errno
 import gzip
+import importlib
 import json
+import logging
 import os
-import subprocess
+import signal
 import sys
 import threading
-import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from agent_trace import otlp, store
+if __package__ in (None, ""):
+    sys.path[0] = str(Path(__file__).resolve().parent.parent)
 
-HEADER = "X-Agent-Trace"
+from google.protobuf.json_format import MessageToDict  # noqa: E402
+from google.protobuf.message import DecodeError  # noqa: E402
+from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest  # noqa: E402
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest  # noqa: E402
+
+# ty checks a PEP 723 script against its own dependencies only, so it cannot see this package. Import the local
+# standard-library modules by name instead.
+otlp = importlib.import_module("agent_trace.otlp")
+store = importlib.import_module("agent_trace.store")
+ensure = importlib.import_module("agent_trace.ensure")
+HEADER = ensure.HEADER
+in_use_message = ensure.in_use_message
+
 CODEX_SPANS = {"run_turn", "session_task.turn", "handle_tool_call", "exec_command", "run_sampling_request"}
 CODEX_LOGS = {"codex.tool_result", "codex.tool_decision"}
 ARGUMENTS_LIMIT = 200
 MAX_BODY = 64 * 1024 * 1024
-TOOL_BIN = Path(__file__).resolve().parent.parent / "bin" / "agent-trace"
+PROTOBUF_TYPES = ("application/x-protobuf", "application/protobuf")
 
 
-def keep(record: otlp.Record) -> otlp.Record | None:
+def keep(record: dict[str, Any]) -> dict[str, Any] | None:
     """Return the record to store (possibly trimmed), or None to drop it."""
     service = record.get("service") or ""
     if service in ("claude-code", "agent-trace"):
@@ -88,14 +110,22 @@ class Collector:
             pass
 
 
+def decode_protobuf(kind: str, raw: bytes) -> dict[str, Any]:
+    """Decode an OTLP protobuf request into the OTLP JSON shape (hex ids) that otlp.decode_* reads."""
+    message = ExportTraceServiceRequest() if kind == "traces" else ExportLogsServiceRequest()
+    message.ParseFromString(raw)
+    return otlp.ids_to_hex(MessageToDict(message))
+
+
 def make_handler(collector: Collector) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "agent-trace-collect"
 
-        def reply(self, code: int, body: dict[str, Any]) -> None:
-            data = json.dumps(body).encode()
+        def reply(self, code: int, body: dict[str, Any], *, protobuf: bool = False) -> None:
+            # A protobuf caller gets an empty Export*ServiceResponse, which encodes to zero bytes.
+            data = b"" if protobuf else json.dumps(body).encode()
             self.send_response(code)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "application/x-protobuf" if protobuf else "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.send_header(HEADER, "collect")
             self.end_headers()
@@ -118,15 +148,17 @@ def make_handler(collector: Collector) -> type[BaseHTTPRequestHandler]:
             if kind is None:
                 self.reply(404, {"error": "not found"})
                 return
-            if "json" not in (self.headers.get("Content-Type") or "").lower():
-                self.reply(415, {"error": "only OTLP JSON is supported"})
+            content_type = (self.headers.get("Content-Type") or "").lower()
+            protobuf = any(name in content_type for name in PROTOBUF_TYPES)
+            if not protobuf and "json" not in content_type:
+                self.reply(415, {"error": "send OTLP protobuf or OTLP JSON"})
                 return
             try:
                 if "gzip" in (self.headers.get("Content-Encoding") or "").lower():
                     raw = gzip.decompress(raw)
-                doc = json.loads(raw)
-            except (OSError, EOFError, ValueError):
-                self.reply(400, {"error": "bad JSON"})
+                doc = decode_protobuf(kind, raw) if protobuf else json.loads(raw)
+            except (OSError, EOFError, ValueError, DecodeError):
+                self.reply(400, {"error": "the body does not decode"}, protobuf=protobuf)
                 return
             if not isinstance(doc, dict):
                 self.reply(400, {"error": "expected a JSON object"})
@@ -134,9 +166,9 @@ def make_handler(collector: Collector) -> type[BaseHTTPRequestHandler]:
             try:
                 collector.accept(kind, doc)
             except OSError as error:
-                self.reply(500, {"error": f"could not store: {error}"})
+                self.reply(500, {"error": f"could not store: {error}"}, protobuf=protobuf)
                 return
-            self.reply(200, {})
+            self.reply(200, {}, protobuf=protobuf)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (http.server API)
             pass
@@ -151,60 +183,16 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def is_collect(host: str, port: int, timeout: float = 0.5) -> bool:
-    url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/health"
-    try:
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(url, timeout=timeout) as response:
-            return response.status == 200 and response.headers.get(HEADER) is not None
-    except (OSError, ValueError):
-        return False
-
-
-def in_use_message(port: int) -> str:
-    return f"agent-trace collect: port {port} is in use (another OTLP receiver such as Jaeger?)"
-
-
-def ensure(args: argparse.Namespace, spans_dir: Path, forward: str | None) -> int:
-    if is_collect(args.host, args.port):
-        return 0
-    base = store.state_dir()
-    store.ensure_dir(base)
-    log_path = base / "collect.log"
-    command = [sys.executable, str(TOOL_BIN), "collect", "--port", str(args.port), "--host", args.host]
-    command += ["--dir", str(spans_dir)]
-    if forward:
-        command += ["--forward", forward]
-    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    try:
-        child = subprocess.Popen(
-            command, stdin=subprocess.DEVNULL, stdout=fd, stderr=fd, start_new_session=True, close_fds=True
-        )
-    finally:
-        os.close(fd)
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        if is_collect(args.host, args.port, timeout=0.2):
-            return 0
-        if child.poll() is not None:
-            break
-        time.sleep(0.05)
-    if child.poll() == 1:
-        print(in_use_message(args.port), file=sys.stderr)
-    else:
-        print(
-            f"agent-trace collect: collect did not answer on port {args.port} within 3 s; see {log_path}",
-            file=sys.stderr,
-        )
-    return 1
-
-
-def run(args: argparse.Namespace) -> int:
-    spans_dir = Path(args.dir).expanduser() if args.dir else store.state_dir() / "spans"
-    spans_dir = spans_dir.absolute()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="agent-trace collect")
+    parser.add_argument("--port", type=int, default=4318)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--dir")
+    parser.add_argument("--forward")
+    args = parser.parse_args(argv)
+    logging.getLogger("google").disabled = True
+    spans_dir = (Path(args.dir).expanduser() if args.dir else store.state_dir() / "spans").absolute()
     forward = args.forward or os.environ.get("AGENT_TRACE_FORWARD") or None
-    if args.ensure:
-        return ensure(args, spans_dir, forward)
     try:
         server = Server((args.host, args.port), make_handler(Collector(spans_dir, forward)))
     except OSError as error:
@@ -214,10 +202,15 @@ def run(args: argparse.Namespace) -> int:
             print(f"agent-trace collect: cannot listen on {args.host}:{args.port}: {error}", file=sys.stderr)
         return 1
     print(f"agent-trace collect: listening on http://{args.host}:{args.port}, writing {spans_dir}", file=sys.stderr)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         pass
     finally:
         server.server_close()
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

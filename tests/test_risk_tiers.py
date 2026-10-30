@@ -49,7 +49,10 @@ def test_risk_tiers_rule(needle: str, message: str) -> None:
     [
         (ROGUE_SKILL, "[Risk tiers](../review-pr/references/risk-tiers.md)"),
         (ROGUE_SKILL, "[Reserved paths](../review-pr/references/risk-tiers.md#reserved-paths)"),
-        (NEO_SKILL, "[Risk tiers](../review-pr/references/risk-tiers.md)"),
+        (
+            NEO_SKILL,
+            "[Risk tiers](https://github.com/sucramual/mp/blob/main/skills/review-pr/references/risk-tiers.md)",
+        ),
         (SELF_REPAIR, "[Risk tiers](../../skills/review-pr/references/risk-tiers.md)"),
     ],
 )

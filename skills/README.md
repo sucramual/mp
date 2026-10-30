@@ -120,4 +120,4 @@ It uses `open-pr`, `review-pr`, `gh`, `git`, and the `auth-helper` preflight too
 
 `neo` is a slim version of `rogue`, kept beside it so the two can be compared on real tickets. It fires on "/neo", "neo this ticket", or "run this ticket end to end without me", and not on a plain request to open a PR.
 One intake message fixes a pass/fail check for each requirement and tests each tool the run needs, with `auth-helper` for the logins. Then the run loops change, verify, keep or fix, and sends Marcus one message with every park at the end.
-Only hard limits bind it: guarded changes wait for Marcus, merges are pinned to the reviewed SHA, and Spacelift is read-only. It calls `open-pr`, `review-pr`, `log`, and `verify`.
+Only hard limits bind it: guarded changes wait for Marcus, merges are pinned to the reviewed SHA, and Spacelift is read-only. It calls `open-pr`, `review-pr`, and `verify`, and records the run with `agent-trace`.

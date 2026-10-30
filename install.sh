@@ -328,35 +328,43 @@ if ! python3 "$DOTFILES_DIR/scripts/link_skills.py"; then
   echo "  WARNING: some skills were not linked. Fix the cause, then re-run: $link_skills"
 fi
 
-# launchd runs tools/dotfiles-pr/sync-job every 15 minutes, so a merged dotfiles PR
-# goes live without a manual `dotfiles-pr sync`. There is no network pre-check:
-# sync refuses safely, and sync-job logs each change of outcome and shows a
-# notification for a new failure. Reload the job only when the rendered plist
-# changed or the job is not loaded.
-if [ "$(uname -s)" = "Darwin" ]; then
-  sync_label="com.sucramual.dotfiles-pr-sync"
-  sync_plist="$HOME/Library/LaunchAgents/$sync_label.plist"
-  sync_domain="gui/$(id -u)"
-  sync_rendered="$(mktemp "${TMPDIR:-/tmp}/dotfiles-pr-sync.XXXXXX")"
+# launchd jobs, rendered from config/launchd/<label>.plist.template with __HOME__ set to $HOME.
+# Reload a job only when its rendered plist changed or the job is not loaded.
+#   com.sucramual.dotfiles-pr-sync runs tools/dotfiles-pr/sync-job every 15 minutes, so a merged dotfiles PR
+#   goes live without a manual `dotfiles-pr sync`. There is no network pre-check: sync refuses safely, and
+#   sync-job logs each change of outcome and shows a notification for a new failure.
+#   com.sucramual.agent-trace-collect keeps `agent-trace collect` running, the local receiver for the
+#   OTLP traces of Claude Code and Codex. See tools/agent-trace/README.md.
+load_launchd_job() {
+  local label="$1" log_dir="$2" purpose="$3"
+  local plist="$HOME/Library/LaunchAgents/$label.plist"
+  local domain="gui/$(id -u)"
+  local rendered
+  rendered="$(mktemp "${TMPDIR:-/tmp}/$label.XXXXXX")"
   while IFS= read -r line || [ -n "$line" ]; do
     printf '%s\n' "${line//__HOME__/$HOME}"
-  done <"$DOTFILES_DIR/config/launchd/$sync_label.plist.template" >"$sync_rendered"
-  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/dotfiles-pr"
-  if cmp -s "$sync_rendered" "$sync_plist" && launchctl print "$sync_domain/$sync_label" >/dev/null 2>&1; then
-    rm "$sync_rendered"
-    echo "  launchd sync job $sync_label already current"
+  done <"$DOTFILES_DIR/config/launchd/$label.plist.template" >"$rendered"
+  mkdir -p "$HOME/Library/LaunchAgents" "$log_dir"
+  if cmp -s "$rendered" "$plist" && launchctl print "$domain/$label" >/dev/null 2>&1; then
+    rm "$rendered"
+    echo "  launchd job $label already current"
   else
-    launchctl bootout "$sync_domain/$sync_label" 2>/dev/null || true
-    mv "$sync_rendered" "$sync_plist"
-    if launchctl bootstrap "$sync_domain" "$sync_plist"; then
-      echo "  Loaded launchd sync job $sync_label (dotfiles-pr sync every 15 minutes)"
+    launchctl bootout "$domain/$label" 2>/dev/null || true
+    mv "$rendered" "$plist"
+    if launchctl bootstrap "$domain" "$plist"; then
+      echo "  Loaded launchd job $label ($purpose)"
     else
-      echo "  WARNING: launchctl bootstrap failed; merged dotfiles PRs will not go live automatically."
-      echo "  Fix the error above, then run: launchctl bootstrap $sync_domain $sync_plist"
+      echo "  WARNING: launchctl bootstrap failed for $label ($purpose)."
+      echo "  Fix the error above, then run: launchctl bootstrap $domain $plist"
     fi
   fi
+}
+if [ "$(uname -s)" = "Darwin" ]; then
+  load_launchd_job com.sucramual.dotfiles-pr-sync "$HOME/Library/Logs/dotfiles-pr" "dotfiles-pr sync every 15 minutes"
+  load_launchd_job com.sucramual.agent-trace-collect "$HOME/Library/Logs/agent-trace" "agent-trace collect on port 4318"
 else
   echo "  launchd sync job skipped (macOS only)"
+  echo "  launchd agent-trace collect job skipped (macOS only)"
 fi
 
 # On a devbox (a headless Linux workstation), link the devbox bootstrap and on-start hooks.

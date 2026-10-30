@@ -31,7 +31,7 @@ A re-run changes nothing. A regular file at a target moves to `<target>.bak`. An
 
 ## Sync and logs
 
-The `dotfiles-sync` tmux session runs `tools/dotfiles-pr/sync-loop`. The loop runs `dotfiles-pr sync --no-prune` every 900 seconds. A failed run does not stop the loop.
+The `dotfiles-sync` tmux session runs `tools/dotfiles-pr/sync-loop`. The loop runs `dotfiles-pr sync --no-prune` every 900 seconds. A failed run does not stop the loop. Each round also runs `agent-trace collect --ensure`, which starts the agent-trace receiver when none answers on port 4318.
 
 - `~/.local/state/dotfiles-pr/sync.log`: one line when the outcome changes.
 - `~/.local/state/dotfiles-pr/sync-last-run.log`: the full output of the last run.

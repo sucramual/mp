@@ -25,7 +25,7 @@ line-length = 120
 # The scripts must run on Python 3.11 or newer, the floor that install.sh enforces. Upgrade rules may use 3.11 syntax and APIs.
 target-version = "py311"
 # Extensionless Python scripts are not picked up by default.
-extend-include = ["tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe"]
+extend-include = ["tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe", "tools/agent-trace/bin/agent-trace"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -35,4 +35,4 @@ select = ["E", "F", "I", "B", "UP"]
 python-version = "3.11"
 
 [tool.ty.src]
-include = ["skills", "tests", "scripts/check_guidance_links.py", "scripts/check_leaks.py", "scripts/third_party_skills.py", "scripts/link_skills.py", "scripts/link_tools.py", "tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe", "tools/agent-completion-sound", "config/agent-hooks"]
+include = ["skills", "tests", "scripts/check_guidance_links.py", "scripts/check_leaks.py", "scripts/third_party_skills.py", "scripts/link_skills.py", "scripts/link_tools.py", "tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe", "tools/agent-completion-sound", "tools/agent-trace", "config/agent-hooks"]

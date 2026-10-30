@@ -12,15 +12,30 @@ Take one written ticket to a merged result that passes its checks. Marcus is pre
 Send Marcus one message:
 
 - **Goal.** Give each ticket requirement a pass/fail check. Write unclear points as proposals with a default. List each test that the plan removes or weakens.
-- **Access.** List the logins and tools the goal needs. Check push access to each target repository first, with the claude-code-remote `check_repo_access` tool or `git push --dry-run`. If the session lacks it, ask Marcus in this message to start the run session with the repository attached for push, or to approve `add_repo` now. Run `auth-helper check --require <logins> --horizon <run length> --json`, for example `--require gh,gcloud,spacelift`. If `~/.claude/work-neo.md` exists, read it and follow it. For each login that is not `ok`, give Marcus its `fix` to run now. When a check needs a signed-in page on the devbox, add `okta` to `--require`: `auth-helper` reads the `verify-browser` Chrome. If `okta` is `expired`, Marcus signs in now through the noVNC page that its `fix` names. On a headless host without `verify-browser`, each signed-in check becomes an acceptance item for Marcus. Test each tool that `auth-helper` does not cover once with a real call, so permission prompts and proxy blocks show at intake. For Linear, post one `save_comment` on the ticket while Marcus is present, so he sees whether the connector still asks.
+- **Access.** List the logins and tools the goal needs. Check push access to each target repository first, with the claude-code-remote `check_repo_access` tool or `git push --dry-run`. If the session lacks it, ask Marcus in this message to start the run session with the repository attached for push, or to approve `add_repo` now. Run `auth-helper check --require <logins> --horizon <run length> --json`, for example `--require gh,gcloud,spacelift`. If `~/.claude/work-neo.md` exists, read it and follow it. For each login that is not `ok`, give Marcus its `fix` to run now. When a check needs a signed-in page on the devbox, add `okta` to `--require`: `auth-helper` reads the `verify-browser` Chrome. If `okta` is `expired`, Marcus signs in now through the noVNC page that its `fix` names. On a headless host without `verify-browser`, each signed-in check becomes an acceptance item for Marcus. Test each tool that `auth-helper` does not cover once with a real call, so permission prompts and proxy blocks show at intake. For Linear, post one `save_comment` on the ticket while Marcus is present, so he sees whether the connector still asks. Run `agent-trace collect --ensure` once, so the run's native spans reach the local receiver.
 
 ## Loop
 
-Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. Record the run with `log`: early on, write a `LOG run` line with the ticket, every session ID, and every PR, and write it again when that list grows. Write a `LOG friction` line each time you hit friction that you want fixed. Before you publish with `open-pr`, have a reviewer with fresh context read the diff. Take each PR to ready with `review-pr`.
+Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. Before you publish with `open-pr`, have a reviewer with fresh context read the diff. Take each PR to ready with `review-pr`.
+
+Trace the run with `agent-trace` through Bash. Chain each call onto a command that you run anyway, so it costs no extra turn: `agent-trace span start --id impl --name "implement" --kind phase && <command>`.
+
+- Pass `--ticket <ID>` on the first call in each session, the main one and each child. Later calls in that session reuse it.
+- Open a span for each phase, PR, wait, infra step, and check: `span start --id <id> --name <text> --kind <phase|pr|wait|infra|check> [--parent <id>]`. End it with `span end --id <id> --status <ok|error|parked> [--note <text>]`.
+- Each time you hit friction that you want fixed, run `agent-trace note friction --category <permission|doc|flaky|workaround|missing-tool> --what <text> --fix <text>`.
+- A hook records each `gh pr create` and `gh pr merge`. Do not write `LOG` lines.
+- When a call exits non-zero, fix the arguments from its error and run it again. A warning that collect is not reachable needs no action.
 
 After each merge, run `verify`. Fix a failed check in a follow-up PR under the same rules.
 
-Make reversible choices yourself and continue. Write to the ticket only at the start, when a decision needs recording, and in one closing comment that lists the choices and their evidence as text and links. Never use the Linear attachment tools (`prepare_attachment_upload`, `create_attachment_from_upload`).
+Make reversible choices yourself and continue. Write to the ticket only at the start, when a decision needs recording, and in the two close comments below. Never use the Linear attachment tools (`prepare_attachment_upload`, `create_attachment_from_upload`).
+
+## Close
+
+1. Run `agent-trace show --ticket <ID>`. Add `--session <id>` for each session of the run that made no `agent-trace` call.
+2. Answer each item in its `Reconcile` list: `agent-trace note friction ... --ref <ref>`, or `agent-trace note none --ref <ref>` when the item was no friction. Run `show` again until it prints `Reconcile: none`.
+3. Post the run log comment: the `text` fence from `show`, each PR with its reviewed SHA and merge SHA, each CI or deploy run as a link, and each park.
+4. Then post the closing comment: the verdict; for each "Done when" check, its evidence marked `live` or `unit only`; the decisions and their evidence as text and links; the open items; and a link to the run log comment.
 
 ## Hard limits
 

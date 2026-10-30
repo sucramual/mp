@@ -27,3 +27,9 @@ When you are not sure that a path is reserved, treat it as reserved.
 
 - **Low and Medium:** an agent may merge only when all of these are true: its skill or guide allows a merge in that repository, [Ready to merge](ready-to-merge.md) reports `ready` on the head, and the merge is pinned to the reviewed SHA. The one exception to the ready check is the low-tier missing-reviewer rule in /rogue step 6. Never pass `--admin` or `--auto`.
 - **High, or a reserved path:** park the PR for Marcus with one merge command pinned to the reviewed SHA.
+
+## Employer repository rules
+
+The private work overlay can give an employer repository its own merge rule, in the "Merge authority" section of `~/.claude/work.md`.
+In that repository, the overlay rule replaces the tiers and the ready check above. Follow it exactly, and park every PR that it does not allow.
+When `~/.claude/work.md` is missing or has no rule for the repository, the agent does not merge there.

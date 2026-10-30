@@ -31,6 +31,7 @@ The reviewer and the controller are separate roles. The reviewer never merges.
 - To merge, run `gh pr merge <number> --repo sucramual/mp --squash --match-head-commit <reviewed SHA>`. Where GraphQL is blocked, as in a cloud session, use the REST form with the same pin: `gh api -X PUT repos/sucramual/mp/pulls/<number>/merge -f sha=<reviewed SHA> -f merge_method=squash`. Then read the receipt: `gh api repos/sucramual/mp/pulls/<number> --jq '{merged, merge_commit_sha}'` shows `merged: true`. Then run `dotfiles-pr sync`.
   For the overlay, use the same commands with `sucramual/mp-private` in place of `sucramual/mp`. After the receipt, run `git -C ~/dotfiles-work pull --ff-only`, because `dotfiles-pr sync` does not update the overlay.
 - If GitHub blocks the merge for unresolved threads or failed checks, return the PR to `review-pr`. Never resolve threads yourself to unblock a merge. Never pass `--admin` to `gh pr merge`.
+- For edges in an employer repository that has a rule in [Employer repository rules](../../skills/review-pr/references/risk-tiers.md#employer-repository-rules), merge only as that rule allows.
 - For edges in all other repositories, report that the PR is ready. Do not merge.
 
 ### Merge-rule files

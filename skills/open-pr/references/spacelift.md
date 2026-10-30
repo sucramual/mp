@@ -22,7 +22,7 @@ The merge does not finish a Spacelift PR. The work ends only when the tracked ru
    - Never pass `--auto`. It turns on auto-merge for the PR, which is wider than the queue authorization.
    - If the mutation fails, do not merge another way and do not retry with a different command. Report the error to Marcus and stop. This includes a branch with no merge queue (`isMergeQueueEnabled` is false).
    - If the head changed, do not merge. Send the new head back through `review-pr`.
-   - This authorization lives only in this personal skill, on purpose. The team-shared repo skill says to enqueue only when the user asks.
+   - This authorization lives only in this personal skill, on purpose. An employer repository's own merge skill and the overlay rule in [Employer repository rules](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md#employer-repository-rules) do not widen it: a Spacelift PR always needs the plan checks above.
 3. **Brief the background agent (step 9).** Give the agent the path of the repo's Spacelift guidance and the list of affected stacks. After `review-pr` reaches green and approved, the agent enqueues the PR as item 2 describes. Then it watches the merge-group run and the PR state until the PR merges:
    - If GitHub removes the PR from the queue, read the removal reason and the merge-group failure.
    - Fix a real failure through `review-pr`. Enqueue again only under the item 2 conditions: required checks pass, approval present, head pinned, plans within intent. Use the same GraphQL call with the new reviewed head SHA.

@@ -11,7 +11,7 @@ So the skill is now prose over `gh` and `git`. Do not add a state file or a wrap
 
 ## Reviewer list
 
-`config/review-pr/reviewers.json` names one reviewer per repository: its `login`, an optional `retrigger` text, and an optional `doneReaction`. The installers link it to `~/.config/review-pr/reviewers.json`. The private work overlay holds the entries for work repositories in its own `config/review-pr/reviewers.json`, and its installer links that file to `~/.config/review-pr/work-reviewers.json`.
+`config/review-pr/reviewers.json` names one reviewer per repository: its `login`, an optional `retrigger` text, an optional `doneReaction`, and an optional `doneComment`: text that the reviewer's own comment holds when it has reviewed the head, with `{head}` for the full head SHA. The installers link it to `~/.config/review-pr/reviewers.json`. The private work overlay holds the entries for work repositories in its own `config/review-pr/reviewers.json`, and its installer links that file to `~/.config/review-pr/work-reviewers.json`.
 The [Ready to merge](references/ready-to-merge.md) check reads it to decide reviewer coverage.
 `tests/test_review_pr_skill.py` checks the file's shape.
 

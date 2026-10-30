@@ -120,8 +120,9 @@ def test_the_skill_calls_and_installs_no_ro_command(path: Path, command: str) ->
 def test_reviewer_mode_has_no_separate_reference() -> None:
     references = REPO_ROOT / "skills" / "review-pr" / "references"
     names = sorted(path.name for path in references.iterdir())
-    assert names == ["comment-triage.md", "ready-to-merge.md", "risk-tiers.md"], (
-        "reviewer mode lives in SKILL.md; references holds only the comment triage, the ready check, and the risk tiers"
+    assert names == ["comment-triage.md", "ready-to-merge.md", "risk-tiers.md", "round-summary.md"], (
+        "reviewer mode lives in SKILL.md; references holds only the comment triage, the ready check, the risk tiers, "
+        "and the round-summary format"
     )
 
 

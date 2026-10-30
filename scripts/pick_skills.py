@@ -16,10 +16,15 @@ With --dry-run, it writes no file and prints what the link would change.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# prompt_toolkit (under questionary) prints a warning when a terminal, such as the Claude app's,
+# does not answer cursor position requests.
+os.environ.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
 
 import questionary  # noqa: E402
 from link_skills import (  # noqa: E402
@@ -54,10 +59,18 @@ def main() -> int:
         )
         for name in names
     ]
-    # questionary's default style gives the "selected" class no colour, so ● looks the same as ○.
-    style = questionary.Style([("selected", "fg:ansigreen")])
+    # questionary gives checked rows the "selected" class. It sets no colour for it, and prompt_toolkit's
+    # built-in style maps "selected" to reverse video, so turn reverse off.
+    style = questionary.Style([("selected", "fg:ansigreen noreverse")])
+    # questionary 2.1.1 names ctrl-a for both keys when the search filter is on. Tab inverts.
+    instruction = "(arrows move, space toggles, ctrl-a toggles all, tab inverts, type to filter)"
     chosen = questionary.checkbox(
-        "Select skills to link", choices=choices, style=style, use_search_filter=True, use_jk_keys=False
+        "Select skills to link",
+        choices=choices,
+        style=style,
+        instruction=instruction,
+        use_search_filter=True,
+        use_jk_keys=False,
     ).ask()
     if chosen is None:
         print("cancelled, nothing changed")

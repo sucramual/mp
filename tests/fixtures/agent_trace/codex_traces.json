@@ -1,0 +1,209 @@
+{
+ "resourceSpans": [
+  {
+   "resource": {
+    "attributes": [
+     {
+      "key": "service.name",
+      "value": {
+       "stringValue": "codex_exec"
+      }
+     },
+     {
+      "key": "service.version",
+      "value": {
+       "stringValue": "0.157.0"
+      }
+     },
+     {
+      "key": "host.name",
+      "value": {
+       "stringValue": "test-host"
+      }
+     }
+    ]
+   },
+   "scopeSpans": [
+    {
+     "scope": {
+      "name": "codex"
+     },
+     "spans": [
+      {
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000001",
+       "parentSpanId": "",
+       "name": "session_task.turn",
+       "kind": 1,
+       "startTimeUnixNano": "1793350800000000000",
+       "endTimeUnixNano": "1793350830000000000",
+       "attributes": [
+        {
+         "key": "thread.id",
+         "value": {
+          "stringValue": "bbbbbbbb-0000-4000-8000-000000000002"
+         }
+        },
+        {
+         "key": "turn.id",
+         "value": {
+          "stringValue": "t1"
+         }
+        }
+       ],
+       "status": {
+        "code": 0,
+        "message": ""
+       },
+       "events": []
+      },
+      {
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000002",
+       "parentSpanId": "2000000000000001",
+       "name": "run_turn",
+       "kind": 1,
+       "startTimeUnixNano": "1793350800000000000",
+       "endTimeUnixNano": "1793350830000000000",
+       "attributes": [
+        {
+         "key": "thread.id",
+         "value": {
+          "stringValue": "13"
+         }
+        }
+       ],
+       "status": {
+        "code": 0,
+        "message": ""
+       },
+       "events": []
+      },
+      {
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000003",
+       "parentSpanId": "2000000000000002",
+       "name": "run_sampling_request",
+       "kind": 1,
+       "startTimeUnixNano": "1793350801000000000",
+       "endTimeUnixNano": "1793350805000000000",
+       "attributes": [
+        {
+         "key": "thread.id",
+         "value": {
+          "stringValue": "6"
+         }
+        },
+        {
+         "key": "cwd",
+         "value": {
+          "stringValue": "/tmp/x"
+         }
+        }
+       ],
+       "status": {
+        "code": 0,
+        "message": ""
+       },
+       "events": []
+      },
+      {
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000004",
+       "parentSpanId": "2000000000000002",
+       "name": "handle_tool_call",
+       "kind": 1,
+       "startTimeUnixNano": "1793350805000000000",
+       "endTimeUnixNano": "1793350806000000000",
+       "attributes": [
+        {
+         "key": "thread.id",
+         "value": {
+          "stringValue": "5"
+         }
+        }
+       ],
+       "status": {
+        "code": 0,
+        "message": ""
+       },
+       "events": []
+      },
+      {
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000005",
+       "parentSpanId": "2000000000000004",
+       "name": "exec_command",
+       "kind": 1,
+       "startTimeUnixNano": "1793350805000000000",
+       "endTimeUnixNano": "1793350806000000000",
+       "attributes": [
+        {
+         "key": "tool_name",
+         "value": {
+          "stringValue": "exec_command"
+         }
+        },
+        {
+         "key": "thread.id",
+         "value": {
+          "stringValue": "bbbbbbbb-0000-4000-8000-000000000002"
+         }
+        }
+       ],
+       "status": {
+        "code": 0,
+        "message": ""
+       },
+       "events": []
+      },
+      {
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000006",
+       "parentSpanId": "2000000000000002",
+       "name": "fs.read_file",
+       "kind": 1,
+       "startTimeUnixNano": "1793350802000000000",
+       "endTimeUnixNano": "1793350803000000000",
+       "attributes": [
+        {
+         "key": "thread.id",
+         "value": {
+          "stringValue": "7"
+         }
+        }
+       ],
+       "status": {
+        "code": 0,
+        "message": ""
+       },
+       "events": []
+      },
+      {
+       "traceId": "171f36672a083c4bc41232663bf6fbb4",
+       "spanId": "2000000000000007",
+       "parentSpanId": "2000000000000002",
+       "name": "receiving",
+       "kind": 1,
+       "startTimeUnixNano": "1793350802000000000",
+       "endTimeUnixNano": "1793350803000000000",
+       "attributes": [
+        {
+         "key": "thread.id",
+         "value": {
+          "stringValue": "7"
+         }
+        }
+       ],
+       "status": {
+        "code": 0,
+        "message": ""
+       },
+       "events": []
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

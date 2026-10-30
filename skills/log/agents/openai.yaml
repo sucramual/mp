@@ -1,4 +1,4 @@
 interface:
   display_name: "Log"
-  short_description: "Log run friction as tagged LOG lines"
-  default_prompt: "Use $log to write the run index and friction notes as tagged LOG lines in your output."
+  short_description: "Record run friction with agent-trace note"
+  default_prompt: "Use $log to record each friction in this run with agent-trace note friction."

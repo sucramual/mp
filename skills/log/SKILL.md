@@ -1,34 +1,25 @@
 ---
 name: log
-description: Record a friction log during an agent run as tagged `LOG` lines in the agent's own output, which the `retro` skill reads from the transcripts. Use in an autonomous or long run, such as neo, rogue, or cook --auto, and for "log friction" or "/log". Writes no files and no ticket comments.
+description: Record friction during an agent run with `agent-trace note friction`, which `agent-trace show` and the `retro` skill read. Use in an autonomous or long run, such as neo, rogue, or cook --auto, and for "log friction" or "/log". Writes no ticket comments.
 ---
 
 # Log
 
 Agents touch far more of the process than Marcus does. Use `log` to note friction that you would want fixed, so a future agent does not hit it again.
-The `retro` skill reads these notes together with the harness transcripts.
+The `retro` skill reads these notes together with the run trace and the harness transcripts.
 
-## Where the log goes
+## Record friction
 
-Write each entry as one plain line in your normal output, not inside a code block or backticks. The harness transcript is the store.
-Do not write the log to Linear, Obsidian, a file, or the branch. This applies to cloud and local runs, in Claude Code and Codex.
+Run one `agent-trace note friction` command through Bash each time you hit friction. Chain it onto a command that you run anyway:
 
-## Run index
+```bash
+agent-trace note friction --category workaround --what "gh pr checks exits 1 with no checks" --fix "check REST check-runs in review-pr"
+```
 
-Early in the run, write one run line:
+Pass `--ticket <ID>` on the first `agent-trace` call in a session. The tool checks each field and exits 2 with the reason on bad input; fix the arguments and run it again. It never fails because the receiver is down: it then writes a local file.
+The tool is in `tools/agent-trace` of the dotfiles repository. Its README describes spans, the run view (`agent-trace show`), and the files it writes.
 
-LOG run | ticket=<ticket ID> | sessions=<session ID>,<session ID> | prs=<PR URL>,<PR URL>
-
-List every session in the run: the main one and each child. `prs=` can be empty.
-When the run creates a session or a PR, write the whole line again with the updated lists. The last run line wins.
-
-## Friction
-
-Write one line each time you hit friction:
-
-LOG friction | category=<category> | what=<what happened> | fix=<suggested fix> | at=<command or step>
-
-Write a friction line only for what you alone know:
+Write a note only for what you alone know:
 
 - `permission`: a missing permission or login.
 - `doc`: a wrong or missing line in a doc or skill.
@@ -36,16 +27,19 @@ Write a friction line only for what you alone know:
 - `workaround`: a workaround that you had to use.
 - `missing-tool`: a tool that you wished you had.
 
-Keep it cheap: one line for each friction, no narration, and no line when nothing went wrong.
+Keep it cheap: one note for each friction, no narration, and no note when nothing went wrong.
 
 ## What stays out
 
-- Tool errors and timings. The transcripts already hold them.
+- Tool errors and timings. The trace and the transcripts already hold them. At the close, `agent-trace show` lists each error, retry, block, and gap that no note covers, so you can answer it then.
 - Decisions and parks. Put them on the ticket for Marcus.
 
-## Line contract
+## Old `LOG` lines
 
-`retro` depends on this format, so keep it stable:
+Runs before `agent-trace` wrote tagged lines in the agent's output. Do not write new ones. `retro` still reads them, so the format stays stable:
+
+LOG run | ticket=<ticket ID> | sessions=<session ID>,<session ID> | prs=<PR URL>,<PR URL>
+LOG friction | category=<category> | what=<what happened> | fix=<suggested fix> | at=<command or step>
 
 - A line is a log line when it starts with `LOG ` after leading spaces.
 - ` | ` separates fields only when `<key>=` follows it, so a `|` inside a value is safe.

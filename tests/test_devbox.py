@@ -209,6 +209,31 @@ def test_sync_loop_runs_sync_job_every_15_minutes_and_survives_failures(
     assert lines(home / "sync-job.log") == ["run"] * 3, "a failing sync-job should not stop the loop"
 
 
+# Protects: the devbox, which has no launchd, keeps agent-trace collect running through the sync loop.
+# Bug caught: the loop never starts collect, or a failing collect stops the sync loop.
+def test_sync_loop_ensures_agent_trace_collect_each_round(
+    isolated_env: IsolatedEnv, fake_exe: FakeExe, run_tool: RunTool, home: Path
+):
+    tool_dir = isolated_env.root / "tools/dotfiles-pr"
+    tool_dir.mkdir(parents=True)
+    loop = tool_dir / "sync-loop"
+    loop.write_text(SYNC_LOOP.read_text())
+    loop.chmod(0o755)
+    fake_exe("sync-job", 'echo run >>"$HOME/sync-job.log"\nexit 0\n', directory=tool_dir)
+    trace_bin = isolated_env.root / "tools/agent-trace/bin"
+    trace_bin.mkdir(parents=True)
+    fake_exe("agent-trace", 'echo "$*" >>"$HOME/agent-trace.log"\nexit 1\n', directory=trace_bin)
+    fake_exe(
+        "sleep",
+        'echo "$1" >>"$HOME/sleep.log"\n[ "$(wc -l <"$HOME/sleep.log")" -ge 2 ] && kill "$PPID"\nexit 0\n',
+    )
+
+    run_tool(["/bin/bash", loop], cwd=isolated_env.root)
+
+    assert lines(home / "agent-trace.log") == ["collect --ensure"] * 2, "each round should ensure collect runs"
+    assert lines(home / "sync-job.log") == ["run"] * 2, "a failing collect should not stop the sync loop"
+
+
 # --- on-start ---------------------------------------------------------------------------------------------------
 
 

@@ -2,13 +2,20 @@
 # The devbox has no launchd. This loop runs sync-job every 15 minutes instead.
 # config/devbox/on-start starts it in the tmux session dotfiles-sync.
 # A failed run does not stop the loop. sync-job logs each change of outcome.
+# Each round also runs `agent-trace collect --ensure`, which starts the agent-trace OTLP receiver
+# when none answers (launchd keeps it running on the Mac). A failure there does not stop the loop.
 # DOTFILES_SYNC_INTERVAL (seconds) overrides the wait.
 set -u
 
-sync_job="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sync-job"
+tool_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sync_job="$tool_dir/sync-job"
+agent_trace="$tool_dir/../agent-trace/bin/agent-trace"
 interval="${DOTFILES_SYNC_INTERVAL:-900}"
 
 while true; do
+  if [ -x "$agent_trace" ]; then
+    "$agent_trace" collect --ensure >/dev/null 2>&1 || true
+  fi
   "$sync_job" || true
   sleep "$interval"
 done

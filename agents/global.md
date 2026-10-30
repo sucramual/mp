@@ -71,9 +71,12 @@ Never delete, skip, or weaken tests to pass a gate without explicit approval.
 ## Delegation and essential Git safety
 
 The main agent owns user discussion, scope, decisions, coordination, and final acceptance.
-Delegate implementation, fixes, and routine validation when workers are available. Keep small decisions, reviews, and quick reads in the main conversation.
-This default prevails over generic skill guidance permitting inline implementation, unless higher-priority instructions or the runtime prevent delegation.
-If workers are unavailable, explain the limitation and work inline. Workers still consume tokens.
+Delegate a task when it is independent and its output does not need to stay in the main context, such as a wide search, logs, a test run, or triage.
+Also delegate a review that needs a fresh reviewer. Use the cheapest model that does the task reliably.
+Keep work inline when it shares decisions across steps, changes code in several rounds, is a quick targeted edit, or can touch another writer's files.
+Delegation buys parallelism, context isolation, or an independent view. It does not buy a better answer, and each worker costs tokens and time.
+A repository's own instruction files prevail over this rule when they give their own delegation rule.
+If workers are unavailable, work inline.
 Read the delegated-work guide before dispatching workers. Keep one writer for overlapping files. Workers must not redelegate unless instructed.
 When the user invokes `/briesearch`, run the whole skill in one fresh-context worker by default, so raw sources stay out of the main context. Give the worker the full question. Relay its report. If the harness does not let that worker start its own sub-agents, it gathers inline. This default does not apply to the internal `/cheese` tier-2 call.
 

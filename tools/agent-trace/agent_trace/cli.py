@@ -1,8 +1,7 @@
 """Command-line parsing for agent-trace.
 
 Each subcommand module is imported only when it runs, so `agent-trace hook` starts fast. The hook path skips
-argparse entirely and never raises. Everything here is standard library; only export.py (sending) and collect.py
-(the receiver) need the OpenTelemetry packages, and they run under `uv run --script`.
+argparse entirely and never raises.
 """
 
 from __future__ import annotations
@@ -78,15 +77,9 @@ def main(argv: list[str] | None = None) -> int:
             pass
         return 0
     args = build_parser().parse_args(argv)
-    if args.command == "collect" and args.ensure:
-        from agent_trace import ensure
-
-        return ensure.run(args)
     if args.command == "collect":
-        from agent_trace import launch
-
-        return launch.exec_collect(argv[1:])
-    if args.command in ("span", "note"):
+        from agent_trace import collect as module
+    elif args.command in ("span", "note"):
         from agent_trace import emit as module
     else:
         from agent_trace import show as module

@@ -2,8 +2,7 @@
 
 Reads the hook JSON on stdin. Acts only for shell tools (Bash, shell, exec_command, local_shell) whose command holds
 the tokens `gh pr create` or `gh pr merge`. Records one zero-length span `agent_trace.pr` with one event
-(`pr.create` or `pr.merge`), through the same SDK send-or-fallback path as `span` and `note`, but silently. A call
-that does not match stays in the standard library and never starts uv, so the hook stays fast.
+(`pr.create` or `pr.merge`), through the same send-or-fallback path as `span` and `note`, but silently.
 
 PR URL: the first GitHub pull URL in the tool's stdout, else in the command, else built from the `gh pr merge`
 argument and `--repo/-R`. Head SHA: `--match-head-commit` for a merge; `git -C <cwd> rev-parse HEAD` for a create.
@@ -21,7 +20,7 @@ import subprocess
 import sys
 from typing import Any
 
-from agent_trace import emit, store
+from agent_trace import emit, otlp, store
 
 SHELL_TOOLS = {"Bash", "shell", "exec_command", "local_shell"}
 PR_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)")
@@ -155,10 +154,15 @@ def main() -> None:
     base = store.state_dir()
     bound = store.read_ticket(base, session)
     ticket = bound if bound and emit.TICKET.match(bound) else None
-    context = emit.Context(ticket, session, emit.traceparent_trace())
+    context = emit.Context(ticket, session, otlp.parse_traceparent(os.environ.get("TRACEPARENT")))
     if context.scope is None:
         return
-    from agent_trace import launch
-
-    event = f"pr.{attrs['agent_trace.pr_action']}"
-    launch.send(context.request([emit.spec("agent_trace.pr", attrs, event=event)]), base, quiet=True)
+    record = emit.span_record(
+        context,
+        span_id=otlp.random_span_id(),
+        name="agent_trace.pr",
+        parent=context.traceparent[1] if context.traceparent else None,
+        attrs=attrs,
+        event=f"pr.{attrs['agent_trace.pr_action']}",
+    )
+    emit.deliver([record], base, quiet=True)

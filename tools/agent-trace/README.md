@@ -2,18 +2,13 @@
 
 `agent-trace` gives one timeline per ticket for an agent run. It joins the native OpenTelemetry spans of Claude Code and Codex with the spans that the agent marks itself: phases, PRs, waits, and friction notes. `show` then lists errors, retries, waits, and idle gaps that no note explains yet.
 
-`bin/agent-trace` is linked into `~/bin` by `dotfiles-pr sync`. It is a Python 3.11+ standard-library dispatcher: it checks every input, reads the hook input, and renders `show` without extra packages. Only two parts use the official OpenTelemetry Python SDK, pinned at 1.45.2, and they run with `uv run --script` (PEP 723 scripts):
-
-- `agent_trace/export.py` builds the spans of `span`, `note`, and a matching `hook` call with the SDK, and exports them with its OTLP/HTTP exporter.
-- `agent_trace/collect.py` is the receiver. It decodes OTLP protobuf with `opentelemetry-proto`.
-
-So `uv` must be on PATH to send spans and to run collect. Without `uv`, `span`, `note`, and `hook` still exit 0 and write the record to `fallback.jsonl` (without the TRACEPARENT parent), and `collect` exits 1.
+It is Python 3.11+ with only the standard library. `bin/agent-trace` is linked into `~/bin` by `dotfiles-pr sync`.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `agent-trace collect [--port 4318] [--host 127.0.0.1] [--dir D] [--forward URL]` | Runs the local OTLP/HTTP receiver under `uv run --script`. It takes OTLP protobuf (what the SDK exporter sends) and OTLP JSON (what Claude Code and Codex send), gzip allowed. Keeps `claude-code`, `agent-trace`, and `codex*` records, with a small Codex allowlist, and appends them to `spans/<UTC day>.jsonl`. Any other content type gets 415. Every answer has the header `X-Agent-Trace: collect`. `--dir` is the spans directory. |
+| `agent-trace collect [--port 4318] [--host 127.0.0.1] [--dir D] [--forward URL]` | Runs the local OTLP/HTTP receiver (JSON only, gzip allowed). Keeps `claude-code`, `agent-trace`, and `codex*` records, with a small Codex allowlist, and appends them to `spans/<UTC day>.jsonl`. Protobuf gets 415. Every answer has the header `X-Agent-Trace: collect`. `--dir` is the spans directory. |
 | `agent-trace collect --ensure` | Exits 0 when a collect answers `/health` on the port. Otherwise it starts a detached collect (output to `collect.log`) and waits up to 3 s. |
 | `agent-trace span start --id ID --name TEXT --kind phase\|pr\|wait\|infra\|check [--parent ID] [--ticket T]` | Marks the start of an agent span. |
 | `agent-trace span end --id ID --status ok\|error\|parked [--note TEXT] [--ticket T]` | Marks its end. `show` joins start and end by id. |
@@ -53,23 +48,7 @@ Under `AGENT_TRACE_DIR` (default `~/.local/state/agent-trace`; directories 0700,
 
 Jaeger: collect needs port 4318. If Jaeger runs locally, move its OTLP/HTTP port off 4318 (for example to 4319) and set `AGENT_TRACE_FORWARD=http://127.0.0.1:4319`. Collect then forwards native records to Jaeger, and `show --jaeger http://127.0.0.1:4319` posts a joined run. While another receiver holds 4318, `collect` exits 1 with a message, and the emitters fall back to `fallback.jsonl`.
 
-## Timings
-
-Measured on the Mac (Apple silicon) with `/usr/bin/time`:
-
-| Call | Time |
-| --- | --- |
-| `span start`, collect up, warm uv cache | 0.13 s (the design notes measured 0.04 s for the old standard-library sender) |
-| `span start`, empty uv cache (downloads the pinned packages once) | 1.9 s, with collect down, so about 0.9 s of it is the download |
-| `span start`, collect down | 1.0–1.1 s (the SDK exporter retries until its 1 s timeout), then one warning |
-| `hook` for a call that is not `gh pr create` or `gh pr merge` | 0.02 s (no uv) |
-| `collect` start-up until `/health` answers, warm | 0.10 s |
-
-The extra time per `span` or `note` call is accepted.
-
 ## Known limits
-
-- `collect --ensure` waits 3 s. On a machine with an empty uv cache, the first collect can take longer while uv downloads `opentelemetry-proto`; `--ensure` then exits 1, and the next sync round finds it running.
 
 - No retention or pruning: the `spans/` files grow until you delete them.
 - Interactive sessions: that Claude Code reads `TRACEPARENT` in an interactive session is not confirmed (it is confirmed for `claude -p`).

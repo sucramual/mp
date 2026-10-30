@@ -1,11 +1,7 @@
 """Shared helpers for the agent-trace tests. This module holds no tests.
 
-The tests run tools/agent-trace/bin/agent-trace as a subprocess, mostly against a real `agent-trace collect`.
-A recording HTTP server stands in for another OTLP receiver such as Jaeger (without the ``X-Agent-Trace`` header).
-
-The tool sends through `uv run --script`. conftest puts a fake ``uv`` on PATH, so ``base_env`` puts a link to the
-real uv in front of it (``real_uv=False`` keeps the fake) and passes the real uv cache, so the pinned
-OpenTelemetry packages are not fetched again for every test.
+The tests run tools/agent-trace/bin/agent-trace as a subprocess. A recording HTTP server stands in for
+collect (with the ``X-Agent-Trace`` header) or for another OTLP receiver such as Jaeger (without it).
 """
 
 from __future__ import annotations
@@ -13,7 +9,6 @@ from __future__ import annotations
 import gzip
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -33,22 +28,6 @@ from conftest import REPO_ROOT
 TOOL = REPO_ROOT / "tools" / "agent-trace" / "bin" / "agent-trace"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "agent_trace"
 PYTHON = sys.executable
-REAL_UV = shutil.which("uv")
-
-
-def _uv_dir(kind: str) -> str | None:
-    if REAL_UV is None:
-        return None
-    result = subprocess.run([REAL_UV, kind, "dir"], capture_output=True, text=True)
-    return result.stdout.strip() or None
-
-
-# The real uv cache and managed Pythons, so a test HOME does not start from an empty cache.
-UV_ENV = {
-    key: value
-    for key, value in (("UV_CACHE_DIR", _uv_dir("cache")), ("UV_PYTHON_INSTALL_DIR", _uv_dir("python")))
-    if value
-}
 
 
 @dataclass
@@ -70,8 +49,6 @@ class Recorder:
         """Every OTLP span in the recorded trace requests, with ``service`` added from the resource."""
         out = []
         for request in self.requests:
-            if not isinstance(request.body, dict):
-                continue
             for resource_spans in request.body.get("resourceSpans", []):
                 service = resource_attrs(resource_spans).get("service.name")
                 for scope_spans in resource_spans.get("scopeSpans", []):
@@ -119,11 +96,7 @@ def recorder(*, collect_header: bool = True) -> Iterator[Recorder]:
             raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
             if self.headers.get("Content-Encoding") == "gzip":
                 raw = gzip.decompress(raw)
-            try:
-                body_value: Any = json.loads(raw or b"null")
-            except ValueError:
-                body_value = raw
-            state.requests.append(Request(self.path, dict(self.headers), body_value))
+            state.requests.append(Request(self.path, dict(self.headers), json.loads(raw or b"null")))
             body = b"{}"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -162,30 +135,9 @@ def closed_port() -> int:
         return sock.getsockname()[1]
 
 
-def base_env(
-    env: dict[str, str], state_dir: Path, endpoint: str, *, real_uv: bool = True, **extra: str
-) -> dict[str, str]:
-    """``env`` plus the agent-trace variables and the real uv. TZ is UTC so clock times are stable."""
-    merged = {**env, **UV_ENV, "AGENT_TRACE_DIR": str(state_dir), "AGENT_TRACE_ENDPOINT": endpoint, "TZ": "UTC"}
-    if real_uv and REAL_UV:
-        link_dir = state_dir.parent / "real-uv"
-        link_dir.mkdir(parents=True, exist_ok=True)
-        if not (link_dir / "uv").exists():
-            (link_dir / "uv").symlink_to(REAL_UV)
-        merged["PATH"] = f"{link_dir}{os.pathsep}{merged.get('PATH', '')}"
-    return {**merged, **extra}
-
-
-def stored(state_dir: Path) -> list[dict[str, Any]]:
-    """Every record that collect stored under ``state_dir``."""
-    return [record for path in sorted((state_dir / "spans").glob("*.jsonl")) for record in read_jsonl(path)]
-
-
-def wait_stored(state_dir: Path, count: int, timeout: float = 5.0) -> list[dict[str, Any]]:
-    deadline = time.monotonic() + timeout
-    while len(records := stored(state_dir)) < count and time.monotonic() < deadline:
-        time.sleep(0.02)
-    return records
+def base_env(env: dict[str, str], state_dir: Path, endpoint: str, **extra: str) -> dict[str, str]:
+    """``env`` plus the agent-trace variables. TZ is UTC so clock times are stable."""
+    return {**env, "AGENT_TRACE_DIR": str(state_dir), "AGENT_TRACE_ENDPOINT": endpoint, "TZ": "UTC", **extra}
 
 
 def run(args: list[str], env: dict[str, str], *, input: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -216,7 +168,7 @@ def collect(env: dict[str, str], *args: str) -> Iterator[int]:
         text=True,
     )
     try:
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + 10
         while health(port) is None:
             if process.poll() is not None or time.monotonic() > deadline:
                 raise AssertionError(f"collect did not start: {process.stderr.read() if process.stderr else ''}")

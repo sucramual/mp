@@ -54,8 +54,10 @@ def main() -> int:
         )
         for name in names
     ]
+    # questionary's default style gives the "selected" class no colour, so ● looks the same as ○.
+    style = questionary.Style([("selected", "fg:ansigreen")])
     chosen = questionary.checkbox(
-        "Select skills to link", choices=choices, use_search_filter=True, use_jk_keys=False
+        "Select skills to link", choices=choices, style=style, use_search_filter=True, use_jk_keys=False
     ).ask()
     if chosen is None:
         print("cancelled, nothing changed")

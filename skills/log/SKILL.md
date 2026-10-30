@@ -17,7 +17,8 @@ agent-trace note friction --category workaround --what "gh pr checks exits 1 wit
 ```
 
 Pass `--ticket <ID>` on the first `agent-trace` call in a session. The tool checks each field and exits 2 with the reason on bad input; fix the arguments and run it again. It never fails because the receiver is down: it then writes a local file.
-The tool is in `tools/agent-trace` of the dotfiles repository. Its README describes spans, the run view (`agent-trace show`), and the files it writes.
+The tool is in `tools/agent-trace` of the dotfiles repository. Its [README](https://github.com/sucramual/mp/blob/main/tools/agent-trace/README.md) describes spans, the run view (`agent-trace show`), and the files it writes.
+When `agent-trace` is not on `PATH`, skip it and list the friction in the run's final report.
 
 Write a note only for what you alone know:
 

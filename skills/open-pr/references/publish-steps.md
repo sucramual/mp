@@ -38,7 +38,7 @@ Do the following steps in order:
    fi
    ```
    If the default branch cannot be resolved, stop before committing. If `CURRENT_BRANCH` is `HEAD`, the default branch, or a branch that the repository's instructions mark as protected, stop and ask for a feature branch name. Do not commit or push directly from these branches.
-   When `--stack` is passed, the caller names two or more layers, or `gh stack view --json` succeeds on the current branch, read [references/stack.md](references/stack.md) before step 3. It replaces steps 3, 4, and 8 and the follow-up in step 9.
+   When `--stack` is passed, the caller names two or more layers, or `gh stack view --json` succeeds on the current branch, read [references/stack.md](stack.md) before step 3. It replaces steps 3, 4, and 8 and the follow-up in step 9.
 
 2. **Stage and commit intended changes only.**
    - Inspect `git status --short`, `git diff`, and `git diff --cached` before staging. Inspect the contents of relevant untracked files separately, because `git diff` does not show them.
@@ -133,10 +133,10 @@ Do the following steps in order:
 6. **Add a change map only when the change needs one.** A change map is a Mermaid diagram that shows which parts of the system the PR adds, changes, or leaves unchanged, and how they connect. Use judgment, not a file count.
    - Add a map when the PR touches two or more packages or services, adds or moves a seam (for example a new callback, port, or middleware option), or changes a call path or which component calls which.
    - Skip the map for a single-file or single-module change, a config, docs, lockfile, or dependency bump, a pure refactor with an unchanged call graph, and a bug fix in one function.
-   - Read [references/change-map.md](references/change-map.md) for the map format. Then check the Mermaid before you publish.
+   - Read [references/change-map.md](change-map.md) for the map format. Then check the Mermaid before you publish.
 
 7. **Route reviewers and assignees** with the user's routing file. It is `$XDG_CONFIG_HOME/ro/routing.json` when `XDG_CONFIG_HOME` is set to an absolute path, and `~/.config/ro/routing.json` otherwise.
-   - The file holds one JSON object keyed by `owner/repo`. Use the entry whose key matches this repository, ignoring case. [routing.example.json](routing.example.json) shows the format. To set the file up, copy the example to that path, and edit it.
+   - The file holds one JSON object keyed by `owner/repo`. Use the entry whose key matches this repository, ignoring case. [routing.example.json](../routing.example.json) shows the format. To set the file up, copy the example to that path, and edit it.
    - Keep the routing file out of the skill folder: `ro install` of the `ro` CLI replaces that folder, and the package ships it.
    - Match the changed file paths against the entry's `reviewers` keys, which are glob patterns.
    - Always include the entry's `alwaysReview` entries.

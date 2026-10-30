@@ -99,7 +99,7 @@ def test_guarded_line_names_each_guarded_item(item: str) -> None:
             "a merged PR must not stand in for the ticket's checks",
         ),
         (
-            "[Risk tiers](https://github.com/sucramual/mp/blob/main/skills/review-pr/references/risk-tiers.md)",
+            "[Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md)",
             "a relative link breaks in a neo-only install, so the run cannot classify a PR's tier",
         ),
         (

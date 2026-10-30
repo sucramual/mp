@@ -48,7 +48,7 @@ Use [the template](references/template.md). Rules:
 - Make each file that a step reads, such as a JSON payload, ready on disk. Give its path in the step. Do not ask Marcus to write it by hand.
 - Stop pagers in commands with long output: use `GH_PAGER=cat`, `--jq`, `--limit`, or `| cat`.
 - Use absolute paths, or `git -C <path>`, so a step does not depend on the current folder.
-- Write in the STE style of `agents/global.md`: short sentences, active voice, one action for each instruction.
+- Write in the STE style of [global.md](https://raw.githubusercontent.com/sucramual/mp/main/agents/global.md): short sentences, active voice, one action for each instruction.
 
 Never put a secret value or a private deny-list term in the runbook. Refer to a secret by its name and by the file or command that supplies it, such as `< ~/path/to/file`.
 Write the runbook to the session scratchpad, or to an ignored path outside the repository. Never commit it.

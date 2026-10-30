@@ -29,7 +29,7 @@ NEO_SKILL = REPO_ROOT / "skills" / "neo" / "SKILL.md"
         ),
         (
             "each file that [Merge-rule files]"
-            "(https://github.com/sucramual/mp/blob/main/agents/guides/pr-review.md#merge-rule-files) lists",
+            "(https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/pr-review.md#merge-rule-files) lists",
             "a PR that changes a merge rule must park, or an agent can widen its own merge authority",
         ),
         ("When you are not sure that a path is reserved, treat it as reserved.", "an unclear path must park"),
@@ -47,17 +47,31 @@ def test_risk_tiers_rule(needle: str, message: str) -> None:
 @pytest.mark.parametrize(
     ("path", "needle"),
     [
-        (ROGUE_SKILL, "[Risk tiers](../review-pr/references/risk-tiers.md)"),
-        (ROGUE_SKILL, "[Reserved paths](../review-pr/references/risk-tiers.md#reserved-paths)"),
+        (
+            ROGUE_SKILL,
+            "[Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md)",
+        ),
+        (
+            ROGUE_SKILL,
+            "[Reserved paths](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md#reserved-paths)",
+        ),
         (
             NEO_SKILL,
-            "[Risk tiers](https://github.com/sucramual/mp/blob/main/skills/review-pr/references/risk-tiers.md)",
+            "[Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md)",
         ),
         (SELF_REPAIR, "[Risk tiers](../../skills/review-pr/references/risk-tiers.md)"),
     ],
 )
 def test_merging_files_link_the_tier_definition(path: Path, needle: str) -> None:
     assert_contains(path, needle, f"{path.name} should classify the tier with the shared definition before a merge")
+
+
+@pytest.mark.parametrize("path", [ROGUE_SKILL, NEO_SKILL])
+def test_merging_skills_park_when_the_remote_rules_cannot_be_read(path: Path) -> None:
+    # Bug caught: a failed read of the rules from GitHub leaves no tier rule, and the agent merges anyway.
+    assert_contains(path, "`curl -fsSL <URL>`", f"{path.name} should read the rules as exact text")
+    assert_contains(path, "If a read fails, treat each PR as High tier and park it.", f"{path.name} must fail safe")
+    assert_contains(path, "Never merge without these rules.", f"{path.name} must not merge without the rules")
 
 
 @pytest.mark.parametrize(

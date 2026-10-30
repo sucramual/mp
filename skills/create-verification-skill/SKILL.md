@@ -50,7 +50,7 @@ Ground these sections in the repository:
 
 Create `<project_skills_dir>/verify-<app>/features/README.md` plus one file for each of the top three to five user-facing features found in routes, commands, menus, or docs.
 
-Follow [`references/feature-map-example/`](references/feature-map-example/). The README indexes features and shared preconditions. Each feature file explains what the feature does, how a user reaches it, how the harness drives it, and what observable end state proves it works.
+Follow [`references/feature-map-example/`](references/feature-map-example/README.md). The README indexes features and shared preconditions. Each feature file explains what the feature does, how a user reaches it, how the harness drives it, and what observable end state proves it works.
 
 Use these four H2 headings:
 

@@ -28,7 +28,8 @@ NEO_SKILL = REPO_ROOT / "skills" / "neo" / "SKILL.md"
             "a one-line prose change to agent rules must not merge unattended",
         ),
         (
-            "each file that [Merge-rule files](../../../agents/guides/pr-review.md#merge-rule-files) lists",
+            "each file that [Merge-rule files]"
+            "(https://github.com/sucramual/mp/blob/main/agents/guides/pr-review.md#merge-rule-files) lists",
             "a PR that changes a merge rule must park, or an agent can widen its own merge authority",
         ),
         ("When you are not sure that a path is reserved, treat it as reserved.", "an unclear path must park"),

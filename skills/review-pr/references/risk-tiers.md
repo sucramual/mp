@@ -1,6 +1,6 @@
 # Risk tiers
 
-/rogue, /neo, and [Self-repair](../../../agents/guides/self-repair.md) use this one definition to decide whether an agent may merge a PR without a person.
+/rogue, /neo, and [Self-repair](https://github.com/sucramual/mp/blob/main/agents/guides/self-repair.md) use this one definition to decide whether an agent may merge a PR without a person.
 Classify the tier from the diff of the head that you will merge.
 
 ## Tiers
@@ -19,7 +19,7 @@ A PR that changes a reserved path parks at every tier:
 
 - Data, migrations, infra applies, auth, IAM, secrets, CI workflows, and agent settings.
 - `scripts/check` and other files that define the checks, Spacelift stack config, and Cloud Run service config.
-- In `sucramual/mp`, each file that [Merge-rule files](../../../agents/guides/pr-review.md#merge-rule-files) lists.
+- In `sucramual/mp`, each file that [Merge-rule files](https://github.com/sucramual/mp/blob/main/agents/guides/pr-review.md#merge-rule-files) lists.
 
 When you are not sure that a path is reserved, treat it as reserved.
 

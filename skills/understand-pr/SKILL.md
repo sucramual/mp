@@ -14,7 +14,7 @@ Turn a raw diff into an evidence-led explanation of how the change works and why
 | **Walkthrough** (default) | “Help me understand this PR”, “what did this diff do?”, “walk me through this code” | Readable change story: mental model → decomposition → runtime flow → invariants → gaps or consequences |
 | **Gate prep** | Explicit mention of `/hard-cheese`, exam prep, a comprehension gate, or `--prep` | The walkthrough plus code-grounded questions, answer criteria, and a closed-book drill |
 
-Do not add exam material to the default walkthrough. For gate prep, read [`../hard-cheese/SKILL.md`](../hard-cheese/SKILL.md) before composing the study section so its SOLO threshold and handoff remain current.
+Do not add exam material to the default walkthrough. For gate prep, read [`../hard-cheese/SKILL.md`](../hard-cheese/SKILL.md) before composing the study section so its SOLO threshold and handoff remain current. If that skill is not installed, tell the user that gate prep needs the `hard-cheese` skill from `paulnsorensen/easy-cheese`, and continue with the walkthrough only.
 
 ## Gather evidence
 

@@ -71,7 +71,7 @@ GUARDED_LINE = "Irreversible or guarded changes wait for Marcus"
         "CI workflows",
         "agent settings",
         "outside his team",
-        "[Merge-rule files](../../agents/guides/pr-review.md#merge-rule-files)",
+        "[Merge-rule files](https://github.com/sucramual/mp/blob/main/agents/guides/pr-review.md#merge-rule-files)",
     ],
 )
 def test_guarded_line_names_each_guarded_item(item: str) -> None:

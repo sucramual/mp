@@ -46,7 +46,7 @@ open questions
 
 Scale the depth to the decision. A small, reversible change may need only a few sections. A multi-system or security-sensitive change needs explicit boundaries, failure paths, and operational consequences.
 
-Keep the doc to 2 pages at most, about 1,000 words of prose without diagrams. This cap overrides a longer project default. `agents/guides/design.md` gives the full rule.
+Keep the doc to 2 pages at most, about 1,000 words of prose without diagrams. This cap overrides a longer project default. [Design](https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/design.md) gives the full rule.
 
 ## Revising an existing document
 

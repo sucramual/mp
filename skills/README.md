@@ -51,6 +51,17 @@ Install only to Claude Code, Codex, and Cursor. `--all` means every skill *and* 
 
 Use `npx skills list` to check what is installed and `npx skills update` to pull newer versions of installed copies.
 
+## Self-contained skills
+
+Each skill must work when it is installed alone from GitHub, on a machine without a dotfiles checkout.
+A skill does not refer to a file outside its own folder by a relative path or by a dotfiles path such as `~/dotfiles/` or `~/.agent-guidance/guides/`.
+It uses the raw URL of the file on `main`: `https://raw.githubusercontent.com/sucramual/mp/main/<repo path>`.
+The skill reads such a rule with `curl -fsSL` or `gh api`, not a web-fetch tool, because a web-fetch tool returns a summary. When a missing rule gates a merge, the skill parks the PR.
+
+- GitHub caches raw files for about 5 minutes, so a merged change can take that long to reach a run.
+- A rule change on a branch is not seen until the PR merges, because the URL names `main`.
+- `scripts/check_guidance_links.py` checks every Markdown file in `skills/<name>/`, except `node_modules`: a relative link must stay in the skill's folder, a repository URL must name a file in the working tree, and a dotfiles checkout path fails.
+
 ## Third-party skills
 
 `third-party.txt` lists the skills installed from other repositories, such as `paulnsorensen/easy-cheese`.

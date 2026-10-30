@@ -131,3 +131,91 @@ def test_default_root_uses_script_location_from_unrelated_cwd(tmp_path: Path) ->
     result = subprocess.run([sys.executable, str(copied)], cwd=elsewhere, text=True, capture_output=True, check=False)
 
     assert result.returncode == 0, result.stderr
+
+
+RAW = "https://raw.githubusercontent.com/sucramual/mp/main"
+BLOB = "https://github.com/sucramual/mp/blob/main"
+
+
+def write_skill_file(root: Path, path: str, text: str) -> Path:
+    """Write one file under skills/ in a checked root that also has its required root document."""
+    (root / "AGENTS.md").write_text("Root.")
+    document = root / "skills" / path
+    document.parent.mkdir(parents=True, exist_ok=True)
+    document.write_text(text)
+    return document
+
+
+def test_reports_skill_link_that_leaves_its_own_folder(tmp_path: Path) -> None:
+    write_skill_file(tmp_path, "other/SKILL.md", "Other.")
+    write_skill_file(tmp_path, "one/SKILL.md", "Heading\n[Other](../other/SKILL.md)\n")
+
+    result = run_checker(tmp_path)
+
+    assert result.returncode == 1
+    assert "skills/one/SKILL.md:2:" in result.stderr
+    assert "outside skills/one/" in result.stderr
+
+
+def test_accepts_skill_links_inside_its_own_folder(tmp_path: Path) -> None:
+    write_skill_file(tmp_path, "one/SKILL.md", "[Ref](references/a.md)\n")
+    write_skill_file(tmp_path, "one/references/a.md", "[Back](../SKILL.md)\n[Next](b.md#part)\n")
+    write_skill_file(tmp_path, "one/references/b.md", "B.")
+
+    result = run_checker(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "3 skill documents" in result.stdout
+
+
+def test_reports_repository_url_to_missing_file_in_links_and_code(tmp_path: Path) -> None:
+    write_skill_file(
+        tmp_path,
+        "one/SKILL.md",
+        f"Heading\n[Rule]({RAW}/agents/missing.md)\nRun `curl -fsSL {BLOB}/agents/gone.md`.\n",
+    )
+
+    result = run_checker(tmp_path)
+
+    assert result.returncode == 1
+    assert "skills/one/SKILL.md:2:" in result.stderr
+    assert "agents/missing.md" in result.stderr
+    assert "skills/one/SKILL.md:3:" in result.stderr
+    assert "agents/gone.md" in result.stderr
+
+
+def test_accepts_repository_url_to_existing_file_after_stripping_fragment(tmp_path: Path) -> None:
+    guide = tmp_path / "agents" / "guides" / "pr-review.md"
+    guide.parent.mkdir(parents=True)
+    guide.write_text("Guide.")
+    write_skill_file(
+        tmp_path,
+        "one/SKILL.md",
+        f"[Rule]({RAW}/agents/guides/pr-review.md#merge-rule-files)\n"
+        f"```bash\ncurl -fsSL {RAW}/agents/guides/pr-review.md\n```\n"
+        f"See <{BLOB}/agents/guides/pr-review.md>.\n",
+    )
+
+    result = run_checker(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("path", ["~/dotfiles/agents/global.md", "~/.agent-guidance/guides/design.md"])
+def test_reports_dotfiles_checkout_path_that_a_skill_reads(tmp_path: Path, path: str) -> None:
+    write_skill_file(tmp_path, "one/SKILL.md", f"Heading\nRead `{path}` first.\n")
+
+    result = run_checker(tmp_path)
+
+    assert result.returncode == 1
+    assert "skills/one/SKILL.md:2:" in result.stderr
+    assert path in result.stderr
+
+
+def test_ignores_skill_dependencies_in_node_modules(tmp_path: Path) -> None:
+    write_skill_file(tmp_path, "one/SKILL.md", "One.")
+    write_skill_file(tmp_path, "one/node_modules/pkg/README.md", "[Up](../../../other.md)\n~/dotfiles/x\n")
+
+    result = run_checker(tmp_path)
+
+    assert result.returncode == 0, result.stderr

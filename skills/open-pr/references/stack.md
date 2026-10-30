@@ -59,7 +59,7 @@ Invoke the installed `review-pr` skill for the layer's PR. Wait until the run st
 Never edit, commit, or push to another layer's branch. A fix lands on the lowest layer that it affects.
 When a claim on this layer needs a change to a lower layer, triage it as `Needs decision` and name that layer.
 Never restack, rebase, or force-push. The parent owns restacks.
-At the end, report each layer's PR, its [Ready to merge](../../review-pr/references/ready-to-merge.md) result, and its gaps.
+At the end, report each layer's PR, its [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md) result, and its gaps. The installed `review-pr` skill runs that check. To read the rule outside it, use `curl -fsSL <URL>` or `gh api`, not a web-fetch tool, because a web-fetch tool returns a summary, not the exact text. If the read fails, report the layer as `not ready`.
 
 ## Restack after a fix
 

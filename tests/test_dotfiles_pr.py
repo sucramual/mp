@@ -1230,6 +1230,146 @@ def test_sync_merges_the_work_overlay_codex_keys(world: World) -> None:
     assert "projects" not in tomllib.loads(target.read_text()), "without the overlay, its keys should go"
 
 
+# --- sync: work overlay -------------------------------------------------------------
+
+# Fake overlay install.sh, committed in the overlay: log $HOME to @LOG@, then exit with the number in @EXIT@
+# (default 0).
+FAKE_OVERLAY_INSTALL = """#!/usr/bin/env bash
+printf '%s\\n' "$HOME" >>"@LOG@"
+exit "$(cat "@EXIT@" 2>/dev/null || echo 0)"
+"""
+OVERLAY_NOT_UPDATED = "dotfiles-pr: warning: work overlay not updated: "
+
+
+def new_overlay(world: World) -> Path:
+    """A work overlay checkout <root>/overlay, whose origin/main tracks install.sh and a Codex fragment."""
+    overlay = world.new_case("overlay")
+    seed = world.root / "overlay-seed"
+    install = seed / "install.sh"
+    install.write_text(
+        fill(FAKE_OVERLAY_INSTALL, LOG=world.root / "overlay-install.log", EXIT=world.root / "overlay-exit")
+    )
+    install.chmod(0o755)
+    (seed / "config" / "codex").mkdir(parents=True)
+    (seed / "config" / "codex" / "config.toml").write_text('[projects."/work/old"]\ntrust_level = "trusted"\n')
+    world.git(seed, "add", "install.sh", "config")
+    world.git(seed, "commit", "-qm", "feat: overlay installer")
+    world.git(seed, "push", "-q", "origin", "main")
+    world.git(overlay, "pull", "-q", "--ff-only")
+    return overlay
+
+
+def overlay_installs(world: World) -> list[str]:
+    return world.read(world.root / "overlay-install.log").splitlines()
+
+
+# Protects: a merged overlay PR goes live through the automatic sync: new files are linked and new Codex keys merged.
+# Bug caught: sync never pulls the overlay, so its new guidance is never linked; or the Codex merge reads the old
+# overlay config because it runs before the pull; or an unchanged overlay re-runs its installer every 15 minutes.
+def test_sync_fast_forwards_a_clean_work_overlay_and_runs_its_installer(world: World) -> None:
+    _, target = new_codex_case(world, "codex-overlay", 'model = "a"\n')
+    overlay = new_overlay(world)
+    world.land("overlay", "config/codex/config.toml", '[projects."/work/new"]\ntrust_level = "trusted"', "feat: new")
+
+    first = world.run_sync("codex-overlay", DOTFILES_WORK_DIR=str(overlay))
+
+    assert first.returncode == 0, f"sync should succeed\n{first.stderr}"
+    assert error_lines(first.stderr) == [], f"a clean overlay should not warn\n{first.stderr}"
+    assert world.git(overlay, "rev-parse", "HEAD") == world.origin_main_of("overlay"), "the overlay should fast-forward"
+    assert overlay_installs(world) == [str(world.iso.home)], "the moved overlay should run its install.sh once"
+    projects = tomllib.loads(target.read_text())["projects"]
+    assert projects == {"/work/new": {"trust_level": "trusted"}}, "the Codex merge should read the pulled overlay"
+    short = world.git(overlay, "rev-parse", "--short", "HEAD")
+    assert f"work overlay is at {short}" in first.stdout, f"the summary should report the overlay\n{first.stdout}"
+
+    second = world.run_sync("codex-overlay", DOTFILES_WORK_DIR=str(overlay))
+
+    assert second.returncode == 0, f"sync should succeed\n{second.stderr}"
+    assert overlay_installs(world) == [str(world.iso.home)], "an unchanged overlay should not run install.sh again"
+
+
+@pytest.mark.parametrize(
+    ("state", "reason"),
+    [
+        ("dirty", "uncommitted changes"),
+        ("staged", "uncommitted changes"),
+        ("branch", "not on main"),
+        ("diverged", "commits that origin/main lacks"),
+        ("offline", "git fetch failed"),
+    ],
+)
+def test_sync_leaves_a_work_overlay_it_cannot_fast_forward_and_still_succeeds(
+    world: World, state: str, reason: str
+) -> None:
+    # Bug caught: sync resets, stashes, or overwrites overlay work, or an overlay problem fails the whole sync.
+    checkout = world.new_case(f"overlay-{state}")
+    world.land(f"overlay-{state}", "shared.txt", "v2", "feat: v2 (#1)")
+    overlay = new_overlay(world)
+    world.land("overlay", "shared.txt", "overlay v2", "feat: overlay v2")
+    if state in ("dirty", "staged"):
+        (overlay / "shared.txt").write_text("local edit\n")
+        if state == "staged":
+            world.git(overlay, "add", "shared.txt")
+    elif state == "branch":
+        world.git(overlay, "switch", "-q", "-c", "topic")
+    elif state == "diverged":
+        (overlay / "local.txt").write_text("local\n")
+        world.git(overlay, "add", "local.txt")
+        world.git(overlay, "commit", "-qm", "local work")
+    else:
+        world.git(overlay, "remote", "set-url", "origin", str(world.root / "gone.git"))
+    branch = world.git(overlay, "rev-parse", "--abbrev-ref", "HEAD")
+    head = world.git(overlay, "rev-parse", "HEAD")
+    status = world.git(overlay, "status", "--porcelain")
+
+    result = world.run_sync(f"overlay-{state}", DOTFILES_WORK_DIR=str(overlay))
+
+    assert result.returncode == 0, f"an overlay problem should not fail sync\n{result.stderr}"
+    assert world.git(checkout, "rev-parse", "HEAD") == world.origin_main_of(f"overlay-{state}"), (
+        "the main checkout should still sync"
+    )
+    world.assert_unchanged(overlay, branch, head, status, f"a {state} overlay")
+    assert overlay_installs(world) == [], "an overlay that did not move should not run install.sh"
+    warnings = error_lines(result.stderr)
+    assert len(warnings) == 1 and warnings[0].startswith(OVERLAY_NOT_UPDATED), result.stderr
+    assert reason in warnings[0], f"the warning should say why\n{warnings[0]}"
+
+
+# Bug caught: a failing overlay install.sh fails the sync, or the failure is silent.
+def test_sync_warns_when_the_work_overlay_installer_fails(world: World) -> None:
+    checkout = world.new_case("overlay-install-fails")
+    overlay = new_overlay(world)
+    world.land("overlay", "shared.txt", "overlay v2", "feat: overlay v2")
+    (world.root / "overlay-exit").write_text("5\n")
+
+    result = world.run_sync("overlay-install-fails", DOTFILES_WORK_DIR=str(overlay))
+
+    assert result.returncode == 0, f"an overlay install failure should not fail sync\n{result.stderr}"
+    assert world.git(overlay, "rev-parse", "HEAD") == world.origin_main_of("overlay"), "the overlay should still move"
+    assert overlay_installs(world) == [str(world.iso.home)]
+    warnings = error_lines(result.stderr)
+    assert len(warnings) == 1 and "install.sh" in warnings[0] and "exit 5" in warnings[0], result.stderr
+    assert world.git(checkout, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+
+
+# Bug caught: a machine without the overlay gets a warning or a failed sync on every run.
+@pytest.mark.parametrize("layout", ["missing", "not-a-repo"])
+def test_sync_without_a_work_overlay_checkout_is_silent(world: World, layout: str) -> None:
+    checkout = world.new_case(f"no-overlay-{layout}")
+    overlay = world.root / f"overlay-{layout}"
+    if layout == "not-a-repo":
+        (overlay / "config").mkdir(parents=True)
+
+    result = world.run_sync(f"no-overlay-{layout}", DOTFILES_WORK_DIR=str(overlay))
+
+    assert result.returncode == 0, f"sync should succeed\n{result.stderr}"
+    assert error_lines(result.stderr) == [], f"no overlay checkout should give no warning\n{result.stderr}"
+    short = world.git(checkout, "rev-parse", "--short", "HEAD")
+    assert result.stdout == f"main is at {short} (was on main)\n", (
+        f"the summary should not name an overlay\n{result.stdout}"
+    )
+
+
 def test_sync_recovers_app_keys_that_an_old_sync_already_stripped(world: World) -> None:
     """An old dotfiles-pr pulled the strip, so the link already resolves to the stripped file."""
     checkout, target = new_codex_case(world, "codex-late", 'notify = ["app"]\nmodel = "a"\n')

@@ -20,7 +20,7 @@ Agents publish through the `open-pr` skill. In this repository, `open-pr` runs `
 | `dotfiles-pr start <slug> --prefix P` | Same, with an explicit branch prefix. |
 | `dotfiles-pr ship "<message>" --body-file F` | From a linked worktree: runs `scripts/check`, then runs `git add -A`, commits with the message, pushes the branch, and opens a PR against `main`. Prints the PR URL as the last line. |
 | `dotfiles-pr ship "<message>" --body TEXT` | Same, with the PR description inline. |
-| `dotfiles-pr sync` | Returns the main checkout to an up-to-date `main`, so merged changes go live. Then removes scratch worktrees whose PR merged. Runs from any directory. |
+| `dotfiles-pr sync` | Returns the main checkout to an up-to-date `main`, so merged changes go live. It also updates the [work overlay](#work-overlay) checkout. Then removes scratch worktrees whose PR merged. Runs from any directory. |
 | `dotfiles-pr sync --no-prune` | Same, without removing worktrees. |
 
 The slug must be lowercase kebab-case. The default prefix is `claude` when `CLAUDECODE` is set, `codex` when any `CODEX_*` variable is set, and `marcus` otherwise.
@@ -53,9 +53,21 @@ The main checkout is the live configuration: `~/.claude/CLAUDE.md` and `~/.codex
 11. It links `config/review-pr/reviewers.json` to the reviewers path that the review-pr ready check reads when that path is missing. The path is `$XDG_CONFIG_HOME/review-pr/reviewers.json` when `XDG_CONFIG_HOME` is absolute, else `~/.config/review-pr/reviewers.json`. It replaces a link only when it points at an old path of the file in this repository, `config/siula/reviewers.json`, `config/rogue-one/reviewers.json`, or `config/ro/reviewers.json`. It does not delete an old `~/.config/rogue-one` or `~/.config/ro` link. It never overwrites a different file. It warns and leaves the file alone. It does nothing in a checkout without the source file.
 12. It points `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` at `agents/global.md` when they are still links to the root `AGENTS.md`, which now holds dotfiles-only rules. It leaves a real file and any other link alone. It does nothing in a checkout without `agents/global.md`. The first sync after the split runs the old copy of this tool, so the links move on the next sync.
 13. It runs `bu --config ~/.config/bu/dotfiles.toml prune --color never`, unless you pass `--no-prune`. See [Prune](#prune).
-14. It prints the previous branch, the new HEAD, the restored paths, and the uncommitted paths that remain.
+14. It prints the previous branch, the new HEAD, the restored paths, and the uncommitted paths that remain. When a work overlay checkout exists, it adds one line for the overlay.
 
 Other uncommitted files stay as they are and move with the switch. Apps write these files. Ship or discard them. When one of them conflicts with `main`, `sync` names the path and exits non-zero. Only the Codex symlink conversion from step 2 and the restores from step 6 have then occurred.
+
+### Work overlay
+
+The private work overlay is a separate checkout at `$DOTFILES_WORK_DIR`, else `~/dotfiles-work`. After step 1, `sync` updates it, so a merged overlay PR also goes live:
+
+1. It does nothing and prints nothing when the directory is missing or is not the top of a Git checkout.
+2. It refuses when a merge, rebase, or similar operation is in progress, when the overlay is not on `main`, or when a tracked file has uncommitted changes. Untracked files do not block it.
+3. It runs `git fetch origin` in the overlay. It refuses when local `main` has commits that `origin/main` does not have.
+4. It runs `git merge --ff-only origin/main`. It never resets, stashes, or discards overlay work.
+5. When HEAD moved, it runs the overlay's `install.sh`, so new overlay files get their links.
+
+A refusal, a failed fetch, or a failed `install.sh` prints a warning, and `sync` goes on. The overlay goes before step 2, so the Codex merge in step 8 reads the new overlay `config/codex/config.toml`.
 
 ## Automatic sync
 
@@ -85,3 +97,5 @@ A scratch worktree is a per-change worktree, such as one that `start` makes. [`b
 `DOTFILES_DIR` overrides the repository root. The default is `~/dotfiles`. When `DOTFILES_DIR` is unset and `~/dotfiles` does not exist (a cloud session), the tool uses the repository that contains the script. A `DOTFILES_DIR` that does not exist is an error.
 
 `DOTFILES_BU_CONFIG` overrides the `bu` config that `sync` uses. The default is `~/.config/bu/dotfiles.toml`.
+
+`DOTFILES_WORK_DIR` overrides the work overlay checkout that `sync` updates and reads. The default is `~/dotfiles-work`.

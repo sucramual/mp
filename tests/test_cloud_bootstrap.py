@@ -44,6 +44,8 @@ exit "${OVERLAY_EXIT:-0}"
 
 
 def bootstrap(main_checkout: Path, isolated_env: IsolatedEnv, run_tool: RunTool, **extra_env: str):
+    # A real cloud session's /home/user/mp-private must not leak into a test.
+    extra_env.setdefault("DOTFILES_CLOUD_WORK_DIR", str(isolated_env.root / "no-cloud-overlay"))
     return run_tool([main_checkout / "scripts/cloud-bootstrap"], cwd=isolated_env.root, **extra_env)
 
 
@@ -82,6 +84,7 @@ def run_installer(
     fake_exe("bun", "exit 0\n")
     # install.sh writes ~/.gitconfig, so it gets the temp HOME's global Git config, not the test one.
     env = {key: value for key, value in isolated_env.env.items() if key != "GIT_CONFIG_GLOBAL"}
+    extra_env.setdefault("DOTFILES_CLOUD_WORK_DIR", str(isolated_env.root / "no-cloud-overlay"))
     return run_tool([main_checkout / script], cwd=isolated_env.root, env=env, **extra_env)
 
 
@@ -124,6 +127,46 @@ def test_cloud_bootstrap_merges_the_overlay_settings_fragment(
     assert "codex@openai-codex" not in plugins, "a local-only plugin stays out, from the overlay too"
     portable = {name: on for name, on in TEMPLATE["enabledPlugins"].items() if name not in LOCAL_ONLY_PLUGINS}
     assert portable.items() <= plugins.items(), "the template's portable plugins should still be enabled"
+
+
+# Protects: a cloud session that selects sucramual/mp-private gets the work guidance, the work settings, and the
+# leak-check terms, which the pre-push hook later reads from ~/dotfiles-work in another process.
+# Bug caught: cloud-bootstrap looks only at ~/dotfiles-work, so the session's /home/user/mp-private is ignored; or it
+# runs that overlay but later steps and the pre-push hook still read the empty ~/dotfiles-work; or it wins over an
+# explicit DOTFILES_WORK_DIR or an existing ~/dotfiles-work.
+@pytest.mark.parametrize("winner", ["cloud", "env", "home"])
+def test_cloud_bootstrap_finds_the_overlay_that_the_session_cloned(
+    winner: str,
+    isolated_env: IsolatedEnv,
+    fake_exe: Callable[..., Path],
+    run_tool: RunTool,
+    main_checkout: Path,
+    fake_npx: Path,
+    fake_overlay: Path,
+):
+    home = isolated_env.home
+    cloud_overlay = isolated_env.root / "home-user" / "mp-private"
+    fake_exe("install.sh", FAKE_OVERLAY_INSTALLER, directory=cloud_overlay)
+    (cloud_overlay / "work.md").write_text("Cloud work guidance.\n")
+    fragment = cloud_overlay / "config" / "claude" / "settings.template.json"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text(json.dumps({"enabledPlugins": {"work@work-plugins": True}}))
+    env = {"DOTFILES_CLOUD_WORK_DIR": str(cloud_overlay)}
+    if winner == "env":
+        env["DOTFILES_WORK_DIR"] = str(fake_overlay)
+    elif winner == "home":
+        (home / "dotfiles-work").symlink_to(fake_overlay)
+
+    result = bootstrap(main_checkout, isolated_env, run_tool, **env)
+
+    assert result.returncode == 0, result.stderr
+    expected, other = (cloud_overlay, fake_overlay) if winner == "cloud" else (fake_overlay, cloud_overlay)
+    assert (expected / "runs.log").read_text().splitlines() == [str(home)], "the chosen overlay should run once"
+    assert not (other / "runs.log").exists(), "only one overlay should run"
+    assert (home / ".claude/work.md").resolve() == expected / "work.md"
+    if winner == "cloud":
+        assert (home / "dotfiles-work").resolve() == cloud_overlay, "the default overlay path should lead to it"
+        assert read_settings(home)["enabledPlugins"]["work@work-plugins"] is True, "its settings should merge"
 
 
 @pytest.mark.parametrize("script", INSTALLERS)

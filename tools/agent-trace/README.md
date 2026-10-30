@@ -38,7 +38,7 @@ Under `AGENT_TRACE_DIR` (default `~/.local/state/agent-trace`; directories 0700,
 | `AGENT_TRACE_ENDPOINT` | Where `span`, `note`, and `hook` send. Default `http://127.0.0.1:4318`. |
 | `AGENT_TRACE_FORWARD` | Same as `collect --forward`: also send kept native records to this OTLP base URL. |
 | `AGENT_TRACE_TICKET` | Ticket for `span` and `note`. |
-| `AGENT_TRACE_SESSION` | Session id. Overrides `CLAUDE_CODE_SESSION_ID`. |
+| `AGENT_TRACE_SESSION` | Session id. Overrides `CLAUDE_CODE_SESSION_ID` and `CODEX_THREAD_ID`. Order: this, `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`. |
 | `TRACEPARENT` | W3C trace context. Sets the trace id and the default parent span. |
 | `AGENT_TRACE_CLAUDE_PROJECTS` | Root of Claude Code transcripts for the `show` fallback. Default `~/.claude/projects`. |
 

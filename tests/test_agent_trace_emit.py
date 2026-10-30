@@ -180,6 +180,20 @@ def test_session_scope_without_ticket(isolated_env: IsolatedEnv, tmp_path: Path)
     assert "session.id" in attrs
 
 
+def test_codex_thread_id_binds_ticket_for_later_calls(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url, CODEX_THREAD_ID="codex-t1")
+        run(["span", "start", "--id", "impl", "--name", "Implement", "--kind", "phase", "--ticket", "RUN-1"], env)
+        result = run(["span", "end", "--id", "impl", "--status", "ok"], env)
+    assert result.returncode == 0, result.stderr
+    assert (state / "sessions" / "codex-t1.ticket").read_text().strip() == "RUN-1"
+    _, end = server.spans()
+    end_attrs = {a["key"]: a["value"].get("stringValue") for a in end["attributes"]}
+    assert end_attrs["session.id"] == "codex-t1"
+    assert end_attrs["run.ticket"] == "RUN-1"
+
+
 def test_notes_are_zero_length_spans_with_one_event(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
     state = tmp_path / "state"
     ref = "0123456789abcdef"

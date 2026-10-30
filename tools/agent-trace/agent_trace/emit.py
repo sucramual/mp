@@ -60,7 +60,10 @@ def check_text(flag: str, value: str) -> str:
 
 
 def session_id() -> str | None:
-    return os.environ.get("AGENT_TRACE_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID") or None
+    for name in ("AGENT_TRACE_SESSION", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"):
+        if os.environ.get(name):
+            return os.environ[name]
+    return None
 
 
 def endpoint() -> str:
@@ -103,7 +106,10 @@ def resolve_context(flag_ticket: str | None, session: str | None, base: Path) ->
         ticket = bound if bound and TICKET.match(bound) else None
     context = Context(ticket, session, otlp.parse_traceparent(os.environ.get("TRACEPARENT")))
     if context.scope is None:
-        raise Invalid("no scope: pass --ticket, or set AGENT_TRACE_TICKET, CLAUDE_CODE_SESSION_ID, or TRACEPARENT")
+        raise Invalid(
+            "no scope: pass --ticket, or set AGENT_TRACE_TICKET, CLAUDE_CODE_SESSION_ID, "
+            "CODEX_THREAD_ID, or TRACEPARENT"
+        )
     return context, given
 
 

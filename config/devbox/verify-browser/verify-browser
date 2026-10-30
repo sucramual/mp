@@ -1,0 +1,256 @@
+#!/bin/bash
+# verify-browser: a persistent Chrome on the devbox, signed in to Okta once, that agents drive for /verify.
+# See config/devbox/README.md.
+#
+# Usage:
+#   verify-browser install          Install the display tools (apt, through sudo -n) and Chrome for Testing.
+#                                   It never prompts. A re-run installs only what is missing.
+#   verify-browser installed        Exit 0 when Chrome and the display tools are installed.
+#   verify-browser start            Start the tmux session verify-browser. It does nothing when the session exists.
+#   verify-browser stop             Stop Chrome (matched by its --user-data-dir), then the tmux session.
+#   verify-browser status [--json]  Whether Chrome answers on 127.0.0.1:9222, and the Okta session state.
+#                                   Exit 0 only when the Okta session is ACTIVE.
+#   verify-browser keepalive        Check the Okta session every 3600 seconds; append one JSON line per check
+#                                   to ~/.local/state/verify-browser/okta-session.log.
+#   verify-browser run xvfb|chrome|vnc|novnc|keepalive
+#                                   One window of the tmux session. start runs these. Each one restarts its
+#                                   process 5 seconds after it exits, and logs the restart to <window>.log.
+#
+# The Okta URL comes from VERIFY_BROWSER_OKTA_URL, else from the first line of ~/.config/verify-browser/okta-url.
+# The debug port, VNC, and noVNC listen on 127.0.0.1 only. The profile holds a live Okta session, so it and
+# its parent are mode 700. Never stop Chrome by process name: another Chrome may run on the host.
+set -u
+
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+here="$(dirname "$self")"
+
+session="verify-browser"
+install_dir="$HOME/.local/share/verify-browser"
+chrome="$install_dir/current/chrome"
+state_dir="$HOME/.local/state/verify-browser"
+profile="$state_dir/profile"
+okta_log="$state_dir/okta-session.log"
+port="${VERIFY_BROWSER_PORT:-9222}"
+display=":99"
+display_socket="${VERIFY_BROWSER_DISPLAY_SOCKET:-/tmp/.X11-unix/X99}"
+vnc_port=5900
+novnc_port=6080
+keepalive_seconds=3600
+restart_seconds="${VERIFY_BROWSER_RESTART_SECONDS:-5}"
+okta_url_file="$HOME/.config/verify-browser/okta-url"
+packages=(xvfb x11vnc novnc websockify)
+
+say() { echo "verify-browser: $*"; }
+
+regex_escape() {
+  printf '%s' "$1" | sed 's/[][\.*^$+?(){}|/]/\\&/g'
+}
+
+# An extended regex that matches the profile argument exactly, so a profile such as "<profile>-other" never matches.
+profile_pattern() {
+  printf -- '--user-data-dir=%s( |$)' "$(regex_escape "$profile")"
+}
+
+# An extended regex that matches the window loops of this script (`<this script> run <window>`).
+loop_pattern() {
+  printf -- '%s run ' "$(regex_escape "$self")"
+}
+
+# The Okta URL: VERIFY_BROWSER_OKTA_URL, else the first line of the okta-url file without spaces. Empty when unset.
+okta_url() {
+  if [ -n "${VERIFY_BROWSER_OKTA_URL:-}" ]; then
+    printf '%s' "$VERIFY_BROWSER_OKTA_URL"
+  elif [ -r "$okta_url_file" ]; then
+    head -n 1 "$okta_url_file" | tr -d '[:space:]'
+  fi
+}
+
+chrome_running() {
+  pgrep -f -- "$(profile_pattern)" >/dev/null 2>&1
+}
+
+make_private_dirs() {
+  mkdir -p "$profile"
+  chmod 700 "$state_dir" "$profile"
+}
+
+cmd_installed() {
+  [ -x "$chrome" ] || return 1
+  local tool
+  for tool in Xvfb x11vnc websockify; do
+    command -v "$tool" >/dev/null 2>&1 || return 1
+  done
+}
+
+cmd_install() {
+  local missing=() package
+  for package in "${packages[@]}"; do
+    dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed" || missing+=("$package")
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    say "installing ${missing[*]}"
+    if ! sudo -n apt-get update -q </dev/null ||
+      ! sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "${missing[@]}" </dev/null; then
+      say "apt-get failed. sudo must work without a password (sudo -n). Fix it, then run: $self install"
+      return 1
+    fi
+  else
+    say "display tools already installed"
+  fi
+
+  if [ -x "$chrome" ]; then
+    say "Chrome already installed: $(readlink "$install_dir/current")"
+    return 0
+  fi
+  if ! command -v npx >/dev/null 2>&1; then
+    say "npx is missing. Install Node.js 22, then run: $self install"
+    return 1
+  fi
+  mkdir -p "$install_dir"
+  say "installing Chrome for Testing"
+  if ! (cd "$install_dir" && npx -y @puppeteer/browsers@2 install chrome@stable --path "$install_dir" </dev/null); then
+    say "the Chrome download failed. Fix the error above, then run: $self install"
+    return 1
+  fi
+  local newest
+  newest="$(find "$install_dir/chrome" -mindepth 2 -maxdepth 2 -type d -name chrome-linux64 2>/dev/null | sort -V | tail -n 1)"
+  if [ -z "$newest" ] || [ ! -x "$newest/chrome" ]; then
+    say "no Chrome binary found under $install_dir/chrome"
+    return 1
+  fi
+  ln -sfn "$newest" "$install_dir/current"
+  say "Chrome installed: $chrome -> $newest/chrome"
+}
+
+cmd_start() {
+  if ! cmd_installed; then
+    say "Chrome or the display tools are not installed. Run: $self install"
+    return 1
+  fi
+  if ! command -v tmux >/dev/null 2>&1; then
+    say "tmux is not installed"
+    return 1
+  fi
+  tmux has-session -t "$session" 2>/dev/null && return 0
+  make_private_dirs
+  local quoted
+  quoted="$(printf '%q' "$self")"
+  tmux new-session -d -s "$session" -n xvfb "$quoted run xvfb"
+  local window
+  for window in chrome vnc novnc keepalive; do
+    tmux new-window -d -t "$session:" -n "$window" "$quoted run $window"
+  done
+  say "started the tmux session $session"
+}
+
+cmd_stop() {
+  local pattern waited=0
+  # End the window loops first, so no loop starts Chrome again. Then stop Chrome by its exact profile argument.
+  if command -v tmux >/dev/null 2>&1; then
+    tmux kill-session -t "$session" 2>/dev/null
+  fi
+  pkill -TERM -f -- "$(loop_pattern)" 2>/dev/null
+  pattern="$(profile_pattern)"
+  if chrome_running; then
+    pkill -TERM -f -- "$pattern"
+    while chrome_running && [ "$waited" -lt 10 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    chrome_running && pkill -KILL -f -- "$pattern"
+  fi
+  say "stopped"
+}
+
+okta_check() {
+  if ! command -v node >/dev/null 2>&1; then
+    printf '{"checked_at":"%s","chrome":{"answers":false,"error":"node is not installed"},"okta":null}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    return 1
+  fi
+  VERIFY_BROWSER_PORT="$port" VERIFY_BROWSER_OKTA_URL="$(okta_url)" node "$here/okta-session.mjs"
+}
+
+cmd_status() {
+  if [ "${1:-}" = "--json" ]; then
+    okta_check
+    return
+  fi
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$session" 2>/dev/null; then
+    echo "tmux session $session: running"
+  else
+    echo "tmux session $session: not running"
+  fi
+  okta_check
+}
+
+cmd_keepalive() {
+  mkdir -p "$state_dir"
+  chmod 700 "$state_dir"
+  while true; do
+    okta_check >>"$okta_log"
+    sleep "$keepalive_seconds"
+  done
+}
+
+run_chrome_once() {
+  local waited=0
+  while [ ! -e "$display_socket" ] && [ "$waited" -lt 30 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  make_private_dirs
+  # A killed Chrome leaves these locks, and Chrome then refuses to start. Remove them only when no process
+  # uses the profile: removing the locks of a running Chrome lets two Chromes share it.
+  if ! chrome_running; then
+    rm -f "$profile/SingletonLock" "$profile/SingletonSocket" "$profile/SingletonCookie"
+  fi
+  DISPLAY="$display" "$chrome" \
+    --remote-debugging-address=127.0.0.1 --remote-debugging-port="$port" \
+    --user-data-dir="$profile" --window-size=1440,900 --window-position=0,0 \
+    --no-first-run --no-default-browser-check
+}
+
+run_once() {
+  case "$1" in
+    xvfb) Xvfb "$display" -screen 0 1440x900x24 -nolisten tcp ;;
+    chrome) run_chrome_once ;;
+    vnc) x11vnc -display "$display" -localhost -nopw -forever -shared -rfbport "$vnc_port" -quiet ;;
+    novnc) websockify --web /usr/share/novnc "127.0.0.1:$novnc_port" "127.0.0.1:$vnc_port" ;;
+    keepalive) (cmd_keepalive) ;; # its own process, so a crash of the loop ends only it
+  esac
+}
+
+# One tmux window: run its process, and start it again after each exit. stop ends this loop before Chrome.
+cmd_run() {
+  local window="${1:-}" status
+  case "$window" in
+    xvfb | chrome | vnc | novnc | keepalive) ;;
+    *) usage ;;
+  esac
+  while true; do
+    run_once "$window"
+    status=$?
+    mkdir -p "$state_dir"
+    chmod 700 "$state_dir"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $window exited with status $status; restarting in ${restart_seconds}s" \
+      >>"$state_dir/$window.log"
+    sleep "$restart_seconds"
+  done
+}
+
+usage() {
+  sed -n '5,20p' "$self" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+}
+
+case "${1:-}" in
+  install) cmd_install ;;
+  installed) cmd_installed ;;
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  status) cmd_status "${2:-}" ;;
+  keepalive) cmd_keepalive ;;
+  run) cmd_run "${2:-}" ;;
+  *) usage ;;
+esac

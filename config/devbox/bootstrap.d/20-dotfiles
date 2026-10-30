@@ -1,0 +1,18 @@
+#!/bin/bash
+# Devbox bootstrap step: clone the dotfiles repository and run install.sh.
+# It never prompts. Without a gh login, it prints the command to run and stops.
+# Exit 0 means done. A re-run is safe: it keeps an existing checkout.
+set -u
+
+if ! gh auth status >/dev/null 2>&1; then
+  echo "dotfiles: gh is not logged in on this devbox."
+  echo "Run this on the devbox, then run the bootstrap again:"
+  echo "  gh auth login"
+  exit 1
+fi
+
+if [ ! -d "$HOME/dotfiles" ]; then
+  gh repo clone sucramual/mp "$HOME/dotfiles" || exit $?
+fi
+
+"$HOME/dotfiles/install.sh"

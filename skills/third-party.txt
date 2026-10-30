@@ -1,0 +1,14 @@
+# Third-party agent skills, installed with the `skills` CLI (npx skills).
+# This file holds pointers only. The skill files stay in their source repositories.
+# Format: <source>  <skill> <skill> ...   (one source per line, names sorted)
+# After you install or remove a third-party skill, run: python3 scripts/third_party_skills.py export
+# On a new machine, run: python3 scripts/third_party_skills.py install
+# Install runs `npx skills add` for every line. The CLI handles skills that are already installed.
+# Installs get the latest version of each skill. The CLI cannot pin a version.
+
+QingYunA/answer-me-with-html  answer-me-with-html
+kepano/obsidian-skills  defuddle json-canvas obsidian-bases obsidian-cli obsidian-markdown
+mattpocock/skills  grill-me grilling
+openai/skills  migrate-to-codex
+paulnsorensen/easy-cheese  affinage age briesearch cheese cook culture cure hard-cheese melt mold pasteurize press
+vercel-labs/skills  find-skills

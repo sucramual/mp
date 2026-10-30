@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Install Claude Code config into a Claude Code cloud session.
+# The cloud environment's setup script runs this; see README.md#cloud-sessions.
+# install.sh stays the laptop installer. It does macOS work that a cloud container does not need.
+#
+# Maintainer notes:
+# - The links point into the session's checkout. If the session switches branches, the skills and guidance change too.
+# - config/claude/merge_cloud_settings.py merges only the portable keys of config/claude/settings.template.json
+#   (env, effortLevel, autoCompactWindow, enabledPlugins, extraKnownMarketplaces) into ~/.claude/settings.json.
+#   Each template key must be in its PORTABLE_KEYS or LOCAL_ONLY_KEYS list.
+# - It drops the codex@openai-codex and hallouminate@hallouminate plugins (LOCAL_ONLY_PLUGINS), because they
+#   need the local Codex CLI or the hallouminate binary.
+# - It adds the permissions.allow rules in config/claude/settings.cloud.json, which apply only to the cloud.
+#   They do not stop prompts for claude.ai connector tools: claude.ai sends each connector tool's own
+#   permission, and a tool set to ask prompts even when an allow rule covers it. If the "always allow"
+#   option is missing at claude.ai/customize/connectors, an organization admin has capped the tool.
+# - tests/test_cloud_bootstrap.py fails on a template key in neither list. It also checks that install.sh
+#   and this script install the same guidance, skills, and tool links.
+set -euo pipefail
+
+DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# link_skills.py needs python3 3.11+ (datetime.UTC).
+if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+  echo "ERROR: cloud-bootstrap needs python3 3.11+; found: $(python3 --version 2>&1 || echo 'no python3')" >&2
+  exit 1
+fi
+
+echo "Installing cloud Claude config from $DOTFILES_DIR..."
+
+# Link target -> source. Move a real file aside to .bak first, like install.sh, so nothing is lost.
+link() {
+  local source="$1" target="$2" backup
+  if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
+    echo "  $target already linked"
+    return 0
+  fi
+  if [ -e "$target" ] && [ ! -L "$target" ]; then
+    backup="${target}.bak"
+    [ -e "$backup" ] && backup="${target}.bak.$(date +%Y%m%d%H%M%S)"
+    echo "  Backing up existing $target -> $backup"
+    mv "$target" "$backup"
+  fi
+  mkdir -p "$(dirname "$target")"
+  ln -sfn "$source" "$target"
+  echo "  $target -> ${source#"$DOTFILES_DIR"/}"
+}
+
+# The same global guidance links as install.sh: agents/global.md imports ~/.agent-guidance,
+# and points to ~/.claude/work.md, which the private work overlay links. The root AGENTS.md holds dotfiles-only rules.
+link "$DOTFILES_DIR/agents/global.md" "$HOME/.claude/CLAUDE.md"
+link "$DOTFILES_DIR/agents" "$HOME/.agent-guidance"
+work_overlay_dir="${DOTFILES_WORK_DIR:-$HOME/dotfiles-work}"
+if [ -x "$work_overlay_dir/install.sh" ]; then
+  "$work_overlay_dir/install.sh"
+else
+  echo "  No work overlay found at $work_overlay_dir; skipped"
+fi
+
+# The review-pr ready check reads the reviewer list from an absolute $XDG_CONFIG_HOME, else ~/.config.
+review_pr_config="$HOME/.config"
+case "${XDG_CONFIG_HOME:-}" in /*) review_pr_config="$XDG_CONFIG_HOME" ;; esac
+link "$DOTFILES_DIR/config/review-pr/reviewers.json" "$review_pr_config/review-pr/reviewers.json"
+
+python3 "$DOTFILES_DIR/config/claude/merge_cloud_settings.py" \
+  "$DOTFILES_DIR/config/claude/settings.template.json" \
+  "$DOTFILES_DIR/config/claude/settings.cloud.json" "$HOME/.claude/settings.json"
+# The overlay's settings fragment, such as a work plugin, merges in with the same portable-key rules.
+work_settings="$work_overlay_dir/config/claude/settings.template.json"
+if [ -f "$work_settings" ]; then
+  python3 "$DOTFILES_DIR/config/claude/merge_cloud_settings.py" \
+    "$work_settings" "$DOTFILES_DIR/config/claude/settings.cloud.json" "$HOME/.claude/settings.json"
+fi
+
+# The guard_irreversible PreToolUse hook blocks unpinned PR merges and Spacelift writes. The cloud has no Codex.
+python3 "$DOTFILES_DIR/config/agent-hooks/install_hooks.py" "$HOME/.claude/settings.json"
+
+python3 "$DOTFILES_DIR/scripts/link_skills.py"
+
+# The pre-push leak check, as in install.sh. A cloud session pushes too. Without terms, the check only warns.
+if ! bash "$DOTFILES_DIR/scripts/install_git_hooks.sh"; then
+  echo "  WARNING: the Git hooks step failed. Fix the error above, then run: bash \"$DOTFILES_DIR/scripts/install_git_hooks.sh\"" >&2
+fi
+
+# Link each tools/<tool>/bin/<name> into ~/.local/bin. The agent shell is non-interactive and reads no
+# rc file, and the cloud image already puts ~/.local/bin on PATH. A failure only warns, as below.
+link_tools="python3 \"$DOTFILES_DIR/scripts/link_tools.py\" --bin-dir \"\$HOME/.local/bin\""
+if ! python3 "$DOTFILES_DIR/scripts/link_tools.py" --bin-dir "$HOME/.local/bin"; then
+  echo "  WARNING: some tools were not linked into ~/.local/bin. Fix the cause, then run: $link_tools" >&2
+fi
+
+# Third-party skills need npx and network access to GitHub and npm.
+# A failure only warns, because a non-zero exit marks the whole setup script as failed.
+third_party_install="python3 \"$DOTFILES_DIR/scripts/third_party_skills.py\" install"
+if ! command -v npx >/dev/null 2>&1; then
+  echo "  WARNING: npx is unavailable; skipped third-party skills. Install Node.js, then run: $third_party_install" >&2
+elif ! python3 "$DOTFILES_DIR/scripts/third_party_skills.py" install; then
+  echo "  WARNING: some third-party skills did not install. Check the network policy, then run: $third_party_install" >&2
+fi
+
+echo "Done. Cloud Claude config installed."

@@ -1,0 +1,11 @@
+--- a/importer/run.py
++++ b/importer/run.py
+@@ -11,7 +11,7 @@ def normalize_email(value):
+ 
+ 
+ def import_users(path):
+-    with open(path, newline="") as handle:
++    with open(path, newline="", encoding="utf-8") as handle:
+         for row in csv.DictReader(handle):
+             upsert_user(
+                 email=normalize_email(row["email"]),

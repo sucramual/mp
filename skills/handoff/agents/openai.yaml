@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handoff"
+  short_description: "Create and clean up resumable handoffs"
+  default_prompt: "Use $handoff to capture this work for a fresh instance."

@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""monitoring-probe PROJECT — the Cloud Monitoring read of a `gcp_project` entry in an auth-helper probe set.
+
+auth-helper runs this file as one probe argv (see bin/auth-helper). It reads one page of Cloud Run
+request-count time-series headers from the last 10 minutes. It exits 0 when the read works.
+Otherwise it prints one detail line on stderr and exits 1; auth-helper keeps that line.
+
+It mints a token with `gcloud auth print-access-token`. The token stays in memory and goes only to
+the Monitoring API. The request refuses redirects, because urllib copies the Authorization header
+to the redirect target.
+
+Environment:
+  AUTH_HELPER_MONITORING_URL  Base URL of the Cloud Monitoring API, for tests. Only a loopback
+                              host is accepted, so a token never goes to another host.
+"""
+
+from __future__ import annotations
+
+import http.client
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import UTC, datetime, timedelta
+from email.message import Message
+from typing import IO
+
+MONITORING_URL = "https://monitoring.googleapis.com"
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+DETAIL_LIMIT = 120
+# auth-helper stops a probe after 60 seconds. The mint and the read share that limit.
+MINT_TIMEOUT_SECONDS = 25
+READ_TIMEOUT_SECONDS = 30
+
+
+def trim(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= DETAIL_LIMIT else text[: DETAIL_LIMIT - 3] + "..."
+
+
+def rfc3339(moment: datetime) -> str:
+    return moment.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def mint_token() -> tuple[str, str]:
+    """Return (token, "") or ("", reason). The reason is gcloud's last error line."""
+    env = {**os.environ, "CLOUDSDK_CORE_DISABLE_PROMPTS": "1"}
+    try:
+        result = subprocess.run(
+            ["gcloud", "auth", "print-access-token"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=MINT_TIMEOUT_SECONDS,
+            env=env,
+        )
+    except FileNotFoundError:
+        return "", "gcloud is not installed"
+    except subprocess.TimeoutExpired:
+        return "", f"gcloud timed out after {MINT_TIMEOUT_SECONDS}s"
+    token = (result.stdout or "").strip()
+    if result.returncode == 0 and token:
+        return token, ""
+    lines = [line.strip() for line in (result.stderr or "").splitlines() if line.strip()]
+    flagged = [line for line in lines if "error" in line.lower()]
+    return "", trim((flagged or lines or [f"exit {result.returncode}"])[-1])
+
+
+class RefuseRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect. urllib copies the Authorization header to the redirect target."""
+
+    def redirect_request(
+        self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str, headers: Message, newurl: str
+    ) -> urllib.request.Request | None:
+        raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+
+def monitoring_base_url() -> str:
+    """The Monitoring API base URL. A test override must name a loopback host."""
+    override = os.environ.get("AUTH_HELPER_MONITORING_URL")
+    if not override:
+        return MONITORING_URL
+    host = urllib.parse.urlsplit(override).hostname or ""
+    if host not in LOOPBACK_HOSTS:
+        raise ValueError(f"refused AUTH_HELPER_MONITORING_URL host {host!r}: only a loopback host may get a token")
+    return override.rstrip("/")
+
+
+def read_monitoring(project: str, now: datetime) -> str | None:
+    """Return None when the read works, else the detail line."""
+    try:
+        base = monitoring_base_url()
+    except ValueError as refusal:
+        return trim(str(refusal))
+    token, mint_error = mint_token()
+    if not token:
+        # gcloud's error line already names the failed command.
+        return mint_error
+    query = urllib.parse.urlencode(
+        {
+            "filter": 'metric.type="run.googleapis.com/request_count"',
+            "interval.startTime": rfc3339(now - timedelta(minutes=10)),
+            "interval.endTime": rfc3339(now),
+            "view": "HEADERS",
+            "pageSize": "1",
+        }
+    )
+    url = f"{base}/v3/projects/{urllib.parse.quote(project, safe='')}/timeSeries?{query}"
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    opener = urllib.request.build_opener(RefuseRedirect)
+    try:
+        with opener.open(request, timeout=READ_TIMEOUT_SECONDS) as response:
+            response.read()
+        return None
+    except urllib.error.HTTPError as error:
+        if 300 <= error.code < 400:
+            detail = f"HTTP {error.code}: redirect refused, so the token stays with the Monitoring host"
+        else:
+            message = str(error.reason)
+            try:
+                message = json.loads(error.read().decode("utf-8", "replace"))["error"]["message"]
+            except (ValueError, KeyError, TypeError, http.client.HTTPException, OSError):
+                pass
+            detail = f"HTTP {error.code}: {message}"
+    except (urllib.error.URLError, OSError) as error:
+        detail = f"Monitoring API unreachable: {getattr(error, 'reason', error)}"
+    except http.client.HTTPException as error:
+        # For example IncompleteRead, when the connection closes before the declared body arrives.
+        detail = f"Monitoring API sent a broken response: {error!r}"
+    return trim(detail.replace(token, "<token>"))
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 1 or not argv[0]:
+        print("usage: monitoring-probe PROJECT", file=sys.stderr)
+        return 2
+    detail = read_monitoring(argv[0], datetime.now(UTC))
+    if detail is None:
+        return 0
+    print(detail, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refresh guidance"
+  short_description: "Curate durable guidance from recent work"
+  default_prompt: "Run $refresh-guidance --work to review the last seven days of work tasks and open a PR in the work overlay for verified guidance changes."

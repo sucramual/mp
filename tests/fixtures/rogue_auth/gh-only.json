@@ -1,0 +1,89 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "stdout": {
+    "checked_at": "<time>",
+    "ok": true,
+    "probes": [],
+    "providers": [
+      {
+        "account": "octo-fake",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gh",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": "marcus@example.com",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gcloud",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gcloud-adc",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": "acmeholdings",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "spacelift",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": "fake-org",
+        "expires_at": "<time>",
+        "expires_source": "provider",
+        "fix": null,
+        "name": "signadot",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": "Confirm Okta in Google Chrome: open https://login.acme.example and check that the dashboard loads without a sign-in page.",
+        "name": "okta",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "manual",
+        "warning": null
+      }
+    ]
+  }
+}

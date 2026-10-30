@@ -1,0 +1,14 @@
+{
+  "name": "check-mermaid",
+  "private": true,
+  "description": "Parse the Mermaid blocks in a Markdown file with the Mermaid version GitHub renders with.",
+  "type": "module",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26"
+  },
+  "dependencies": {
+    "jsdom": "30.1.3",
+    "marked": "16.4.2",
+    "mermaid": "12.1.0"
+  }
+}

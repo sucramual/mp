@@ -1,0 +1,7 @@
+{
+  "sucramual/mp": {
+    "login": "chatgpt-codex-connector[bot]",
+    "doneReaction": "+1",
+    "retrigger": "@codex review"
+  }
+}

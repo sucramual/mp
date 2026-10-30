@@ -1,0 +1,89 @@
+{
+  "exit": 1,
+  "stderr": "",
+  "stdout": {
+    "checked_at": "<time>",
+    "ok": false,
+    "probes": [],
+    "providers": [
+      {
+        "account": "octo-fake",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gh",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": "lifetime unknown; it may expire during the run"
+      },
+      {
+        "account": "marcus@example.com",
+        "expires_at": "<time>",
+        "expires_source": "observed",
+        "fix": "rogue-auth refresh --horizon 8h gcloud",
+        "name": "gcloud",
+        "observed_lifetimes": {
+          "count": 1,
+          "shortest_seconds": 10800
+        },
+        "status": "expiring",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gcloud-adc",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": "lifetime unknown; it may expire during the run"
+      },
+      {
+        "account": "acmeholdings",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "spacelift",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": "lifetime unknown; it may expire during the run"
+      },
+      {
+        "account": "fake-org",
+        "expires_at": "<time>",
+        "expires_source": "provider",
+        "fix": "signadot auth login",
+        "name": "signadot",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "expiring",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": "Confirm Okta in Google Chrome: open https://login.acme.example and check that the dashboard loads without a sign-in page.",
+        "name": "okta",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "manual",
+        "warning": "lifetime unknown; it may expire during the run"
+      }
+    ]
+  }
+}

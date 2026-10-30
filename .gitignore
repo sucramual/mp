@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+
+# Installed or generated locally, not synced
+node_modules/
+target/
+__pycache__/
+*.pyc
+
+# Local agent workflow state
+.cheese/
+.claude/worktrees/
+.handoff/
+.siula/
+
+# Never sync auth or session state
+*.bak
+.codex/**/auth.json
+.codex/**/cache/
+codex/**/auth.json
+codex/**/cache/
+config/codex/**/auth.json
+config/codex/**/cache/
+
+# Personal secrets — real values live in ~/.env, NOT here
+.env
+
+# Python dev tooling (uv, pytest, ruff)
+.venv/
+.pytest_cache/
+.ruff_cache/

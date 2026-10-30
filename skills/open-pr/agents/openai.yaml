@@ -1,0 +1,4 @@
+interface:
+  display_name: "Open PR"
+  short_description: "Commit, push, and open a GitHub PR"
+  default_prompt: "Use $open-pr to commit my current branch, push it, and open a GitHub PR."

@@ -1,0 +1,26 @@
+#!/bin/bash
+# The devbox runs this file on each start (~/.config/devbox/on-start).
+# It starts the tmux session dotfiles-sync, which runs tools/dotfiles-pr/sync-loop.
+# When the verify-browser Chrome is installed, it also starts the tmux session verify-browser.
+# It starts nothing when a session exists or tmux is missing.
+set -u
+
+session="dotfiles-sync"
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+loop="$(dirname "$self")/../../tools/dotfiles-pr/sync-loop"
+loop="$(cd "$(dirname "$loop")" && pwd)/sync-loop"
+verify_browser="$(dirname "$self")/verify-browser/verify-browser"
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "dotfiles: tmux is not installed; the sync loop did not start."
+  exit 0
+fi
+
+if ! tmux has-session -t "$session" 2>/dev/null; then
+  tmux new-session -d -s "$session" "$loop"
+fi
+
+if "$verify_browser" installed; then
+  "$verify_browser" start
+fi
+exit 0

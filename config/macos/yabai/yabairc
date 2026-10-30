@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+
+# default layout (can be bsp, stack, or float)
+yabai -m config layout bsp
+
+# padding and gaps
+yabai -m config top_padding    12
+yabai -m config bottom_padding 12
+yabai -m config left_padding   12
+yabai -m config right_padding  12
+yabai -m config window_gap     24
+
+# mouse settings
+yabai -m config mouse_follows_focus off
+yabai -m config focus_follows_mouse off
+
+# opacity for unfocused windows
+yabai -m config window_opacity on
+yabai -m config active_window_opacity 1.0
+yabai -m config normal_window_opacity 0.9

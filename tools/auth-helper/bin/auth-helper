@@ -1,0 +1,1164 @@
+#!/usr/bin/env python3
+"""auth-helper — check and refresh the logins that an unattended agent run needs.
+
+Usage:
+  auth-helper check [--require P[,P...]] [--horizon DURATION] [--probes SET[,SET...]] [--json]
+      Non-interactive. Report whether each login works now: gh, gcloud (user login), gcloud-adc
+      (application-default credentials), spacelift, signadot, and okta. Okta is "manual" on the laptop,
+      because the shell cannot see Chrome's session. On a devbox, `verify-browser status --json` reads the
+      session in the verify-browser Chrome: okta is "ok" when it is ACTIVE and "expired" otherwise. A login is
+      "ok" only when it works now and stays valid through --horizon (for example 8h); a known or estimated
+      expiry inside the horizon marks it "expiring", and an unknown expiry adds a warning. --probes runs the
+      read-only access probes of the named probe sets from the team config. Exits 0 when every required login
+      is ok and every probe passes, 1 otherwise, and 2 on a usage error or a bad team config. Without --require,
+      only gh is required.
+  auth-helper refresh [--horizon DURATION] [PROVIDER...]
+      Interactive, for a person at the keyboard. Runs each login flow (all providers when none are
+      named), then checks that provider again with check's horizon rule and prints the result. Exits 1
+      when a login command fails or a login is still not ok.
+  auth-helper record okta ok|expired
+      Records what a check outside the shell saw, for example an agent's browser check.
+
+Expiry comes from the provider (signadot), from the exp claim of the Spacelift session token, or from
+the login history: the last refresh plus the shortest lifetime observed so far. The history stays in
+~/.local/state/rogue-auth/history.jsonl, where rogue-auth, the old name of this tool, kept it.
+
+The team's settings (the Spacelift profile and endpoint, the Okta URL, and the probe sets) come from the
+team config, a JSON file. A provider or a probe set that needs a missing setting reports "not configured" and
+never passes. The tool needs only the Python standard library. See tools/auth-helper/README.md.
+
+Never prints, logs, or stores a token. From the Spacelift token it reads only the exp claim.
+
+Environment:
+  AUTH_HELPER_CONFIG          The team config. Default: $XDG_CONFIG_HOME/auth-helper/team.json, else
+                              ~/.config/auth-helper/team.json.
+  AUTH_HELPER_MONITORING_URL  Base URL of the Cloud Monitoring API, for tests (libexec/monitoring-probe).
+  AUTH_HELPER_VERIFY_BROWSER  The verify-browser command, for tests. Default: config/devbox/verify-browser.
+  DOTFILES_DEVBOX             1 forces devbox mode on, 0 forces it off. Unset means on when
+                              $DOTFILES_DEVBOX_MARKER (default /opt/devbox) exists on Linux, as in
+                              scripts/install_devbox.sh.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import fcntl
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import threading
+from collections import defaultdict
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+PROG = "auth-helper"
+MONITORING_PROBE = Path(__file__).resolve().parent.parent / "libexec" / "monitoring-probe"
+VERIFY_BROWSER = Path(__file__).resolve().parents[3] / "config" / "devbox" / "verify-browser" / "verify-browser"
+TIMEOUT_SECONDS = 60
+DETAIL_LIMIT = 120
+
+# ---- the team's settings ----------------------------------------------------------------------------
+
+PROBE_SET_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+GCP_PROJECT = re.compile(r"^[a-z][a-z0-9-]*[a-z0-9]$")
+
+
+@dataclass(frozen=True)
+class Probe:
+    """One read-only access check: a name and the argv to run, without a shell."""
+
+    name: str
+    argv: tuple[str, ...]
+
+
+def project_probes(project: str) -> list[Probe]:
+    return [
+        Probe(f"cloud-run:{project}", ("gcloud", "run", "services", "list", "--project", project, "--limit", "1")),
+        Probe(
+            f"logging:{project}",
+            (
+                *("gcloud", "logging", "read", "severity>=ERROR", "--project", project),
+                *("--limit", "1", "--freshness", "10m"),
+            ),
+        ),
+        # The Monitoring read needs an HTTP request, so a helper script runs it as one probe argv.
+        Probe(f"monitoring:{project}", (sys.executable, "-I", str(MONITORING_PROBE), project)),
+    ]
+
+
+class ConfigError(Exception):
+    """A team config that exists but cannot be used: printed as one line on stderr, exit 2."""
+
+
+@dataclass(frozen=True)
+class TeamConfig:
+    """The team's settings from the team config. A value is None when the config does not set it."""
+
+    path: Path
+    found: bool = False
+    spacelift_profile: str | None = None
+    spacelift_endpoint: str | None = None
+    okta_url: str | None = None
+    probe_sets: dict[str, tuple[Probe, ...]] | None = None
+
+    def missing(self, what: str) -> str:
+        """The reason for a setting that is not configured."""
+        if not self.found:
+            return f"not configured: {self.path} does not exist"
+        return f"not configured: {self.path} does not set {what}"
+
+    def fix(self, what: str) -> str:
+        """The fix for a setting that is not configured. The JSON report has no reason, so it says so too."""
+        absent = "" if self.found else " (the file does not exist)"
+        return (
+            f"Not configured: set {what} in {self.path}{absent}. "
+            "See the Configuration section of tools/auth-helper/README.md."
+        )
+
+
+def config_path() -> Path:
+    explicit = os.environ.get("AUTH_HELPER_CONFIG")
+    if explicit:
+        return Path(explicit).expanduser()
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "auth-helper" / "team.json"
+
+
+def config_text(section: dict, key: str, where: str, *, https: bool = False) -> str:
+    value = section.get(key)
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ConfigError(f"{where}.{key} must be a non-empty string without spaces at the ends")
+    if https and not value.startswith("https://"):
+        raise ConfigError(f"{where}.{key} must start with https://")
+    return value
+
+
+def config_section(data: dict, key: str) -> dict | None:
+    section = data.get(key)
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise ConfigError(f"{key} must be a JSON object")
+    return section
+
+
+def config_probes(entry: object, where: str) -> list[Probe]:
+    """One probe set entry: {"name": ..., "argv": [...]}, or {"gcp_project": ...} for the three project reads."""
+    if isinstance(entry, dict) and set(entry) == {"gcp_project"}:
+        project = entry["gcp_project"]
+        if not isinstance(project, str) or not GCP_PROJECT.match(project):
+            raise ConfigError(f"{where}.gcp_project must be a Google Cloud project ID")
+        return project_probes(project)
+    if isinstance(entry, dict) and set(entry) == {"name", "argv"}:
+        name, argv = entry["name"], entry["argv"]
+        if not isinstance(name, str) or not name.strip():
+            raise ConfigError(f"{where}.name must be a non-empty string")
+        if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) and arg for arg in argv):
+            raise ConfigError(f"{where}.argv must be a non-empty list of non-empty strings")
+        return [Probe(name, tuple(argv))]
+    raise ConfigError(f'{where} must be {{"name": ..., "argv": [...]}} or {{"gcp_project": ...}}')
+
+
+def load_probe_sets(sets: dict) -> dict[str, tuple[Probe, ...]]:
+    probe_sets: dict[str, tuple[Probe, ...]] = {}
+    for name, entries in sets.items():
+        if not PROBE_SET_NAME.match(name):
+            raise ConfigError(f"probe set name {name!r} may hold only letters, digits, - and _")
+        if not isinstance(entries, list) or not entries:
+            raise ConfigError(f"probe_sets.{name} must be a non-empty list")
+        probes = [
+            probe
+            for index, entry in enumerate(entries)
+            for probe in config_probes(entry, f"probe_sets.{name}[{index}]")
+        ]
+        probe_sets[name] = tuple(dict.fromkeys(probes))
+    return probe_sets
+
+
+def load_config(path: Path) -> TeamConfig:
+    """Read the team config. A missing file gives a config with no settings. A bad file raises ConfigError."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return TeamConfig(path)
+    except OSError as error:
+        raise ConfigError(f"cannot read {path}: {error.strerror or error}") from None
+    except UnicodeDecodeError:
+        raise ConfigError(f"{path} is not UTF-8 text") from None
+    try:
+        data = json.loads(text)
+    except ValueError as error:
+        raise ConfigError(f"{path} is not valid JSON: {error}") from None
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path} must hold a JSON object")
+    try:
+        spacelift = config_section(data, "spacelift")
+        okta = config_section(data, "okta")
+        sets = config_section(data, "probe_sets")
+        return TeamConfig(
+            path,
+            found=True,
+            spacelift_profile=config_text(spacelift, "profile", "spacelift") if spacelift is not None else None,
+            spacelift_endpoint=(
+                config_text(spacelift, "endpoint", "spacelift", https=True) if spacelift is not None else None
+            ),
+            okta_url=config_text(okta, "url", "okta", https=True) if okta is not None else None,
+            probe_sets=load_probe_sets(sets) if sets is not None else None,
+        )
+    except ConfigError as error:
+        raise ConfigError(f"{path}: {error}") from None
+
+
+# The team config of this run. main() loads it before a command runs.
+CONFIG = TeamConfig(config_path())
+
+
+def history_path() -> Path:
+    """The login history, in the user's state directory: outside every repository.
+
+    The path keeps the old tool name, rogue-auth, so the history did not reset with the rename.
+    """
+    return Path.home() / ".local" / "state" / "rogue-auth" / "history.jsonl"
+
+
+# ---- providers --------------------------------------------------------------------------------------
+
+# The login commands. The "fix" of a login that is not ok is the exact command string.
+LOGIN: dict[str, tuple[str, ...]] = {
+    "gh": ("gh", "auth", "login", "--hostname", "github.com", "--web"),
+    "gcloud": ("gcloud", "auth", "login", "--force", "--update-adc", "--quiet"),
+    "gcloud-adc": ("gcloud", "auth", "login", "--force", "--update-adc", "--quiet"),
+    "signadot": ("signadot", "auth", "login"),
+}
+SPACELIFT_SETTING = "spacelift.profile and spacelift.endpoint"
+OKTA_SETTING = "okta.url"
+
+
+def login_command(name: str) -> tuple[str, ...] | None:
+    """The login command of a provider, or None when it has none or the team config lacks its settings."""
+    if name == "spacelift":
+        if not CONFIG.spacelift_profile or not CONFIG.spacelift_endpoint:
+            return None
+        # Like spacectl 1.26.0, `profile login <alias>` also selects the profile.
+        return (
+            *("spacectl", "profile", "login", "--method", "browser"),
+            *("--endpoint", CONFIG.spacelift_endpoint, CONFIG.spacelift_profile),
+        )
+    return LOGIN.get(name)
+
+
+PROVIDERS = ("gh", "gcloud", "gcloud-adc", "spacelift", "signadot", "okta")
+DEFAULT_REQUIRED = ("gh",)
+# refresh runs these logins only when the check fails. It always runs the others, to renew them.
+CONDITIONAL_LOGINS = {"gh", "signadot"}
+BROWSER = "Google Chrome"
+
+# The login history. A refresh starts a login; the first check that sees it expired ends it.
+HISTORY_EVENTS = ("refreshed", "expired_seen")
+# Providers whose state only a check outside the shell can see. Only `record` adds their events.
+RECORDABLE = ("okta",)
+RECORD_RESULTS = ("ok", "expired")
+UNKNOWN_LIFETIME = "lifetime unknown; it may expire during the run"
+UNKNOWN_REFRESH = "last refresh unknown; it may expire during the run"
+
+# Failure text that means no login exists, or that the provider rejected an existing login.
+MISSING_HINTS = re.compile(r"not logged in|credentials were not found|no credentialed accounts", re.IGNORECASE)
+EXPIRED_HINTS = re.compile(
+    r"unauthori[sz]ed|unauthenticated|reauthenticat|expired|invalid_grant|refreshing your current auth|log ?in\b",
+    re.IGNORECASE,
+)
+
+DURATION = re.compile(r"^(?:\d+[dhms])+$")
+DURATION_PART = re.compile(r"(\d+)([dhms])")
+UNIT_SECONDS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+MAX_HORIZON_DAYS = 3650
+
+
+class UsageError(Exception):
+    """A bad argument: printed as one line on stderr, exit 2."""
+
+
+@dataclass
+class Outcome:
+    """The result of one non-interactive command. stdout is empty when the caller discarded it."""
+
+    code: int | None
+    stdout: str
+    stderr: str
+    not_installed: bool = False
+
+
+@dataclass
+class Login:
+    """The state of one login."""
+
+    name: str
+    status: str
+    account: str | None = None
+    expires_at: datetime | None = None
+    fix: str | None = None
+    reason: str | None = None
+    # Where expires_at comes from: "provider", "token", or "observed". Without expires_at it is "unknown".
+    expires_source: str = "unknown"
+    lifetimes: tuple[timedelta, ...] = ()
+    warning: str | None = None
+
+    def as_json(self) -> dict[str, object]:
+        shortest = min(self.lifetimes) if self.lifetimes else None
+        return {
+            "name": self.name,
+            "status": self.status,
+            "account": self.account,
+            "expires_at": rfc3339(self.expires_at) if self.expires_at else None,
+            "fix": self.fix,
+            "expires_source": self.expires_source if self.expires_at else "unknown",
+            "observed_lifetimes": {
+                "count": len(self.lifetimes),
+                "shortest_seconds": int(shortest.total_seconds()) if shortest is not None else None,
+            },
+            "warning": self.warning,
+        }
+
+
+# One lock per CLI: calls to different CLIs run in parallel, but each CLI runs one process at a time, so
+# concurrent gcloud calls never contend for its credential cache.
+_cli_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
+_cli_locks_guard = threading.Lock()
+
+
+def cli_lock(cli: str) -> threading.Lock:
+    with _cli_locks_guard:
+        return _cli_locks[cli]
+
+
+def run_quiet(argv: Sequence[str], *, keep_stdout: bool = True, extra_env: dict[str, str] | None = None) -> Outcome:
+    """Run a command, without a shell, with no terminal input and a time limit.
+
+    With keep_stdout=False, stdout goes to /dev/null, so a token the command prints never reaches this process.
+    """
+    env = {**os.environ, "CLOUDSDK_CORE_DISABLE_PROMPTS": "1", "GH_PROMPT_DISABLED": "1", **(extra_env or {})}
+    with cli_lock(argv[0]):
+        try:
+            result = subprocess.run(
+                list(argv),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE if keep_stdout else subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=TIMEOUT_SECONDS,
+                env=env,
+            )
+        except FileNotFoundError:
+            return Outcome(None, "", f"{argv[0]} is not installed", not_installed=True)
+        except OSError as error:
+            # For example a probe whose program is not executable.
+            return Outcome(None, "", f"{argv[0]} cannot run: {error.strerror}")
+        except subprocess.TimeoutExpired:
+            return Outcome(None, "", f"{argv[0]} timed out after {TIMEOUT_SECONDS}s")
+    return Outcome(result.returncode, result.stdout or "", result.stderr or "")
+
+
+def trim(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= DETAIL_LIMIT else text[: DETAIL_LIMIT - 3] + "..."
+
+
+def error_line(outcome: Outcome) -> str:
+    """The last stderr line that mentions an error, else the last stderr line, trimmed."""
+    lines = [line.strip() for line in outcome.stderr.splitlines() if line.strip()]
+    flagged = [line for line in lines if "error" in line.lower()]
+    return trim((flagged or lines or [f"exit {outcome.code}"])[-1])
+
+
+def failure_status(outcome: Outcome) -> str:
+    if outcome.not_installed or MISSING_HINTS.search(outcome.stderr):
+        return "missing"
+    if EXPIRED_HINTS.search(outcome.stderr):
+        return "expired"
+    return "error"
+
+
+def fix_for(name: str, *, not_installed: bool = False) -> str:
+    command = login_command(name)
+    if command is None:
+        return CONFIG.fix(SPACELIFT_SETTING)
+    login = shlex.join(command)
+    return f"Install {command[0]}, then run: {login}" if not_installed else login
+
+
+def okta_fix() -> str:
+    return (
+        f"Confirm Okta in {BROWSER}: open {CONFIG.okta_url} and check that the dashboard loads without a sign-in page."
+    )
+
+
+def devbox_okta_fix() -> str:
+    where = CONFIG.okta_url or "your Okta URL"
+    return (
+        "Sign in to Okta in the devbox verify-browser Chrome: find the workstation's URL for port 6080, open "
+        f'<that URL>/vnc.html?autoconnect=1&resize=scale, sign in at {where}, and tick "Keep me signed in".'
+    )
+
+
+def not_configured(name: str, setting: str) -> Login:
+    """A provider whose team settings are missing. It is an error, so it never passes a required check."""
+    return Login(name, "error", fix=CONFIG.fix(setting), reason=CONFIG.missing(setting))
+
+
+def is_devbox() -> bool:
+    """The same rule as scripts/install_devbox.sh."""
+    forced = os.environ.get("DOTFILES_DEVBOX", "")
+    if forced in ("0", "1"):
+        return forced == "1"
+    marker = Path(os.environ.get("DOTFILES_DEVBOX_MARKER") or "/opt/devbox")
+    return marker.exists() and os.uname().sysname == "Linux"
+
+
+def failed(name: str, outcome: Outcome, account: str | None = None) -> Login:
+    return Login(
+        name,
+        failure_status(outcome),
+        account=account,
+        fix=fix_for(name, not_installed=outcome.not_installed),
+        reason=error_line(outcome),
+    )
+
+
+def parse_time(value: object) -> datetime | None:
+    """Parse an RFC3339 time into UTC. Any other text gives None.
+
+    fromisoformat reads the "Z" suffix and any fraction length (it cuts a fraction past 6 digits). It also
+    reads forms that RFC3339 does not allow, such as a time with no offset, which it takes as local time.
+    The pattern keeps those out.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
+    if not re.fullmatch(pattern, text):
+        return None
+    try:
+        return datetime.fromisoformat(text).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def rfc3339(moment: datetime) -> str:
+    return moment.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_duration(text: str) -> timedelta:
+    if not DURATION.match(text):
+        raise UsageError(f"bad --horizon {text!r}: use a duration such as 8h, 90m, or 1h30m")
+    # Sum in whole seconds first: a huge amount would overflow timedelta.
+    seconds = sum(int(amount) * UNIT_SECONDS[unit] for amount, unit in DURATION_PART.findall(text))
+    if seconds > MAX_HORIZON_DAYS * UNIT_SECONDS["d"]:
+        raise UsageError(f"bad --horizon {text!r}: use at most {MAX_HORIZON_DAYS}d")
+    return timedelta(seconds=seconds)
+
+
+# ---- provider checks --------------------------------------------------------------------------------
+
+
+def check_gh() -> Login:
+    outcome = run_quiet(["gh", "auth", "status", "--hostname", "github.com", "--active", "--json", "hosts"])
+    if outcome.code != 0:
+        return failed("gh", outcome)
+    try:
+        entries = json.loads(outcome.stdout)["hosts"].get("github.com") or []
+        active = next(entry for entry in entries if entry.get("active"))
+    except StopIteration:
+        return Login("gh", "missing", fix=fix_for("gh"), reason="not logged in to github.com")
+    except (ValueError, KeyError, AttributeError, TypeError):
+        return Login("gh", "error", fix=fix_for("gh"), reason="gh auth status printed unexpected JSON")
+    login = active.get("login")
+    account = login if isinstance(login, str) else None
+    state = active.get("state")
+    if state == "success":
+        return Login("gh", "ok", account=account)
+    reason = trim(str(active.get("error") or f"gh auth state: {state}"))
+    # Claude Code cloud sessions block GraphQL, so auth status reports an error for a token that works.
+    # The REST API decides.
+    rest = run_quiet(["gh", "api", "--hostname", "github.com", "user", "--jq", ".login"])
+    rest_login = rest.stdout.strip()
+    if rest.code == 0 and rest_login:
+        return Login("gh", "ok", account=rest_login)
+    status = "error" if state == "timeout" else "expired"
+    return Login("gh", status, account=account, fix=fix_for("gh"), reason=reason)
+
+
+def check_gcloud() -> Login:
+    account_outcome = run_quiet(["gcloud", "config", "get-value", "account"])
+    if account_outcome.code != 0:
+        return failed("gcloud", account_outcome)
+    account = account_outcome.stdout.strip() or None
+    if account is None:
+        return Login("gcloud", "missing", fix=fix_for("gcloud"), reason="no active gcloud account")
+    # Mint a token to prove the login works. Its stdout (the token) goes to /dev/null.
+    mint = run_quiet(["gcloud", "auth", "print-access-token"], keep_stdout=False)
+    if mint.code == 0:
+        return Login("gcloud", "ok", account=account)
+    return failed("gcloud", mint, account=account)
+
+
+def check_gcloud_adc() -> Login:
+    mint = run_quiet(["gcloud", "auth", "application-default", "print-access-token"], keep_stdout=False)
+    if mint.code == 0:
+        return Login("gcloud-adc", "ok")
+    return failed("gcloud-adc", mint)
+
+
+def spacelift_config_path() -> Path:
+    """The config file that spacectl reads (verified with spacectl 1.26.0)."""
+    directory = os.environ.get("SPACELIFT_CONFIG_DIR") or str(Path.home() / ".spacelift")
+    return Path(directory) / "config.json"
+
+
+def spacelift_token_expiry(profile: str) -> datetime | None:
+    """The exp claim of the profile's session token, or None when it cannot be read.
+
+    The token is a JWT. Only its middle segment, the payload, is decoded, and only exp leaves this function.
+    No error text is kept, so no part of the token can reach the output.
+    """
+    try:
+        config = json.loads(spacelift_config_path().read_text(encoding="utf-8"))
+        segments = config["profiles"][profile]["credentials"]["access_token"].split(".")
+        if len(segments) != 3:
+            return None
+        payload = segments[1]
+        exp = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["exp"]
+        if isinstance(exp, bool) or not isinstance(exp, (int, float)):
+            return None
+        return datetime.fromtimestamp(exp, UTC)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
+        return None
+
+
+def check_spacelift() -> Login:
+    team_profile = CONFIG.spacelift_profile
+    if login_command("spacelift") is None or team_profile is None:
+        return not_configured("spacelift", SPACELIFT_SETTING)
+    # spacectl uses SPACELIFT_API_* credentials before the selected profile (verified with spacectl 1.26.0),
+    # so whoami would not prove the profile's login. Report only the names, never the values.
+    overrides = sorted(name for name in os.environ if name.startswith("SPACELIFT_API_"))
+    if overrides:
+        return Login(
+            "spacelift",
+            "error",
+            fix=shlex.join(["unset", *overrides]),
+            reason=f"{', '.join(overrides)} set: spacectl uses them before the {team_profile} profile",
+        )
+    profile = run_quiet(["spacectl", "profile", "current"])
+    if profile.code != 0:
+        return failed("spacelift", profile)
+    alias = profile.stdout.strip() or None
+    if alias is None:
+        return Login("spacelift", "missing", fix=fix_for("spacelift"), reason="no current spacectl profile")
+    if alias != team_profile:
+        # The login command creates the team profile and selects it.
+        reason = f"current spacectl profile is {alias}, not {team_profile}"
+        return Login("spacelift", "error", account=alias, fix=fix_for("spacelift"), reason=reason)
+    expires_at = spacelift_token_expiry(team_profile)
+    whoami = run_quiet(["spacectl", "whoami"], keep_stdout=False)
+    if whoami.code == 0:
+        return Login("spacelift", "ok", account=alias, expires_at=expires_at, expires_source="token")
+    login = failed("spacelift", whoami, account=alias)
+    login.expires_at, login.expires_source = expires_at, "token"
+    return login
+
+
+def check_signadot() -> Login:
+    access = run_quiet(["signadot", "sandbox", "list"], keep_stdout=False)
+    if access.not_installed:
+        return failed("signadot", access)
+    # `auth status -o json` also prints the bearer token. Keep only orgName and expiresAt.
+    account: str | None = None
+    expires_at: datetime | None = None
+    status = run_quiet(["signadot", "auth", "status", "-o", "json"])
+    if status.code == 0:
+        try:
+            data = json.loads(status.stdout)
+        except ValueError:
+            data = None
+        if isinstance(data, dict):
+            org = data.get("orgName")
+            account = org if isinstance(org, str) and org else None
+            expires_at = parse_time(data.get("expiresAt"))
+    if access.code == 0:
+        return Login("signadot", "ok", account=account, expires_at=expires_at, expires_source="provider")
+    login = failed("signadot", access, account=account)
+    login.expires_at, login.expires_source = expires_at, "provider"
+    return login
+
+
+def check_okta() -> Login:
+    if not is_devbox():
+        if CONFIG.okta_url is None:
+            return not_configured("okta", OKTA_SETTING)
+        return Login("okta", "manual", fix=okta_fix(), reason="the shell cannot see the browser's Okta session")
+    command = os.environ.get("AUTH_HELPER_VERIFY_BROWSER") or str(VERIFY_BROWSER)
+    # Without a team Okta URL, verify-browser uses its own setting. Without that too, it reaches no Okta page,
+    # and the check below reports an error.
+    url_env = {"VERIFY_BROWSER_OKTA_URL": CONFIG.okta_url} if CONFIG.okta_url else {}
+    outcome = run_quiet([command, "status", "--json"], extra_env=url_env)
+    if outcome.not_installed:
+        if CONFIG.okta_url is None:
+            return not_configured("okta", OKTA_SETTING)
+        return Login("okta", "manual", fix=okta_fix(), reason="verify-browser is not installed on this devbox")
+    try:
+        data = json.loads(outcome.stdout)
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        data = {}
+    chrome = data.get("chrome")
+    okta = data.get("okta")
+    # No answer from Chrome, or no answer from Okta (no http_status), means nothing was checked. That is an error,
+    # not a signed-out session. A missing Okta URL is one such case.
+    if (
+        not isinstance(chrome, dict)
+        or chrome.get("answers") is not True
+        or not isinstance(okta, dict)
+        or not isinstance(okta.get("http_status"), int)
+    ):
+        detail = (
+            (okta.get("error") if isinstance(okta, dict) else None)
+            or (chrome.get("error") if isinstance(chrome, dict) else None)
+            or data.get("error")
+        )
+        return Login(
+            "okta",
+            "error",
+            fix="Run `verify-browser stop` and `verify-browser start`, then check again. " + devbox_okta_fix(),
+            reason=trim(str(detail)) if detail else error_line(outcome),
+        )
+    session = okta.get("status")
+    if session == "ACTIVE":
+        # expiresAt is the idle expiry, which each page load renews. It is not the session's absolute limit,
+        # so the login keeps no expires_at, and --horizon warns that the lifetime is unknown.
+        idle = parse_time(okta.get("expiresAt"))
+        reason = f"idle expiry {rfc3339(idle)}; the keep-alive renews it" if idle else None
+        return Login("okta", "ok", reason=reason)
+    detail = okta.get("error")
+    reason = f"Okta session status {session}" if session else trim(str(detail or "no Okta session"))
+    return Login("okta", "expired", fix=devbox_okta_fix(), reason=reason)
+
+
+CHECKS: dict[str, Callable[[], Login]] = {
+    "gh": check_gh,
+    "gcloud": check_gcloud,
+    "gcloud-adc": check_gcloud_adc,
+    "spacelift": check_spacelift,
+    "signadot": check_signadot,
+    "okta": check_okta,
+}
+
+
+# ---- login history ----------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Event:
+    provider: str
+    event: str
+    at: datetime
+
+
+def parse_history(text: str) -> tuple[list[Event], list[int]]:
+    """The valid records of the history file, in file order, and the numbers of the lines that were skipped
+    as malformed. A blank line is not counted."""
+    events: list[Event] = []
+    skipped: list[int] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if isinstance(record, dict):
+            provider, event = record.get("provider"), record.get("event")
+            at = parse_time(record.get("at"))
+            if provider in PROVIDERS and event in HISTORY_EVENTS and at is not None:
+                events.append(Event(provider, event, at))
+                continue
+        skipped.append(number)
+    return events, skipped
+
+
+class History:
+    """The append-only login history: one JSON record per line. It is only read and appended to.
+
+    A failure to read or write it never stops a check. The failure goes to stderr once.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.events: list[Event] = []
+        self.error: str | None = None
+        try:
+            self.events, skipped = parse_history(path.read_text(encoding="utf-8", errors="replace"))
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            self._fail(f"cannot read {path}: {error.strerror}")
+            return
+        if skipped:
+            # The check goes on without these lines, but a person should know they were lost.
+            numbers = ", ".join(str(number) for number in skipped)
+            print(f"{PROG}: login history: skipped malformed lines {numbers} in {path}", file=sys.stderr)
+
+    def _fail(self, message: str) -> None:
+        if self.error is None:
+            print(f"{PROG}: login history: {message}", file=sys.stderr)
+        self.error = message
+
+    def last(self, provider: str) -> Event | None:
+        return next((event for event in reversed(self.events) if event.provider == provider), None)
+
+    def lifetimes(self, provider: str) -> tuple[timedelta, ...]:
+        """Each observed lifetime: from a refresh to the next expired_seen. A non-positive one is skipped."""
+        found: list[timedelta] = []
+        refreshed_at: datetime | None = None
+        for event in self.events:
+            if event.provider != provider:
+                continue
+            if event.event == "refreshed":
+                refreshed_at = event.at
+                continue
+            if refreshed_at is not None and event.at > refreshed_at:
+                found.append(event.at - refreshed_at)
+            refreshed_at = None
+        return tuple(found)
+
+    def estimate(self, provider: str) -> datetime | None:
+        """The last refresh plus the shortest observed lifetime, while no expiry was seen after that refresh."""
+        last, lifetimes = self.last(provider), self.lifetimes(provider)
+        if last is None or last.event != "refreshed" or not lifetimes:
+            return None
+        return last.at + min(lifetimes)
+
+    def append(self, provider: str, event: str, at: datetime, when: Callable[[Event | None], bool]) -> bool:
+        """Append one record when `when` accepts the provider's last record. Returns whether it appended.
+
+        The file stays locked while it is read again and written, so two runs cannot both append the same
+        record. A new file is readable by the user only.
+        """
+        at = at.astimezone(UTC).replace(microsecond=0)
+        try:
+            self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(descriptor, "r+", encoding="utf-8", errors="replace") as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+                text = handle.read()
+                self.events, _ = parse_history(text)
+                if not when(self.last(provider)):
+                    return False
+                start = "\n" if text and not text.endswith("\n") else ""
+                record = {"at": rfc3339(at), "provider": provider, "event": event}
+                handle.write(start + json.dumps(record) + "\n")
+        except OSError as error:
+            self._fail(f"cannot write {self.path}: {error.strerror}")
+            return False
+        self.events.append(Event(provider, event, at))
+        return True
+
+    def record_expired(self, provider: str, at: datetime) -> bool:
+        """Record the first expiry seen after the provider's last refresh."""
+        return self.append(provider, "expired_seen", at, lambda last: last is None or last.event != "expired_seen")
+
+    def record_refreshed(self, provider: str, at: datetime) -> bool:
+        return self.append(provider, "refreshed", at, lambda last: True)
+
+    def record_seen_ok(self, provider: str, at: datetime) -> bool:
+        """Record a refresh for a login that works after it was seen expired: it was renewed in between."""
+        return self.append(provider, "refreshed", at, lambda last: last is not None and last.event == "expired_seen")
+
+
+# ---- check's rule -----------------------------------------------------------------------------------
+
+
+def refresh_command(names: Sequence[str], horizon_text: str | None) -> str:
+    """The refresh command line, for a shell."""
+    horizon_option = ["--horizon", horizon_text] if horizon_text else []
+    return shlex.join([PROG, "refresh", *horizon_option, *names])
+
+
+def apply_horizon(login: Login, now: datetime, horizon: timedelta, horizon_text: str | None) -> Login:
+    """Mark a working login "expiring" when its known or estimated expiry falls inside the horizon."""
+    if login.status == "ok" and login.expires_at is not None and login.expires_at <= now + horizon:
+        login.status = "expiring"
+        if login.expires_source == "observed":
+            # Only `auth-helper refresh` records the new refresh time that moves the estimate.
+            login.fix = refresh_command([login.name], horizon_text)
+            login.reason = (
+                f"estimated to expire {rfc3339(login.expires_at)} (last refresh plus the shortest "
+                "observed lifetime), inside the horizon"
+            )
+        else:
+            login.fix = fix_for(login.name)
+            login.reason = f"expires {rfc3339(login.expires_at)}, inside the horizon"
+    return login
+
+
+def warning_for(login: Login, now: datetime, horizon: timedelta) -> str | None:
+    """With --horizon: warn about a working or manual login whose expiry is unknown, or a manual one whose
+    estimate is inside it."""
+    if horizon <= timedelta(0) or login.status not in ("ok", "manual"):
+        return None
+    if login.expires_at is None:
+        return UNKNOWN_REFRESH if login.lifetimes else UNKNOWN_LIFETIME
+    if login.status == "manual" and login.expires_at <= now + horizon:
+        verb = "estimated to expire" if login.expires_source == "observed" else "expires"
+        return f"{verb} {rfc3339(login.expires_at)}, inside the horizon"
+    return None
+
+
+@dataclass
+class Rule:
+    """check's rule: ok only when a login works now and stays valid through the horizon."""
+
+    history: History
+    horizon: timedelta
+    horizon_text: str | None
+
+    def assess(self, login: Login, now: datetime) -> Login:
+        """Apply the rule to one check result.
+
+        It records the first expiry seen after the last refresh, estimates an expiry that no provider or
+        token reports, marks an expiry inside the horizon, and warns when the expiry is unknown.
+        """
+        if login.status == "expired":
+            self.history.record_expired(login.name, now)
+        login.lifetimes = self.history.lifetimes(login.name)
+        if login.expires_at is None:
+            estimate = self.history.estimate(login.name)
+            if estimate is not None:
+                login.expires_at, login.expires_source = estimate, "observed"
+        apply_horizon(login, now, self.horizon, self.horizon_text)
+        login.warning = warning_for(login, now, self.horizon)
+        return login
+
+    def check(self, name: str) -> Login:
+        """Check one provider with the rule."""
+        return self.assess(CHECKS[name](), datetime.now(UTC))
+
+    def check_renewed(self, name: str, code: int | None) -> Login:
+        """Check a provider after its login command ran. A login command that exited 0 and works is a refresh."""
+        login = CHECKS[name]()
+        now = datetime.now(UTC)
+        if code == 0 and login.status == "ok":
+            self.history.record_refreshed(name, now)
+        return self.assess(login, now)
+
+
+# ---- probes -----------------------------------------------------------------------------------------
+
+
+@dataclass
+class ProbeResult:
+    name: str
+    status: str
+    detail: str | None = None
+
+    def as_json(self) -> dict[str, object]:
+        return {"name": self.name, "status": self.status, "detail": self.detail}
+
+
+def run_probe(probe: Probe) -> ProbeResult:
+    # The argv runs as a list, without a shell. stdout can hold a token or listed data, so it goes to
+    # /dev/null. Only stderr is kept.
+    outcome = run_quiet(probe.argv, keep_stdout=False)
+    if outcome.code == 0:
+        return ProbeResult(probe.name, "ok")
+    return ProbeResult(probe.name, "fail", error_line(outcome))
+
+
+def run_checks(names: tuple[str, ...], probes: tuple[Probe, ...]) -> tuple[list[Login], list[ProbeResult]]:
+    """Run the login checks and the probes in parallel. Results keep the order of names and probes."""
+    with ThreadPoolExecutor(max_workers=len(names) + len(probes)) as pool:
+        login_futures = [pool.submit(CHECKS[name]) for name in names]
+        probe_futures = [pool.submit(run_probe, probe) for probe in probes]
+        logins = [future.result() for future in login_futures]
+        return logins, [future.result() for future in probe_futures]
+
+
+# ---- commands ---------------------------------------------------------------------------------------
+
+
+def split_names(values: list[str] | None, known: Sequence[str], what: str) -> tuple[str, ...]:
+    names: list[str] = []
+    for value in values or []:
+        for part in value.split(","):
+            name = part.strip()
+            if not name:
+                continue
+            if name not in known:
+                raise UsageError(f"unknown {what} {name!r}; choose from: {', '.join(known)}")
+            if name not in names:
+                names.append(name)
+    return tuple(names)
+
+
+def refreshable(login: Login, horizon: str | None) -> bool:
+    """Whether `auth-helper refresh` runs this login's fix."""
+    if login_command(login.name) is None:
+        return False
+    return login.fix in (fix_for(login.name), refresh_command([login.name], horizon))
+
+
+def print_table(
+    logins: list[Login], probes: list[ProbeResult], required: tuple[str, ...], ok: bool, horizon: str | None
+) -> None:
+    rows = [("PROVIDER", "STATUS", "ACCOUNT", "EXPIRES")]
+    for login in logins:
+        marker = " *" if login.name in required else ""
+        expires = f"{rfc3339(login.expires_at)} ({login.expires_source})" if login.expires_at else "unknown"
+        rows.append((login.name + marker, login.status, login.account or "-", expires))
+    widths = [max(len(row[column]) for row in rows) for column in range(3)]
+    for row in rows:
+        cells = "  ".join(cell.ljust(widths[index]) for index, cell in enumerate(row[:3]))
+        print(cells + "  " + row[3])
+    needs_fix = [login for login in logins if login.fix]
+    if needs_fix:
+        print()
+        print("Fixes:")
+        for login in needs_fix:
+            print(f"  {login.name}: {login.fix}")
+            if login.reason:
+                print(f"    reason: {login.reason}")
+        # Suggest refresh only where refresh runs the fix. The same horizon makes refresh renew an expiring login.
+        names = [login.name for login in needs_fix if refreshable(login, horizon)]
+        if names:
+            print(f"  Or run them all: {refresh_command(names, horizon)}")
+    warned = [login for login in logins if login.warning]
+    if warned:
+        print()
+        print("Warnings:")
+        for login in warned:
+            print(f"  {login.name}: {login.warning}")
+    if probes:
+        print()
+        print("Probes:")
+        width = max(len(result.name) for result in probes)
+        for result in probes:
+            detail = f"  {result.detail}" if result.detail else ""
+            print(f"  {result.status:<4}  {result.name.ljust(width)}{detail}")
+    print()
+    print(f"* required. Result: {'ok' if ok else 'NOT ok'}")
+
+
+def requested_probes(values: list[str] | None) -> tuple[tuple[Probe, ...], list[ProbeResult]]:
+    """The probes of the requested sets, and one failed result for each set when the config has no probe sets.
+
+    A set name that the config does not hold is a usage error. Without probe sets in the config, every
+    requested set is "not configured": it fails, so the check cannot pass on probes that never ran.
+    """
+    sets = CONFIG.probe_sets
+    if sets is None:
+        given = [part.strip() for value in values or [] for part in value.split(",")]
+        names = split_names(values, given, "probe set")
+        reason = CONFIG.missing("probe_sets")
+        return (), [ProbeResult(name, "fail", reason) for name in names]
+    names = split_names(values, tuple(sets), "probe set")
+    return tuple(dict.fromkeys(probe for name in names for probe in sets[name])), []
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    # Validate every argument before any check runs.
+    required = split_names(args.require, PROVIDERS, "provider") or DEFAULT_REQUIRED
+    probes, unconfigured = requested_probes(args.probes)
+    horizon = parse_duration(args.horizon) if args.horizon else timedelta(0)
+    logins, probe_results = run_checks(PROVIDERS, probes)
+    probe_results = unconfigured + probe_results
+    # Take the time after the checks: a slow check must not let an expired login pass.
+    now = datetime.now(UTC)
+    rule = Rule(History(history_path()), horizon, args.horizon)
+    logins = [rule.assess(login, now) for login in logins]
+    ok = all(login.status == "ok" for login in logins if login.name in required) and all(
+        result.status == "ok" for result in probe_results
+    )
+    if args.json:
+        report = {
+            "checked_at": rfc3339(now),
+            "providers": [login.as_json() for login in logins],
+            "ok": ok,
+            "probes": [result.as_json() for result in probe_results],
+        }
+        print(json.dumps(report, indent=2))
+    else:
+        print_table(logins, probe_results, required, ok, args.horizon)
+    return 0 if ok else 1
+
+
+def run_interactive(argv: Sequence[str]) -> int | None:
+    """Run a login flow attached to this terminal. Returns its exit code, or None when not installed."""
+    print(f"+ {shlex.join(argv)}", file=sys.stderr, flush=True)
+    try:
+        return subprocess.run(list(argv)).returncode
+    except FileNotFoundError:
+        print(f"{PROG}: {argv[0]} is not installed", file=sys.stderr)
+        return None
+
+
+def print_login(login: Login, note: str = "") -> None:
+    account = f" ({login.account})" if login.account else ""
+    reason = f" - {login.reason}" if login.status != "ok" and login.reason else ""
+    print(f"{login.name}: {login.status}{account}{note}{reason}", flush=True)
+
+
+def login_failure(code: int | None) -> str:
+    """The note for a login command that did not exit 0, or "" when it did."""
+    if code == 0:
+        return ""
+    return f" - login command failed ({'not installed' if code is None else f'exit {code}'})"
+
+
+def cmd_refresh(args: argparse.Namespace) -> int:
+    # Validate every argument before any login runs.
+    names = split_names(args.providers, PROVIDERS, "provider") or PROVIDERS
+    horizon = parse_duration(args.horizon) if args.horizon else timedelta(0)
+    rule = Rule(History(history_path()), horizon, args.horizon)
+    exit_code = 0
+    login_codes: dict[tuple[str, ...], int | None] = {}
+    for name in names:
+        if name == "okta" and is_devbox():
+            # The devbox has no local browser to open. Marcus signs in through noVNC; check shows the result.
+            login = rule.check("okta")
+            print_login(login, "" if login.status == "ok" else f" - {login.fix}")
+            if login.status != "ok":
+                exit_code = 1
+            continue
+        if name == "okta":
+            okta_url = CONFIG.okta_url
+            if okta_url is None:
+                print_login(not_configured("okta", OKTA_SETTING), f" - {CONFIG.fix(OKTA_SETTING)}")
+                exit_code = 1
+                continue
+            # Opening the browser proves no login, so refresh records no Okta event. `record` does that.
+            code = run_interactive(["open", "-a", BROWSER, okta_url])
+            print_login(check_okta(), f"{login_failure(code)} - {okta_fix()}")
+            if code != 0:
+                exit_code = 1
+            continue
+        if name in CONDITIONAL_LOGINS:
+            before = rule.check(name)
+            if before.status == "ok":
+                print_login(before, " - login not needed")
+                continue
+        command = login_command(name)
+        if command is None:
+            # No login command without the team settings. Report it and run nothing.
+            print_login(rule.check(name), f" - {fix_for(name)}")
+            exit_code = 1
+            continue
+        if command not in login_codes:
+            login_codes[command] = run_interactive(command)
+        code = login_codes[command]
+        after = rule.check_renewed(name, code)
+        print_login(after, login_failure(code))
+        # A failed login fails refresh even when the old credential still works: it was not renewed.
+        if code != 0 or after.status != "ok":
+            exit_code = 1
+    # A login command also renews the providers that share it: gcloud's login renews gcloud-adc.
+    for command, code in login_codes.items():
+        for name in PROVIDERS:
+            if code == 0 and name not in names and login_command(name) == command:
+                print_login(rule.check_renewed(name, code), " - renewed by the same login command")
+    return exit_code
+
+
+def cmd_record(args: argparse.Namespace) -> int:
+    history = History(history_path())
+    now = datetime.now(UTC)
+    if args.result == "expired":
+        event = "expired_seen"
+        appended = history.record_expired(args.provider, now)
+        skipped = "it was already seen expired after its last refresh"
+    else:
+        event = "refreshed"
+        appended = history.record_seen_ok(args.provider, now)
+        skipped = "no check saw it expired since its last refresh, so this check proves no new login"
+    if history.error:
+        return 1
+    if appended:
+        print(f"{args.provider}: recorded {event} at {rfc3339(now)}")
+    else:
+        print(f"{args.provider}: nothing recorded: {skipped}")
+    return 0
+
+
+def configured_sets() -> str:
+    if CONFIG.probe_sets is None:
+        return "none configured"
+    return ", ".join(CONFIG.probe_sets) or "none configured"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=PROG,
+        description="Check and refresh the logins an unattended run needs. See tools/auth-helper/README.md.",
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    check = commands.add_parser("check", help="report whether each login works now (non-interactive)")
+    check.add_argument(
+        "--require",
+        action="append",
+        metavar="P[,P...]",
+        help=f"providers that must be ok; choose from {', '.join(PROVIDERS)} (default: gh)",
+    )
+    check.add_argument(
+        "--horizon", metavar="DURATION", help="mark a known or estimated expiry inside this duration, e.g. 8h"
+    )
+    check.add_argument(
+        "--probes",
+        action="append",
+        metavar="SET[,SET...]",
+        help=f"also run the read-only access probes of these sets from {CONFIG.path}: {configured_sets()}",
+    )
+    check.add_argument("--json", action="store_true", help="print the JSON report")
+    check.set_defaults(handler=cmd_check)
+    refresh = commands.add_parser("refresh", help="run the login flows interactively, then check again")
+    refresh.add_argument(
+        "--horizon", metavar="DURATION", help="log in again when a known expiry falls inside this duration, e.g. 8h"
+    )
+    refresh.add_argument("providers", nargs="*", metavar="PROVIDER", help=f"default: all of {', '.join(PROVIDERS)}")
+    refresh.set_defaults(handler=cmd_refresh)
+    record = commands.add_parser(
+        "record", help="record the result of a check outside the shell, such as a browser check"
+    )
+    record.add_argument("provider", choices=RECORDABLE, help="the provider that was checked")
+    record.add_argument("result", choices=RECORD_RESULTS, help="what the check saw")
+    record.set_defaults(handler=cmd_record)
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    global CONFIG
+    config_error: ConfigError | None = None
+    try:
+        CONFIG = load_config(config_path())
+    except ConfigError as error:
+        config_error = error
+    args = build_parser().parse_args(argv)
+    if config_error is not None and args.command != "record":
+        # A team config that exists but cannot be read is a mistake to fix, not a missing setting.
+        print(f"{PROG}: bad team config: {config_error}", file=sys.stderr)
+        return 2
+    try:
+        return args.handler(args)
+    except UsageError as error:
+        # A usage error is one line on stderr and exit 2.
+        print(f"{PROG}: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

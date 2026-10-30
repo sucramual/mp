@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The repository checks: lint, format, types, guidance links, private-term leaks, and tests.
+# CI and `dotfiles-pr ship` both run this file, so it is the one definition of "the checks".
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+uv run --frozen ruff check
+uv run --frozen ruff format --check
+uv run --frozen ty check
+uv run --frozen python scripts/check_guidance_links.py
+# The deny list is private: the work overlay, or the DOTFILES_LEAK_TERMS secret in CI. See scripts/check_leaks.py.
+uv run --frozen python scripts/check_leaks.py
+uv run --frozen pytest

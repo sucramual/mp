@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write Project Updates"
+  short_description: "Draft or edit project updates in your writing style"
+  default_prompt: "Use $write-project-updates to draft a project update from my supplied facts or Google and Notion notes, or edit an accepted draft in my writing style."

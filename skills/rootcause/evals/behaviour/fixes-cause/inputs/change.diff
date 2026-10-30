@@ -1,0 +1,13 @@
+--- a/catalog/loader.py
++++ b/catalog/loader.py
+@@ -10,8 +10,8 @@ def load_catalog(path=DATA):
+     catalog = {}
+     with open(path, newline="") as handle:
+         for row in csv.DictReader(handle):
+-            sku = row["sku"].strip()
+-            if not sku.isupper():  # skip blank or malformed rows
++            sku = row["sku"].strip().upper()
++            if not sku:  # skip blank rows
+                 continue
+             catalog[sku] = int(row["price_cents"])
+     return catalog

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Maintain Verification Skill"
+  short_description: "Audit and refresh project verification maps"
+  default_prompt: "Use $maintain-verification-skill to audit this project's verification skill."
+
+policy:
+  allow_implicit_invocation: false

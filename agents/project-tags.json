@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "contracts": {
+    "learning": "~/.agent-guidance/contracts/ai-assisted-learning.md"
+  },
+  "projects": [
+    {
+      "name": "dandori",
+      "tags": ["learning"]
+    },
+    {
+      "name": "fondue",
+      "tags": ["learning"]
+    },
+    {
+      "name": "moku",
+      "tags": ["learning"]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "state": "success",
+  "sha": "4c9e2a71d8b05f36e1a7c42d9b8f0e3a5d6c7b18",
+  "total_count": 1,
+  "statuses": [{"context": "ci/deploy-preview", "state": "success", "description": "Preview ready"}]
+}

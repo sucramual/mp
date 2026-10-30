@@ -1,0 +1,7 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    {"name": "lint", "head_sha": "b7d41e09c3a25f8e6d1c0b9a8f7e6d5c4b3a2918", "status": "completed", "conclusion": "success"},
+    {"name": "test", "head_sha": "b7d41e09c3a25f8e6d1c0b9a8f7e6d5c4b3a2918", "status": "completed", "conclusion": "success"}
+  ]
+}

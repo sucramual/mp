@@ -1,0 +1,8 @@
+[repository]
+path = "__HOME__/dotfiles"
+remote = "origin"
+main_branch = "main"
+
+# git worktree remove deletes ignored files, so keep worktrees that still hold agent notes or pages.
+[prune]
+keep = [".cheese/**", ".tmp/answers/**", ".handoff/**"]

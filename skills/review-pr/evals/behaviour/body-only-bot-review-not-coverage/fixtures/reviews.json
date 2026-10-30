@@ -1,0 +1,10 @@
+[
+  {
+    "id": 7731,
+    "user": {"login": "copilot-pull-request-reviewer[bot]", "type": "Bot"},
+    "state": "COMMENTED",
+    "commit_id": "4c9e2a71d8b05f36e1a7c42d9b8f0e3a5d6c7b18",
+    "submitted_at": "2026-10-29T09:20:41Z",
+    "body": "## Pull Request Overview\n\nThis PR adds retry with exponential backoff to webhook delivery when the receiver returns 503.\n\n### Reviewed Changes\n\nCopilot reviewed 3 out of 3 changed files in this pull request and generated no comments."
+  }
+]

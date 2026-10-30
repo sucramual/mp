@@ -1,0 +1,58 @@
+#!/bin/bash
+# launchd runs this script every 15 minutes (label com.sucramual.dotfiles-pr-sync,
+# from config/launchd/). It runs `dotfiles-pr sync --no-prune`. When sync refuses,
+# it changes nothing and exits non-zero. The job skips the prune for now. Nothing
+# prunes dotfiles scratch worktrees on a schedule, because the com.sucramual.bu-prune
+# agent uses the default bu config, which covers only the work benches. A manual
+# `dotfiles-pr sync` prunes them.
+#
+# The script writes a log line only when the outcome changes. A refusal that repeats
+# every 15 minutes therefore gives one line and does not hide later errors.
+# A new failure also shows a macOS notification. The script exits with the sync
+# exit status, so `launchctl print` shows the result of the last run.
+#
+# Files in $DOTFILES_SYNC_LOG_DIR (default: ~/Library/Logs/dotfiles-pr on macOS,
+# ~/.local/state/dotfiles-pr on other systems such as the devbox):
+#   sync.log           one timestamped line for each change of outcome
+#   sync-last-run.log  the full output of the last run; its time stamp shows when the job last ran
+#   sync.state         the last outcome, which the next run compares with
+set -u
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  default_log_dir="$HOME/Library/Logs/dotfiles-pr"
+else
+  default_log_dir="$HOME/.local/state/dotfiles-pr"
+fi
+log_dir="${DOTFILES_SYNC_LOG_DIR:-$default_log_dir}"
+mkdir -p "$log_dir"
+last_run="$log_dir/sync-last-run.log"
+state="$log_dir/sync.state"
+
+dotfiles_pr="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bin/dotfiles-pr"
+summary="$("$dotfiles_pr" sync --no-prune 2>"$last_run")"
+status=$?
+if [ -n "$summary" ]; then
+  printf '%s\n' "$summary" >>"$last_run"
+fi
+
+if [ "$status" -eq 0 ]; then
+  outcome="ok: ${summary//$'\n'/; }"
+  # Keep warnings (for example, a failed Codex config merge) visible on success.
+  warnings="$(grep '^dotfiles-pr: warning:' "$last_run")"
+  if [ -n "$warnings" ]; then
+    outcome="$outcome; ${warnings//$'\n'/; }"
+  fi
+else
+  # On failure, dotfiles-pr prints a one-line error last. A crash prints its exception last.
+  outcome="FAILED (exit $status): $(tail -n 1 "$last_run")"
+fi
+
+if [ "$outcome" != "$(cat "$state" 2>/dev/null)" ]; then
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$outcome" >>"$log_dir/sync.log"
+  printf '%s\n' "$outcome" >"$state"
+  if [ "$status" -ne 0 ] && command -v osascript >/dev/null 2>&1; then
+    osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "dotfiles sync failed"' \
+      -e 'end run' "$outcome" >/dev/null 2>&1 || true
+  fi
+fi
+exit "$status"

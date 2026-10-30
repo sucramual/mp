@@ -1,0 +1,11 @@
+[
+  {
+    "type": "required_status_checks",
+    "ruleset_id": 21,
+    "parameters": {
+      "strict_required_status_checks_policy": false,
+      "required_status_checks": [{"context": "lint"}, {"context": "test"}]
+    }
+  },
+  {"type": "pull_request", "ruleset_id": 21, "parameters": {"required_approving_review_count": 0}}
+]

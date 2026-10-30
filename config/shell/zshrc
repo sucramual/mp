@@ -1,0 +1,182 @@
+# If you come from bash you might have to change your $PATH.
+# export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
+
+# Path to your Oh My Zsh installation.
+export ZSH="$HOME/.oh-my-zsh"
+
+# Set name of the theme to load --- if set to "random", it will
+# load a random theme each time Oh My Zsh is loaded, in which case,
+# to know which specific one was loaded, run: echo $RANDOM_THEME
+# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
+ZSH_THEME="robbyrussell"
+
+# Set list of themes to pick from when loading at random
+# Setting this variable when ZSH_THEME=random will cause zsh to load
+# a theme from this variable instead of looking in $ZSH/themes/
+# If set to an empty array, this variable will have no effect.
+# ZSH_THEME_RANDOM_CANDIDATES=( "robbyrussell" "agnoster" )
+
+# Uncomment the following line to use case-sensitive completion.
+# CASE_SENSITIVE="true"
+
+# Uncomment the following line to use hyphen-insensitive completion.
+# Case-sensitive completion must be off. _ and - will be interchangeable.
+# HYPHEN_INSENSITIVE="true"
+
+# Uncomment one of the following lines to change the auto-update behavior
+# zstyle ':omz:update' mode disabled  # disable automatic updates
+# zstyle ':omz:update' mode auto      # update automatically without asking
+# zstyle ':omz:update' mode reminder  # just remind me to update when it's time
+
+# Uncomment the following line to change how often to auto-update (in days).
+# zstyle ':omz:update' frequency 13
+
+# Uncomment the following line if pasting URLs and other text is messed up.
+# DISABLE_MAGIC_FUNCTIONS="true"
+
+# Uncomment the following line to disable colors in ls.
+# DISABLE_LS_COLORS="true"
+
+# Uncomment the following line to disable auto-setting terminal title.
+# DISABLE_AUTO_TITLE="true"
+
+# Uncomment the following line to enable command auto-correction.
+# ENABLE_CORRECTION="true"
+
+# Uncomment the following line to display red dots whilst waiting for completion.
+# You can also set it to another string to have that shown instead of the default red dots.
+# e.g. COMPLETION_WAITING_DOTS="%F{yellow}waiting...%f"
+# Caution: this setting can cause issues with multiline prompts in zsh < 5.7.1 (see #5765)
+# COMPLETION_WAITING_DOTS="true"
+
+# Uncomment the following line if you want to disable marking untracked files
+# under VCS as dirty. This makes repository status check for large repositories
+# much, much faster.
+# DISABLE_UNTRACKED_FILES_DIRTY="true"
+
+# Uncomment the following line if you want to change the command execution time
+# stamp shown in the history command output.
+# You can set one of the optional three formats:
+# "mm/dd/yyyy"|"dd.mm.yyyy"|"yyyy-mm-dd"
+# or set a custom format using the strftime function format specifications,
+# see 'man strftime' for details.
+# HIST_STAMPS="mm/dd/yyyy"
+
+# Would you like to use another custom folder than $ZSH/custom?
+# ZSH_CUSTOM=/path/to/new-custom-folder
+
+# Which plugins would you like to load?
+# Standard plugins can be found in $ZSH/plugins/
+# Custom plugins may be added to $ZSH_CUSTOM/plugins/
+# Example format: plugins=(rails git textmate ruby lighthouse)
+# Add wisely, as too many plugins slow down shell startup.
+plugins=(git)
+
+source $ZSH/oh-my-zsh.sh
+
+# User configuration
+
+# export MANPATH="/usr/local/man:$MANPATH"
+
+# You may need to manually set your language environment
+# export LANG=en_US.UTF-8
+
+# Preferred editor for local and remote sessions
+# if [[ -n $SSH_CONNECTION ]]; then
+#   export EDITOR='vim'
+# else
+#   export EDITOR='nvim'
+# fi
+
+# Compilation flags
+# export ARCHFLAGS="-arch $(uname -m)"
+
+# Set personal aliases, overriding those provided by Oh My Zsh libs,
+# plugins, and themes. Aliases can be placed here, though Oh My Zsh
+# users are encouraged to define aliases within a top-level file in
+# the $ZSH_CUSTOM folder, with .zsh extension. Examples:
+# - $ZSH_CUSTOM/aliases.zsh
+# - $ZSH_CUSTOM/macos.zsh
+# For a full list of active aliases, run `alias`.
+#
+# Example aliases
+# alias zshconfig="mate ~/.zshrc"
+# alias ohmyzsh="mate ~/.oh-my-zsh"
+export PATH="$HOME/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+# Worktree navigation: jump into the worktree that owns a branch/ticket.
+# Usage: wtcd ENG-1503  |  wtcd quizzical  |  wtcd (list all)
+wtcd() {
+  local query="$1"
+  if [[ -z "$query" ]]; then
+    git worktree list
+    return 0
+  fi
+
+  local matches
+  matches=$(git worktree list --porcelain | awk '
+    /^worktree / { path=$2 }
+    /^branch /   { sub("refs/heads/","",$2); print path "\t" $2 }
+  ' | grep -i -- "$query")
+
+  if [[ -z "$matches" ]]; then
+    echo "wtcd: no worktree matching '$query'" >&2
+    return 1
+  fi
+
+  local count=$(printf '%s\n' "$matches" | wc -l | tr -d ' ')
+  if [[ "$count" -eq 1 ]]; then
+    cd "$(printf '%s' "$matches" | cut -f1)"
+  elif command -v fzf >/dev/null; then
+    local picked=$(printf '%s\n' "$matches" | fzf --with-nth=2 --delimiter=$'\t')
+    [[ -n "$picked" ]] && cd "$(printf '%s' "$picked" | cut -f1)"
+  else
+    printf '%s\n' "$matches" | awk -F'\t' '{print "  "$2" → "$1}'
+    return 1
+  fi
+}
+
+# Personal secrets — gitignored, never tracked.
+# Provides exports for SLACK_BOT_TOKEN, LINEAR_API_KEY, etc.
+[ -f ~/.env ] && source ~/.env
+
+source "${${(%):-%N}:A:h}/aliases.zsh"
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Update vercel-labs skills CLI with auth for private repos
+skills-update() {
+  local token
+  token=$(gh auth token 2>/dev/null)
+  [[ -n $token ]] || token=${GH_TOKEN:-$GITHUB_TOKEN}
+  [[ -n $token ]] || {
+    echo "skills-update: no GitHub token found." >&2
+    echo "  fix: gh auth login            # preferred — stores the token in the keychain" >&2
+    echo "  or:  export GH_TOKEN=<token>  # fallback when gh is unavailable" >&2
+    return 1
+  }
+  GH_TOKEN="$token" npx skills update -g "$@"
+}
+
+# pnpm
+export PNPM_HOME="$HOME/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
+
+# gcloud SDK components (gke-gcloud-auth-plugin for kubectl) install here, not on the Homebrew PATH.
+# zprofile's brew shellenv sets HOMEBREW_PREFIX, so Intel (/usr/local) prefixes work too.
+GCLOUD_SDK_BIN="${HOMEBREW_PREFIX:-/opt/homebrew}/share/google-cloud-sdk/bin"
+if [[ -d "$GCLOUD_SDK_BIN" ]]; then
+  case ":$PATH:" in
+    *":$GCLOUD_SDK_BIN:"*) ;;
+    *) export PATH="$PATH:$GCLOUD_SDK_BIN" ;;
+  esac
+fi
+unset GCLOUD_SDK_BIN
+
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"

@@ -1,0 +1,799 @@
+{
+ "ccr": {
+  "data": [
+   {
+    "created_at": "2026-10-29T09:00:00Z",
+    "user": {
+     "uuid": "s-u1",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": "check the PRs"
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:01Z",
+    "assistant": {
+     "uuid": "s-a1",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t1",
+         "name": "Bash",
+         "input": {
+          "command": "cd /home/user/app && gh pr view 12 ; echo done"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:02Z",
+    "user": {
+     "uuid": "s-u2",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t1",
+         "content": "HTTP 403: GitHub GraphQL is not available from Claude Code sessions (request 1)\ndone",
+         "is_error": false
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:03Z",
+    "assistant": {
+     "uuid": "s-a2",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t2",
+         "name": "Bash",
+         "input": {
+          "command": "D=/tmp/x/tofu && export A=1 && timeout 30 /usr/bin/gh search prs foo"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:04Z",
+    "user": {
+     "uuid": "s-u3",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t2",
+         "content": "Exit code 1\nSwitched to a new branch 'x'\nHTTP 403: GitHub GraphQL is not available from Claude Code sessions (request 22)",
+         "is_error": true
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:05Z",
+    "assistant": {
+     "uuid": "s-a3",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t3",
+         "name": "Bash",
+         "input": {
+          "command": "R=bddb12; git checkout -b x"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:06Z",
+    "user": {
+     "uuid": "s-u4",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t3",
+         "content": "Exit code 1\nSwitched to a new branch 'x'\nfatal: a branch named 'x' already exists",
+         "is_error": true
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:07Z",
+    "assistant": {
+     "uuid": "s-a4",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t4",
+         "name": "Read",
+         "input": {
+          "file_path": "/repo/docs/github.md"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:08Z",
+    "user": {
+     "uuid": "s-u5",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t4",
+         "content": "     1\tNotes\n     2\tGitHub returns HTTP 403 with a message when GraphQL is blocked.\nGitHub returns HTTP 403 with a body.",
+         "is_error": false
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:09Z",
+    "assistant": {
+     "uuid": "s-a5",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t5",
+         "name": "mcp__Linear__save_issue",
+         "input": {
+          "id": "ENG-1"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:10Z",
+    "user": {
+     "uuid": "s-u6",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t5",
+         "content": [
+          {
+           "type": "text",
+           "text": "Permission for this action was denied by the user."
+          }
+         ]
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:11Z",
+    "assistant": {
+     "uuid": "s-a6",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t6",
+         "name": "mcp__github__ReadNotifications",
+         "input": {}
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:12Z",
+    "user": {
+     "uuid": "s-u7",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t6",
+         "content": "[]"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:13Z",
+    "assistant": {
+     "uuid": "s-a7",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t7",
+         "name": "Grep",
+         "input": {
+          "pattern": "x"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:14Z",
+    "user": {
+     "uuid": "s-u8",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t7",
+         "content": "a"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:15Z",
+    "assistant": {
+     "uuid": "s-a8",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t8",
+         "name": "Grep",
+         "input": {
+          "pattern": "x"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:16Z",
+    "user": {
+     "uuid": "s-u9",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t8",
+         "content": "a"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:17Z",
+    "assistant": {
+     "uuid": "s-a9",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t9",
+         "name": "Bash",
+         "input": {
+          "command": "ls"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:18Z",
+    "user": {
+     "uuid": "s-u10",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t9",
+         "content": "a"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:19Z",
+    "assistant": {
+     "uuid": "s-a10",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t10",
+         "name": "Grep",
+         "input": {
+          "pattern": "x"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:20Z",
+    "user": {
+     "uuid": "s-u11",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t10",
+         "content": "a"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:21Z",
+    "control_request": {
+     "internal_anthropic_catchall": {
+      "request": {
+       "subtype": "can_use_tool",
+       "tool_name": "mcp__github__create_pull_request",
+       "display_name": "Prepare Attachment Upload",
+       "decision_reason_code": "org_ask_ceiling",
+       "input": {},
+       "tool_use_id": "t11"
+      },
+      "request_id": "sreq1",
+      "uuid": "s-c1"
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:51Z",
+    "control_response": {
+     "internal_anthropic_catchall": {
+      "response": {
+       "request_id": "sreq1",
+       "response": {
+        "behavior": "allow",
+        "tool_name": "mcp__github__create_pull_request"
+       },
+       "subtype": "success"
+      },
+      "uuid": "s-c2"
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:00:52Z",
+    "control_request": {
+     "internal_anthropic_catchall": {
+      "request": {
+       "subtype": "can_use_tool",
+       "tool_name": "mcp__github__create_pull_request",
+       "display_name": "Prepare Attachment Upload",
+       "decision_reason_code": "org_ask_ceiling",
+       "input": {},
+       "tool_use_id": "t12"
+      },
+      "request_id": "sreq2",
+      "uuid": "s-c3"
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:01:32Z",
+    "control_response": {
+     "internal_anthropic_catchall": {
+      "response": {
+       "request_id": "sreq2",
+       "response": {
+        "behavior": "allow",
+        "tool_name": "mcp__github__create_pull_request"
+       },
+       "subtype": "success"
+      },
+      "uuid": "s-c4"
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:01:40Z",
+    "result": {
+     "uuid": "s-r1",
+     "internal_anthropic_catchall": {
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 3,
+      "result": "This needs no action.",
+      "session_id": "sess_retro_1",
+      "stop_reason": "end_turn"
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:30:00Z",
+    "user": {
+     "uuid": "s-u12",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": "wake: PR comment"
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:30:01Z",
+    "assistant": {
+     "uuid": "s-a11",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t13",
+         "name": "mcp__github__ReadNotifications",
+         "input": {}
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:30:02Z",
+    "user": {
+     "uuid": "s-u13",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t13",
+         "content": "[]"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T09:30:05Z",
+    "result": {
+     "uuid": "s-r2",
+     "internal_anthropic_catchall": {
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 3,
+      "result": "Nothing to act on.",
+      "session_id": "sess_retro_1",
+      "stop_reason": "end_turn"
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:00Z",
+    "user": {
+     "uuid": "s-u14",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": "wake: CI"
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:01Z",
+    "assistant": {
+     "uuid": "s-a12",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t14",
+         "name": "mcp__github__ReadNotifications",
+         "input": {}
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:02Z",
+    "user": {
+     "uuid": "s-u15",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t14",
+         "content": "[]"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:03Z",
+    "assistant": {
+     "uuid": "s-a13",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t15",
+         "name": "Glob",
+         "input": {
+          "pattern": "*.md"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:04Z",
+    "user": {
+     "uuid": "s-u16",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t15",
+         "content": "a"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:05Z",
+    "assistant": {
+     "uuid": "s-a14",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t16",
+         "name": "Glob",
+         "input": {
+          "pattern": "*.md"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:06Z",
+    "user": {
+     "uuid": "s-u17",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t16",
+         "content": "a"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:07Z",
+    "assistant": {
+     "uuid": "s-a15",
+     "internal_anthropic_catchall": {
+      "message": {
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "",
+         "signature": "sig"
+        },
+        {
+         "type": "tool_use",
+         "id": "t17",
+         "name": "Glob",
+         "input": {
+          "pattern": "*.md"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:08Z",
+    "user": {
+     "uuid": "s-u18",
+     "internal_anthropic_catchall": {
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "tool_result",
+         "tool_use_id": "t17",
+         "content": "a"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "created_at": "2026-10-29T10:00:10Z",
+    "result": {
+     "uuid": "s-r3",
+     "internal_anthropic_catchall": {
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 3,
+      "result": "Taking no action on this wake.",
+      "session_id": "sess_retro_1",
+      "stop_reason": "end_turn"
+     }
+    }
+   }
+  ],
+  "has_more": false
+ }
+}

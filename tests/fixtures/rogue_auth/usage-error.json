@@ -1,0 +1,5 @@
+{
+  "exit": 2,
+  "stderr": "rogue-auth: unknown provider 'nope'; choose from: gh, gcloud, gcloud-adc, spacelift, signadot, okta\n",
+  "stdout": ""
+}

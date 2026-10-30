@@ -1,0 +1,87 @@
+# Portable Codex base config. install.sh merges it into the machine-owned
+# ~/.codex/config.toml (a real, untracked file); keys set here win there.
+# App-written or machine-specific keys (notify, bundled MCP servers,
+# marketplaces, tui state) belong only in the local file, not here.
+
+sandbox_mode = "workspace-write"
+model = "gpt-6-sol"
+model_reasoning_effort = "high"
+
+[sandbox_workspace_write]
+writable_roots = ["~/Documents/Obsidian/Default"]
+
+[mcp_servers.notion]
+url = "https://mcp.notion.com/mcp"
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+
+[projects."/Users/marcus/Documents/bu"]
+trust_level = "trusted"
+
+[projects."/Users/marcus/dotfiles"]
+trust_level = "trusted"
+
+[projects."/Users/marcus/Documents/Codex/2026-08-26/i-have-2-days-to-implement"]
+trust_level = "trusted"
+
+[projects."/Users/marcus/Documents/Codex/2026-08-26/norm"]
+trust_level = "trusted"
+
+[projects."/Users/marcus/Documents/Codex/2026-08-27/in"]
+trust_level = "trusted"
+
+[projects."/Users/marcus/Documents/Codex/2026-09-15/h"]
+trust_level = "trusted"
+
+[projects."/Users/marcus"]
+trust_level = "trusted"
+
+[desktop]
+followUpQueueMode = "queue"
+dock-icon-preference = "codex-system"
+conversationDetailMode = "STEPS_COMMANDS"
+open-link-in-target-preference = "external-browser"
+keepRemoteControlAwakeWhilePluggedIn = true
+
+[plugins."codex-app-tools@openai-bundled"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."visualize@openai-bundled"]
+enabled = true
+
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = true
+
+[plugins."template-creator@openai-primary-runtime"]
+enabled = true
+
+[plugins."computer-history@openai-bundled"]
+enabled = true
+
+[plugins."chrome@openai-bundled"]
+enabled = true
+
+[plugins."code-review@openai-bundled"]
+enabled = true
+
+[features]
+js_repl = false
+memories = true
+chronicle = true

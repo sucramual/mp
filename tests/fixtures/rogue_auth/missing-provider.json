@@ -1,0 +1,89 @@
+{
+  "exit": 1,
+  "stderr": "",
+  "stdout": {
+    "checked_at": "<time>",
+    "ok": false,
+    "probes": [],
+    "providers": [
+      {
+        "account": "octo-fake",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gh",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": "gcloud auth login --force --update-adc --quiet",
+        "name": "gcloud",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "missing",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": "gcloud auth login --force --update-adc --quiet",
+        "name": "gcloud-adc",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "missing",
+        "warning": null
+      },
+      {
+        "account": "acmeholdings",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "spacelift",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": "Install signadot, then run: signadot auth login",
+        "name": "signadot",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "missing",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": "Confirm Okta in Google Chrome: open https://login.acme.example and check that the dashboard loads without a sign-in page.",
+        "name": "okta",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "manual",
+        "warning": null
+      }
+    ]
+  }
+}

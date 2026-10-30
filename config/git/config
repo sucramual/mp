@@ -1,0 +1,6 @@
+[user]
+	name = sucramual
+	email = 127946253+sucramual@users.noreply.github.com
+
+[fetch]
+	prune = true

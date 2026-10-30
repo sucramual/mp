@@ -1,0 +1,8 @@
+[
+  {
+    "Resources": [
+      {"Address": "google_storage_bucket.exports", "PreviousAddress": "", "Metadata": {"Type": "UPDATE"}},
+      {"Address": "google_storage_bucket_iam_member.reader", "PreviousAddress": "", "Metadata": {"Type": ""}}
+    ]
+  }
+]

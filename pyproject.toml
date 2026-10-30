@@ -1,0 +1,38 @@
+# Dev tooling for the checks in scripts/check. Not an installable package.
+[project]
+name = "dotfiles"
+version = "0"
+requires-python = ">=3.12"
+
+[dependency-groups]
+dev = [
+  "pytest==9.1.1",
+  "pytest-xdist==3.8.0",
+  "ruff==0.16.9",
+  "ty==0.0.84",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "skills/log/scripts", "skills/daily-digest/scripts"]
+# -n auto: run tests in parallel (pytest-xdist), one worker per CPU. Pass -n0 to run serially.
+addopts = ["-ra", "--strict-markers", "-n", "auto"]
+
+[tool.ruff]
+line-length = 120
+# The scripts must run on Python 3.11 or newer, the floor that install.sh enforces. Upgrade rules may use 3.11 syntax and APIs.
+target-version = "py311"
+# Extensionless Python scripts are not picked up by default.
+extend-include = ["tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ty.environment]
+# Check against the oldest interpreter the scripts support: Python 3.11, the floor that install.sh enforces.
+python-version = "3.11"
+
+[tool.ty.src]
+include = ["skills", "tests", "scripts/check_guidance_links.py", "scripts/check_leaks.py", "scripts/third_party_skills.py", "scripts/link_skills.py", "scripts/link_tools.py", "tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe", "tools/agent-completion-sound", "config/agent-hooks"]

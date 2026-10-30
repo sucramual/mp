@@ -1,0 +1,10 @@
+[
+  {
+    "id": 7741,
+    "user": {"login": "claude[bot]", "type": "Bot"},
+    "path": "merge_gate.py",
+    "line": 23,
+    "commit_id": "c2e9a4f1d07b3865e4a2c1b0f9d8e7a6b5c4d3e2",
+    "body": "**P1: transient errors block merges.** `read_check_runs` treats any failed `gh api` call as a failure, so `gate()` returns `not ready`. One HTTP 502 from the proxy makes the gate refuse a PR whose checks are all green, and the merge waits until someone runs the gate again. Please add a retry with exponential backoff (for example 5 attempts) around the `gh api` call."
+  }
+]

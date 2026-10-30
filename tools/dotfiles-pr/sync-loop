@@ -1,0 +1,14 @@
+#!/bin/bash
+# The devbox has no launchd. This loop runs sync-job every 15 minutes instead.
+# config/devbox/on-start starts it in the tmux session dotfiles-sync.
+# A failed run does not stop the loop. sync-job logs each change of outcome.
+# DOTFILES_SYNC_INTERVAL (seconds) overrides the wait.
+set -u
+
+sync_job="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sync-job"
+interval="${DOTFILES_SYNC_INTERVAL:-900}"
+
+while true; do
+  "$sync_job" || true
+  sleep "$interval"
+done

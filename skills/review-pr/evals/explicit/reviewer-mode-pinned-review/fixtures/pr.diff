@@ -1,0 +1,50 @@
+diff --git a/src/settings_cache.py b/src/settings_cache.py
+new file mode 100644
+index 0000000..3c4d5e6
+--- /dev/null
++++ b/src/settings_cache.py
+@@ -0,0 +1,26 @@
++import time
++
++from .settings import load_settings
++
++TTL_SECONDS = 60
++
++_cache: dict[str, tuple[float, dict]] = {}
++
++
++def get_settings(tenant_id: str) -> dict:
++    """Return the settings of one tenant, cached for TTL_SECONDS."""
++    now = time.time()
++    hit = _cache.get(tenant_id)
++    if hit and now - hit[0] < TTL_SECONDS:
++        return hit[1]
++    settings = load_settings(tenant_id)
++    _cache[tenant_id] = (now, settings)
++    return settings
++
++
++def clear(tenant_id: str | None = None) -> None:
++    """Drop one tenant's entry, or every entry."""
++    if tenant_id is None:
++        _cache.clear()
++        return
++    _cache.pop(tenant_id, None)
+diff --git a/tests/test_settings_cache.py b/tests/test_settings_cache.py
+new file mode 100644
+index 0000000..7a8b9c0
+--- /dev/null
++++ b/tests/test_settings_cache.py
+@@ -0,0 +1,12 @@
++from src import settings_cache
++
++
++def test_second_read_uses_the_cache(monkeypatch):
++    calls = []
++    monkeypatch.setattr(settings_cache, "load_settings", lambda t: calls.append(t) or {"tz": "UTC"})
++    settings_cache.clear()
++
++    assert settings_cache.get_settings("t1") == {"tz": "UTC"}
++    assert settings_cache.get_settings("t1") == {"tz": "UTC"}
++
++    assert calls == ["t1"]

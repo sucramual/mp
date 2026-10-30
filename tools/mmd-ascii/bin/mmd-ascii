@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runtime shim: install.sh installs deps with bun when available, so node may
+# be absent — pick whichever runtime exists instead of hardcoding a shebang.
+script="$(dirname "$(readlink -f "$0")")/../mmd-ascii.mjs"
+if command -v node >/dev/null 2>&1; then
+  exec node "$script" "$@"
+fi
+if command -v bun >/dev/null 2>&1; then
+  exec bun "$script" "$@"
+fi
+echo "mmd-ascii: neither node nor bun found on PATH" >&2
+exit 1

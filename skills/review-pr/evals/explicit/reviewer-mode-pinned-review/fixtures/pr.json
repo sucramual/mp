@@ -1,0 +1,11 @@
+{
+  "number": 512,
+  "state": "open",
+  "draft": false,
+  "title": "Cache tenant settings for 60 seconds",
+  "body": "Settings reads hit the database on every request. This caches them per tenant for 60 seconds.",
+  "user": {"login": "bob"},
+  "head": {"ref": "bob/settings-cache", "sha": "b7d41e09c3a25f8e6d1c0b9a8f7e6d5c4b3a2918"},
+  "base": {"ref": "main", "sha": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c"},
+  "mergeable_state": "clean"
+}

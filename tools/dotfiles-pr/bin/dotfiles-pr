@@ -1,0 +1,804 @@
+#!/usr/bin/env python3
+"""dotfiles-pr — make and ship a dotfiles change as a pull request.
+
+Usage:
+  dotfiles-pr start <slug> [--prefix P]
+      Fetch origin, sync the main checkout and the Codex config like `sync`
+      (without the prune; a refusal is only a warning), and create
+      <repo>/.claude/worktrees/<slug> on a new branch <prefix>/<slug> from
+      origin/main. Prints the worktree path last.
+  dotfiles-pr sync [--no-prune]
+      Return the main checkout to an up-to-date main when that loses nothing:
+      leave a merged branch, restore edits that main already has, and
+      fast-forward. Refuses and changes nothing otherwise. Then merge
+      config/codex/config.toml, plus the work overlay's config/codex/config.toml
+      when it exists, into ~/.codex/config.toml (a legacy symlink
+      into the repo is first converted to a real file), link the skills in
+      skills/ into ~/.agents/skills and ~/.claude/skills, link the tool entry
+      points in tools/*/bin/ into ~/bin, register the guard_irreversible
+      PreToolUse hook in ~/.claude/settings.json and ~/.codex/hooks.json, and
+      run `bu prune` to remove scratch worktrees whose PR merged, unless
+      --no-prune is given or bu cannot prune.
+  dotfiles-pr ship "<conventional commit message>" (--body-file F | --body TEXT)
+      From a linked worktree: run the worktree's scripts/check, then commit
+      all changes, push the branch, and open a PR against main (or print the
+      existing PR). Refuses, without committing or pushing, when the checks
+      fail or scripts/check is missing. Prints the PR URL last.
+
+Environment:
+  DOTFILES_DIR   Repository root. Default: ~/dotfiles, or, when that does not exist, the
+                 repository that contains this script (for a cloud session's clone).
+  DOTFILES_BU_CONFIG  bu config for `sync`. Default: ~/.config/bu/dotfiles.toml.
+  DOTFILES_WORK_DIR   The private work overlay checkout. Default: ~/dotfiles-work.
+  CLAUDECODE     When set, the default prefix is "claude".
+  CODEX_*        When any is set (and CLAUDECODE is not), the default prefix is "codex".
+
+Never merges and never pushes to main.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import quote
+
+PROG = "dotfiles-pr"
+BASE_BRANCH = "main"
+KEBAB = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+CONVENTIONAL = re.compile(
+    r"^(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)"
+    r"(?:\([a-z0-9][a-z0-9._/-]*\))?!?: \S"
+)
+
+
+class Failure(Exception):
+    """A user-facing error: printed as one line on stderr."""
+
+
+def run(args: list[str], cwd: Path, *, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Echo a command to stderr, then run it. Child stdout goes to stderr unless captured."""
+    print(f"+ {shlex.join(args)}", file=sys.stderr, flush=True)
+    result = subprocess.run(
+        args,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE if capture else sys.stderr,
+        stderr=subprocess.PIPE if capture else None,
+    )
+    if capture and result.stderr:
+        sys.stderr.write(result.stderr)
+    if check and result.returncode != 0:
+        raise Failure(f"command failed (exit {result.returncode}): {shlex.join(args)}")
+    return result
+
+
+def query(args: list[str], cwd: Path) -> str | None:
+    """Run a read-only git query silently. Returns stripped stdout, or None on failure."""
+    result = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def resolve_repo() -> tuple[Path, Path]:
+    """Return (main checkout root, git common dir) for the dotfiles repo."""
+    if os.environ.get("DOTFILES_DIR"):
+        configured = Path(os.environ["DOTFILES_DIR"]).expanduser()
+    else:
+        configured = Path.home() / "dotfiles"
+        if not configured.is_dir():
+            # A cloud session clones the repo elsewhere. The script's symlink resolves into that clone.
+            configured = Path(__file__).resolve().parents[3]
+    if not configured.is_dir():
+        raise Failure(f"dotfiles repo not found: {configured}")
+    common = query(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], configured)
+    listing = query(["git", "worktree", "list", "--porcelain"], configured)
+    if common is None or listing is None:
+        raise Failure(f"not a git repository: {configured}")
+    main_root = next(line.removeprefix("worktree ") for line in listing.splitlines() if line.startswith("worktree "))
+    return Path(main_root).resolve(), Path(common).resolve()
+
+
+def default_prefix() -> str:
+    if "CLAUDECODE" in os.environ:
+        return "claude"
+    if any(name.startswith("CODEX_") for name in os.environ):
+        return "codex"
+    return "marcus"
+
+
+def ref_exists(repo: Path, ref: str) -> bool:
+    return query(["git", "show-ref", "--verify", "--quiet", ref], repo) is not None
+
+
+def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
+    result = subprocess.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd=repo, capture_output=True)
+    if result.returncode not in (0, 1):
+        raise Failure(f"cannot compare {ancestor} with {descendant}")
+    return result.returncode == 0
+
+
+def short(repo: Path, rev: str) -> str:
+    return query(["git", "rev-parse", "--short", rev], repo) or rev[:7]
+
+
+# --- sync ---------------------------------------------------------------------
+
+ORIGIN_MAIN = f"origin/{BASE_BRANCH}"
+IN_PROGRESS = {
+    "MERGE_HEAD": "merge",
+    "rebase-merge": "rebase",
+    "rebase-apply": "rebase",
+    "CHERRY_PICK_HEAD": "cherry-pick",
+    "REVERT_HEAD": "revert",
+    "BISECT_LOG": "bisect",
+}
+
+
+@dataclass
+class SyncResult:
+    previous_branch: str
+    head: str = ""
+    restored: list[str] = field(default_factory=list)
+    dirty: list[str] = field(default_factory=list)
+
+
+def status_entries(repo: Path) -> list[tuple[str, str]]:
+    """Return (XY, path) for each uncommitted path, from `git status --porcelain -z`."""
+    result = subprocess.run(["git", "status", "--porcelain=v1", "-z"], cwd=repo, capture_output=True)
+    if result.returncode != 0:
+        raise Failure(f"git status failed in {repo}")
+    fields = result.stdout.decode("utf-8", "surrogateescape").split("\0")
+    entries: list[tuple[str, str]] = []
+    index = 0
+    while index < len(fields):
+        item = fields[index]
+        index += 1
+        if len(item) < 4:
+            continue
+        code, path = item[:2], item[3:]
+        entries.append((code, path))
+        if code[0] in "RC":
+            index += 1  # Skip the rename or copy source path.
+    return entries
+
+
+def tree_entry(repo: Path, rev: str, path: str) -> tuple[str, str] | None:
+    """Return (mode, blob sha) of path at rev, or None when it is not a blob there."""
+    listing = query(["git", "--literal-pathspecs", "ls-tree", "-z", rev, "--", path], repo)
+    if not listing:
+        return None
+    meta, _, _ = listing.rstrip("\0").partition("\t")
+    mode, kind, sha = meta.split()
+    return (mode, sha) if kind == "blob" else None
+
+
+def index_sha(repo: Path, path: str) -> str | None:
+    listing = query(["git", "--literal-pathspecs", "ls-files", "-s", "-z", "--", path], repo)
+    return listing.split()[1] if listing else None
+
+
+def worktree_matches(repo: Path, path: str, mode: str, sha: str) -> bool:
+    """True when the working-tree file has exactly the bytes and mode of the given blob."""
+    blob = subprocess.run(["git", "cat-file", "blob", sha], cwd=repo, capture_output=True)
+    if blob.returncode != 0:
+        return False
+    full = repo / path
+    if mode == "120000":
+        return full.is_symlink() and os.fsencode(os.readlink(full)) == blob.stdout
+    if mode not in ("100644", "100755") or full.is_symlink() or not full.is_file():
+        return False
+    executable = bool(full.stat().st_mode & 0o100)
+    return executable == (mode == "100755") and full.read_bytes() == blob.stdout
+
+
+def already_on_origin_main(repo: Path, path: str) -> bool:
+    """True when restoring path to HEAD loses nothing, because origin/main has its current content.
+
+    The staged version must also be recoverable: it must equal HEAD or origin/main.
+    """
+    target = tree_entry(repo, ORIGIN_MAIN, path)
+    if target is None or not worktree_matches(repo, path, *target):
+        return False
+    staged = index_sha(repo, path)
+    head = tree_entry(repo, "HEAD", path)
+    return staged is None or staged == target[1] or (head is not None and staged == head[1])
+
+
+@dataclass(frozen=True)
+class PullRequest:
+    state: str  # OPEN, MERGED, or CLOSED
+    head: str
+    url: str
+
+
+def lookup_pr(cwd: Path, branch: str, purpose: str) -> PullRequest | None:
+    """Return the PR for branch, or None if there is none.
+
+    Uses REST, because Claude Code cloud sessions block the GraphQL that `gh pr view` needs.
+    An open PR wins; otherwise the newest one.
+    """
+    endpoint = f"repos/{{owner}}/{{repo}}/pulls?head={{owner}}:{quote(branch, safe='/')}&state=all"
+    result = run(["gh", "api", endpoint], cwd, capture=True, check=False)
+    if result.returncode != 0:
+        raise Failure(f"gh api failed (exit {result.returncode}); cannot tell whether {purpose}")
+    try:
+        prs = json.loads(result.stdout)
+        if not prs:
+            return None
+        pr = next((item for item in prs if item["state"] == "open"), None) or max(prs, key=lambda i: i["created_at"])
+        if pr["state"] == "open":
+            state = "OPEN"
+        else:
+            state = "MERGED" if pr["merged_at"] else "CLOSED"
+        return PullRequest(state, pr["head"]["sha"], pr["html_url"])
+    except (ValueError, KeyError, TypeError) as error:
+        raise Failure(f"unexpected gh api output: {error}") from None
+
+
+def check_leave_branch(repo: Path, branch: str) -> None:
+    """Refuse unless every commit on branch already reached origin/main, directly or as a squash merge."""
+    tip = query(["git", "rev-parse", "HEAD"], repo) or ""
+    if is_ancestor(repo, tip, ORIGIN_MAIN):
+        return
+    pr = lookup_pr(repo, branch, f"'{branch}' was merged")
+    if pr is None:
+        pushed = ref_exists(repo, f"refs/remotes/origin/{branch}") and is_ancestor(repo, tip, f"origin/{branch}")
+        detail = "its commits are pushed" if pushed else "it has unpushed commits"
+        raise Failure(f"branch '{branch}' is not in {ORIGIN_MAIN} and has no PR ({detail}); ship or merge it first")
+    state, head = pr.state, pr.head
+    if state == "OPEN":
+        raise Failure(f"branch '{branch}' has an open PR; merge or close it first")
+    if state != "MERGED":
+        raise Failure(f"branch '{branch}' has a {state.lower()} PR and is not in {ORIGIN_MAIN}")
+    if head != tip:
+        raise Failure(
+            f"the merged PR for '{branch}' ended at {head[:7]}, but the local tip is {short(repo, tip)}; "
+            "the extra local commits were not merged"
+        )
+
+
+def blocked_paths(stderr: str) -> list[str]:
+    """Return the paths git lists (tab-indented) when local changes block a switch or merge."""
+    return [line.strip() for line in stderr.splitlines() if line.startswith("\t")]
+
+
+def run_or_explain(args: list[str], repo: Path, action: str) -> None:
+    result = run(args, repo, capture=True, check=False)
+    if result.returncode == 0:
+        return
+    paths = blocked_paths(result.stderr)
+    if paths:
+        raise Failure(f"cannot {action}; uncommitted changes conflict in: {', '.join(paths)}")
+    raise Failure(f"cannot {action} (exit {result.returncode}): {shlex.join(args)}")
+
+
+def sync_main_checkout(repo: Path) -> SyncResult:
+    """Return the main checkout to origin/main without losing work. Expects a fresh `git fetch origin`.
+
+    Every refusal comes before any change, except a blocked switch or
+    fast-forward, which can follow the lossless restores.
+    """
+    for name, operation in IN_PROGRESS.items():
+        marker = query(["git", "rev-parse", "--path-format=absolute", "--git-path", name], repo)
+        if marker and os.path.lexists(marker):
+            raise Failure(f"a {operation} is in progress in {repo}; finish or abort it first")
+    branch = query(["git", "symbolic-ref", "--short", "-q", "HEAD"], repo)
+    if not branch:
+        raise Failure(f"the main checkout ({repo}) has a detached HEAD; check out a branch first")
+    if not ref_exists(repo, f"refs/remotes/{ORIGIN_MAIN}"):
+        raise Failure(f"{ORIGIN_MAIN} does not exist")
+
+    result = SyncResult(previous_branch=branch)
+    if branch != BASE_BRANCH:
+        check_leave_branch(repo, branch)
+    has_main = ref_exists(repo, f"refs/heads/{BASE_BRANCH}")
+    if has_main and not is_ancestor(repo, f"refs/heads/{BASE_BRANCH}", ORIGIN_MAIN):
+        raise Failure(f"local {BASE_BRANCH} has commits that {ORIGIN_MAIN} lacks; reconcile it by hand")
+
+    for code, path in status_entries(repo):
+        if code == "??" or code[0] in "RC" or not already_on_origin_main(repo, path):
+            continue
+        run(["git", "--literal-pathspecs", "restore", "--source=HEAD", "--staged", "--worktree", "--", path], repo)
+        print(f"restored {path} (its edit already matches {ORIGIN_MAIN})", file=sys.stderr)
+        result.restored.append(path)
+
+    if branch == BASE_BRANCH:
+        run_or_explain(["git", "merge", "--ff-only", ORIGIN_MAIN], repo, f"fast-forward {BASE_BRANCH}")
+    else:
+        # -C is a fast-forward here (checked above), and it is atomic: a blocked switch leaves main unmoved.
+        switch = ["git", "switch", "-C", BASE_BRANCH, "--track", ORIGIN_MAIN]
+        run_or_explain(switch, repo, f"switch to {BASE_BRANCH}")
+
+    result.head = short(repo, "HEAD")
+    result.dirty = [path for _, path in status_entries(repo)]
+    return result
+
+
+def sync_summary(result: SyncResult) -> str:
+    lines = [f"{BASE_BRANCH} is at {result.head} (was on {result.previous_branch})"]
+    if result.restored:
+        lines.append(f"restored (already in {ORIGIN_MAIN}): {', '.join(result.restored)}")
+    if result.dirty:
+        lines.append(f"uncommitted edits remain; ship or discard them: {', '.join(result.dirty)}")
+    return "\n".join(lines)
+
+
+# bu (https://github.com/sucramual/bu) before `prune` exists rejects the subcommand this way (clap).
+UNKNOWN_PRUNE = ("unrecognized subcommand 'prune'", "subcommand 'prune' wasn't recognized")
+
+
+def prune_cwd(repo: Path, common: Path) -> Path:
+    """Return the caller's directory when it is in a dotfiles worktree, else the main checkout.
+
+    bu never removes the worktree it runs in, so this keeps the caller's worktree.
+    """
+    try:
+        cwd = Path.cwd()
+        here_common = query(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd)
+        top = query(["git", "rev-parse", "--show-toplevel"], cwd)
+    except OSError:  # The caller's directory no longer exists.
+        return repo
+    if top is not None and here_common is not None and Path(here_common).resolve() == common:
+        return cwd
+    return repo
+
+
+def prune_scratch_worktrees(repo: Path, common: Path) -> None:
+    """Run `bu prune` for the dotfiles repo. Skips with a note when bu cannot prune.
+
+    Raises Failure when bu runs the prune and exits non-zero.
+    """
+    bu = shutil.which("bu")
+    config = Path(os.environ.get("DOTFILES_BU_CONFIG") or Path.home() / ".config" / "bu" / "dotfiles.toml").expanduser()
+    if bu is None:
+        print(f"{PROG}: note: skipped bu prune: bu is not on PATH", file=sys.stderr)
+        return
+    if not config.is_file():
+        print(f"{PROG}: note: skipped bu prune: config not found: {config} (run install.sh)", file=sys.stderr)
+        return
+    args = ["bu", "--config", str(config), "prune", "--color", "never"]
+    print(f"+ {shlex.join(args)}", file=sys.stderr, flush=True)
+    # bu prints its report on stdout; stderr is held back so a clap usage error can become one line.
+    result = subprocess.run(args, cwd=prune_cwd(repo, common), text=True, stdout=sys.stderr, stderr=subprocess.PIPE)
+    if result.returncode != 0 and any(marker in result.stderr for marker in UNKNOWN_PRUNE):
+        print(f"{PROG}: note: skipped bu prune: the installed bu has no prune command", file=sys.stderr)
+        return
+    sys.stderr.write(result.stderr)
+    if result.returncode != 0:
+        raise Failure(f"bu prune failed (exit {result.returncode}); main is synced, but scratch worktrees may remain")
+
+
+# --- sync: Codex config -------------------------------------------------------------
+# ~/.codex/config.toml is a real, machine-owned file; config/codex/merge_config.py merges the
+# tracked base into it. A legacy symlink into the repo must become a real file before the checkout
+# moves, or it would resolve to the stripped tracked file and lose the app-written values. So the
+# conversion runs in-process (no python3 3.11+ needed) and fails closed: the checkout does not move
+# until it succeeds. The merge after the move needs tomllib, so it is only a warning when it fails.
+
+# Read by merge_config.py: the converted link's target and the checkout's HEAD, so its merge can
+# still recover app keys from the file's history as it was before this move.
+LEGACY_LINK_SUFFIX = ".dotfiles-legacy-link"
+
+
+def codex_config() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
+def run_codex_merge_script(repo: Path, args: list[str], what: str) -> None:
+    """Run the repo's merge_config.py with python3, its report on stderr. Warns instead of failing."""
+    script = repo / "config" / "codex" / "merge_config.py"
+    if not script.is_file():  # A checkout from before the merge script existed.
+        return
+    command = ["python3", str(script), *args]
+    print(f"+ {shlex.join(command)}", file=sys.stderr, flush=True)
+    try:
+        result = subprocess.run(command, cwd=repo, text=True, stdout=sys.stderr, stderr=subprocess.PIPE)
+    except OSError as error:
+        print(f"{PROG}: warning: {what}: cannot run python3: {error}", file=sys.stderr)
+        return
+    reasons = [line for line in result.stderr.splitlines() if line.strip()]
+    if result.returncode == 0:
+        sys.stderr.write(result.stderr)
+        return
+    reason = reasons[-1] if reasons else f"exit {result.returncode}"
+    print(f"{PROG}: warning: {what}: {reason}; fix it, then run install.sh", file=sys.stderr)
+
+
+def backup_path(target: Path) -> Path:
+    """<target>.bak, else <target>.bak.<timestamp>[.N]: the naming install.sh and merge_config.py use."""
+    backup = Path(f"{target}.bak")
+    if not os.path.lexists(backup):
+        return backup
+    base = f"{target}.bak.{time.strftime('%Y%m%d%H%M%S')}"
+    backup, suffix = Path(base), 1
+    while os.path.lexists(backup):
+        backup, suffix = Path(f"{base}.{suffix}"), suffix + 1
+    return backup
+
+
+def write_file_atomic(target: Path, data: bytes, mode: int) -> None:
+    """Write data to a temp file beside target, then rename it over target (replacing a symlink itself)."""
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, target)
+    except BaseException:
+        if os.path.lexists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def link_fingerprint(link: Path) -> tuple[object, ...] | None:
+    """The link itself (lstat, readlink) plus the file it resolves to (stat); None if either is gone.
+
+    Same shape as merge_config.py's fingerprint, with the link text added.
+    """
+    try:
+        own, linked = os.lstat(link), os.stat(link)
+        text = os.readlink(link)
+    except OSError:
+        return None
+    return (own.st_ino, own.st_mtime_ns, own.st_size, text, linked.st_ino, linked.st_mtime_ns, linked.st_size)
+
+
+def convert_codex_link(repo: Path) -> None:
+    """Turn a ~/.codex/config.toml symlink to a file in the repo into a real file with the same bytes and mode.
+
+    Same rule as merge_config.py's own link conversion: resolved bytes and mode, and a content-copy
+    backup. Raises Failure, so the checkout does not move, when the link cannot be converted, or
+    when Codex wrote through the link during the conversion (the copy would then be stale). A
+    dangling link has nothing to lose, so it is left for the merge.
+    """
+    target = codex_config()
+    if not target.is_symlink():
+        return
+    resolved = target.resolve()
+    if repo.resolve() not in resolved.parents or not resolved.is_file():
+        return
+    record = Path(f"{target}{LEGACY_LINK_SUFFIX}")
+    wrote_record = False
+    try:
+        before = link_fingerprint(target)
+        data = resolved.read_bytes()
+        mode = stat.S_IMODE(resolved.stat().st_mode)
+        backup = backup_path(target)
+        write_file_atomic(backup, data, mode)
+        head = query(["git", "rev-parse", "HEAD"], repo) or "HEAD"
+        write_file_atomic(record, f"{resolved}\n{head}\n".encode(), 0o644)
+        wrote_record = True
+        if before is None or link_fingerprint(target) != before:
+            raise Failure("convert ~/.codex/config.toml first: Codex wrote the config during conversion; re-run")
+        write_file_atomic(target, data, mode)
+    except (OSError, Failure) as error:
+        if wrote_record and target.is_symlink():  # The link stays, so its record would be stale.
+            record.unlink(missing_ok=True)
+        if isinstance(error, Failure):
+            raise
+        raise Failure(f"convert ~/.codex/config.toml first: {error}") from None
+    if target.is_symlink():
+        raise Failure("convert ~/.codex/config.toml first: it is still a symlink into the repo")
+    print(f"converted ~/.codex/config.toml from a symlink into a real file (backup: {backup})", file=sys.stderr)
+
+
+def work_overlay_dir() -> Path:
+    """The private work overlay checkout, as install.sh finds it: $DOTFILES_WORK_DIR, else ~/dotfiles-work."""
+    return Path(os.environ.get("DOTFILES_WORK_DIR") or Path.home() / "dotfiles-work")
+
+
+def merge_codex_config(repo: Path) -> None:
+    base = repo / "config" / "codex" / "config.toml"
+    # Pass the overlay's work keys as install.sh does. Without them, the merge would remove those keys.
+    overlay = work_overlay_dir() / "config" / "codex" / "config.toml"
+    overlay_args = ["--overlay", str(overlay)] if overlay.is_file() else []
+    run_codex_merge_script(repo, [*overlay_args, str(base), str(codex_config())], "Codex config not merged")
+
+
+def run_link_script(repo: Path, relative: str, what: str, args: tuple[str, ...] = ()) -> None:
+    """Run the repo's script at <relative> with python3 and args, its report on stderr. Warns instead of failing."""
+    script = repo / relative
+    if not script.is_file():  # A checkout from before the script existed.
+        return
+    command = ["python3", str(script), *args]
+    print(f"+ {shlex.join(command)}", file=sys.stderr, flush=True)
+    try:
+        result = subprocess.run(command, cwd=repo, text=True, stdout=sys.stderr, stderr=subprocess.PIPE)
+    except OSError as error:
+        print(f"{PROG}: warning: {what} not refreshed: cannot run python3: {error}", file=sys.stderr)
+        return
+    sys.stderr.write(result.stderr)
+    if result.returncode != 0:
+        reasons = [line for line in result.stderr.splitlines() if line.strip()]
+        reason = reasons[-1] if reasons else f"exit {result.returncode}"
+        rerun = shlex.join(["python3", relative, *args])
+        print(
+            f"{PROG}: warning: {what} not refreshed: {reason}; fix it, then run {rerun}",
+            file=sys.stderr,
+        )
+
+
+def link_skills(repo: Path) -> None:
+    """Link skills/<name> into ~/.agents/skills and ~/.claude/skills."""
+    run_link_script(repo, "scripts/link_skills.py", "skill links")
+
+
+def link_tools(repo: Path) -> None:
+    """Link each tools/<tool>/bin/<name> into ~/bin, so a tool from a merged PR is on PATH."""
+    run_link_script(repo, "scripts/link_tools.py", "tool links")
+
+
+def install_agent_hooks(repo: Path) -> None:
+    """Register the guard_irreversible PreToolUse hook in ~/.claude/settings.json and ~/.codex/hooks.json."""
+    targets = (str(Path.home() / ".claude" / "settings.json"), str(Path.home() / ".codex" / "hooks.json"))
+    run_link_script(repo, "config/agent-hooks/install_hooks.py", "agent hooks", targets)
+
+
+# The folders under config/ that held reviewers.json before config/review-pr. Sync replaces a link to any of them.
+OLD_REVIEWERS_FOLDERS = ("siula", "rogue-one", "ro")
+
+
+def review_pr_reviewers_path() -> Path:
+    """Where the review-pr ready check reads the reviewers: an absolute $XDG_CONFIG_HOME, else ~/.config."""
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    base = Path(xdg) if xdg and os.path.isabs(xdg) else Path.home() / ".config"
+    return base / "review-pr" / "reviewers.json"
+
+
+def link_review_pr_reviewers(repo: Path) -> None:
+    """Link config/review-pr/reviewers.json to the review-pr reviewers path when it is missing.
+
+    It replaces only a link to a path that the file had in this repository before: config/siula,
+    config/rogue-one, or config/ro. It leaves a real file and any other link alone with a warning, and it never
+    deletes an old ~/.config/rogue-one or ~/.config/ro link.
+    """
+    source = repo / "config" / "review-pr" / "reviewers.json"
+    if not source.is_file():  # A checkout from before the file moved here.
+        return
+    target = review_pr_reviewers_path()
+    if target.is_symlink() and target.resolve() == source.resolve():
+        return
+    old_sources = {repo / "config" / folder / "reviewers.json" for folder in OLD_REVIEWERS_FOLDERS}
+    if target.is_symlink() and Path(os.readlink(target)) in old_sources:
+        target.unlink()
+    if target.exists() or target.is_symlink():
+        print(
+            f"{PROG}: warning: {target} exists and is not a link to {source}; left it alone. "
+            "Move it away to use the shared reviewers list",
+            file=sys.stderr,
+        )
+        return
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(source)
+    except OSError as error:
+        print(f"{PROG}: warning: review-pr reviewers config not linked: {error}", file=sys.stderr)
+
+
+# The global guidance links that install.sh makes. Before agents/global.md, both pointed at the root AGENTS.md.
+GLOBAL_GUIDANCE_LINKS = (Path(".claude") / "CLAUDE.md", Path(".codex") / "AGENTS.md")
+
+
+def link_global_guidance(repo: Path) -> None:
+    """Point a global guidance link at agents/global.md when it still points at the root AGENTS.md.
+
+    The root AGENTS.md now holds dotfiles-only rules. Sync replaces only a link to it, so a real
+    file or a link the owner points elsewhere stays. A checkout without agents/global.md changes nothing.
+    """
+    source = repo / "agents" / "global.md"
+    if not source.is_file():
+        return
+    old_sources = {repo / "AGENTS.md", repo.resolve() / "AGENTS.md"}
+    for name in GLOBAL_GUIDANCE_LINKS:
+        target = Path.home() / name
+        if not target.is_symlink() or Path(os.readlink(target)) not in old_sources:
+            continue
+        try:
+            target.unlink()
+            target.symlink_to(source)
+        except OSError as error:
+            print(f"{PROG}: warning: {target} not relinked to {source}: {error}", file=sys.stderr)
+
+
+def sync_live_checkout(repo: Path) -> SyncResult:
+    """Convert a legacy Codex config link, sync the main checkout, merge the Codex config, then link and install.
+
+    After the merge it links skills, tools, the review-pr reviewers file, and the global guidance, and registers the
+    agent hooks.
+
+    Every path that moves the main checkout goes through here, so a legacy link is never left
+    resolving to a stripped file. A failed conversion or a refused sync raises Failure before the
+    checkout moves; the steps after the move are warn-only.
+    """
+    convert_codex_link(repo)
+    result = sync_main_checkout(repo)
+    merge_codex_config(repo)
+    link_skills(repo)
+    link_tools(repo)
+    link_review_pr_reviewers(repo)
+    link_global_guidance(repo)
+    install_agent_hooks(repo)
+    return result
+
+
+def cmd_sync(args: argparse.Namespace) -> str:
+    repo, common = resolve_repo()
+    run(["git", "fetch", "origin"], repo)
+    summary = sync_summary(sync_live_checkout(repo))
+    if not args.no_prune:
+        try:
+            prune_scratch_worktrees(repo, common)
+        except Failure:
+            print(summary, flush=True)  # The checkout sync is done; report it before the prune error.
+            raise
+    return summary
+
+
+def cmd_start(args: argparse.Namespace) -> str:
+    slug = args.slug
+    if not KEBAB.match(slug):
+        raise Failure(f"invalid slug '{slug}': use lowercase kebab-case, e.g. fix-install-links")
+    prefix = args.prefix or default_prefix()
+    if not KEBAB.match(prefix):
+        raise Failure(f"invalid prefix '{prefix}': use lowercase kebab-case")
+
+    repo, _ = resolve_repo()
+    branch = f"{prefix}/{slug}"
+    path = repo / ".claude" / "worktrees" / slug
+
+    run(["git", "fetch", "origin"], repo)
+    if os.path.lexists(path):
+        raise Failure(f"path already exists: {path}")
+    for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+        if ref_exists(repo, ref):
+            raise Failure(f"branch '{branch}' already exists ({ref})")
+
+    try:
+        print(sync_summary(sync_live_checkout(repo)), file=sys.stderr)
+    except Failure as error:
+        print(f"{PROG}: warning: main checkout not synced: {error}", file=sys.stderr)
+
+    run(["git", "worktree", "add", "--no-track", "-b", branch, str(path), f"origin/{BASE_BRANCH}"], repo)
+    return str(path)
+
+
+def current_worktree(repo: Path, common: Path) -> tuple[Path, str]:
+    """Return (worktree root, branch) for cwd, refusing anything but a linked dotfiles worktree."""
+    cwd = Path.cwd()
+    top = query(["git", "rev-parse", "--show-toplevel"], cwd)
+    here_common = query(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd)
+    here_gitdir = query(["git", "rev-parse", "--path-format=absolute", "--git-dir"], cwd)
+    if top is None or here_common is None or here_gitdir is None:
+        raise Failure(f"not inside a git worktree: {cwd}")
+    if Path(here_common).resolve() != common:
+        raise Failure(f"not a worktree of the dotfiles repo ({repo}): {top}")
+    root = Path(top).resolve()
+    if root == repo or Path(here_gitdir).resolve() == common:
+        raise Failure(f"refusing to ship from the main checkout ({repo}); run '{PROG} start <slug>' first")
+    branch = query(["git", "symbolic-ref", "--short", "-q", "HEAD"], root)
+    if not branch:
+        raise Failure("refusing to ship from a detached HEAD; check out a feature branch")
+    if branch == BASE_BRANCH:
+        raise Failure(f"refusing to ship from branch '{BASE_BRANCH}'; run '{PROG} start <slug>' first")
+    return root, branch
+
+
+def find_pr(root: Path, branch: str) -> str | None:
+    """Return the URL of the open PR for branch, or None if there is none."""
+    pr = lookup_pr(root, branch, "a PR exists")
+    if pr is None:
+        return None
+    url, state = pr.url, pr.state
+    if state != "OPEN":
+        raise Failure(f"the PR for '{branch}' is {state.lower()} ({url}); start a new branch")
+    return url
+
+
+def run_checks(root: Path) -> None:
+    """Run the worktree's scripts/check, streaming its output to stderr. There is no way to skip it."""
+    check = root / "scripts" / "check"
+    if not check.is_file():
+        raise Failure(f"{check} is missing; ship runs it before committing")
+    if not os.access(check, os.X_OK):
+        raise Failure(f"{check} is not executable; ship runs it before committing")
+    result = run([str(check)], root, check=False)
+    if result.returncode != 0:
+        raise Failure(f"checks failed (exit {result.returncode}); fix them and re-run ship")
+
+
+def cmd_ship(args: argparse.Namespace) -> str:
+    message = args.message.strip()
+    subject = message.splitlines()[0] if message else ""
+    if not CONVENTIONAL.match(subject):
+        raise Failure(f"commit message is not a Conventional Commit ('type(scope)!: description'): {subject!r}")
+
+    body_file: Path | None = None
+    if args.body_file is not None:
+        body_file = Path(args.body_file).expanduser().resolve()
+        if not body_file.is_file() or not body_file.read_text().strip():
+            raise Failure(f"body file is missing or empty: {body_file}")
+    elif not args.body.strip():
+        raise Failure("--body is empty")
+
+    repo, common = resolve_repo()
+    root, branch = current_worktree(repo, common)
+    run_checks(root)
+
+    if query(["git", "status", "--porcelain"], root):
+        run(["git", "add", "-A"], root)
+        print(f"+ git commit -F - <<< {shlex.quote(subject)}", file=sys.stderr, flush=True)
+        commit = subprocess.run(
+            ["git", "commit", "-F", "-"], cwd=root, text=True, input=message + "\n", stdout=sys.stderr
+        )
+        if commit.returncode != 0:
+            raise Failure(f"git commit failed (exit {commit.returncode}); fix the hook or error above and re-run")
+
+    ahead = query(["git", "rev-list", "--count", f"origin/{BASE_BRANCH}..HEAD"], root)
+    if ahead is None:
+        raise Failure(f"cannot compare HEAD with origin/{BASE_BRANCH}; run 'git fetch origin'")
+    if ahead == "0":
+        raise Failure(f"nothing to ship: no changes and no commits ahead of origin/{BASE_BRANCH}")
+
+    existing = find_pr(root, branch)
+    run(["git", "push", "-u", "origin", branch], root)
+    if existing is not None:
+        return existing
+
+    body_args = ["--body-file", str(body_file)] if body_file is not None else ["--body", args.body]
+    created = run(
+        ["gh", "pr", "create", "--base", BASE_BRANCH, "--head", branch, "--title", subject, *body_args],
+        root,
+        capture=True,
+    )
+    lines = [line for line in created.stdout.splitlines() if line.strip()]
+    if not lines:
+        raise Failure("gh pr create printed no PR URL")
+    return lines[-1].strip()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=PROG, description="Make and ship a dotfiles change as a pull request.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    start = sub.add_parser("start", help="create a worktree and branch from origin/main")
+    start.add_argument("slug", help="lowercase kebab-case change name")
+    start.add_argument("--prefix", help="branch prefix (default: claude, codex, or marcus by environment)")
+    start.set_defaults(func=cmd_start)
+
+    ship = sub.add_parser("ship", help="run scripts/check, then commit, push, and open or reuse the PR")
+    ship.add_argument("message", help="Conventional Commit message; its first line is the PR title")
+    body = ship.add_mutually_exclusive_group(required=True)
+    body.add_argument("--body-file", help="file with the PR description")
+    body.add_argument("--body", help="PR description text")
+    ship.set_defaults(func=cmd_ship)
+
+    sync = sub.add_parser("sync", help="return the main checkout to an up-to-date main when that is lossless")
+    sync.add_argument("--no-prune", action="store_true", help="skip removing merged scratch worktrees with bu prune")
+    sync.set_defaults(func=cmd_sync)
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    try:
+        print(args.func(args))
+    except Failure as error:
+        print(f"{PROG}: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,8 @@
+{
+  "reviewers": {
+    "apps/frontend-*": "your-org/frontend-team",
+    "apps/backend-*": "your-org/backend-team"
+  },
+  "alwaysReview": ["your-org/platform-team"],
+  "assignees": []
+}

@@ -1,0 +1,12 @@
+{
+  "number": 418,
+  "state": "open",
+  "draft": false,
+  "title": "Retry webhook delivery on 503",
+  "body": "Webhook delivery gave up on the first 503. This retries up to three times with backoff.",
+  "user": {"login": "marcus"},
+  "head": {"ref": "marcus/webhook-retry", "sha": "4c9e2a71d8b05f36e1a7c42d9b8f0e3a5d6c7b18"},
+  "base": {"ref": "main", "sha": "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"},
+  "mergeable_state": "clean",
+  "merged": false
+}

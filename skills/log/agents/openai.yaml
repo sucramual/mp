@@ -1,0 +1,4 @@
+interface:
+  display_name: "Log"
+  short_description: "Log run friction as tagged LOG lines"
+  default_prompt: "Use $log to write the run index and friction notes as tagged LOG lines in your output."

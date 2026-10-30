@@ -1,0 +1,5 @@
+{"type": "summary", "summary": "retro work", "leafUuid": "x"}
+{"type": "user", "timestamp": "2026-10-29T08:00:00.000Z", "uuid": "l1", "sessionId": "local-session-7", "message": {"role": "user", "content": "push the branch"}}
+{"type": "assistant", "timestamp": "2026-10-29T08:00:04.000Z", "uuid": "l2", "sessionId": "local-session-7", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_l1", "name": "Bash", "input": {"command": "git push origin claude/retro-skill"}}]}}
+{"type": "user", "timestamp": "2026-10-29T08:00:06.000Z", "uuid": "l3", "sessionId": "local-session-7", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_l1", "is_error": true, "content": "Exit code 128\n\nfatal: unable to access remote: 403"}]}}
+{"type": "assistant", "timestamp": "2026-10-29T08:00:09.000Z", "uuid": "l4", "sessionId": "local-session-7", "message": {"role": "assistant", "content": [{"type": "text", "text": "The push failed."}]}}

@@ -1,0 +1,12 @@
+default: codex
+
+platforms:
+  codex:
+    project_skills_dir: .agents/skills
+    invocation_prefix: "$"
+  cursor:
+    project_skills_dir: .cursor/skills
+    invocation_prefix: "/"
+  generic-agent-skills:
+    project_skills_dir: .agents/skills
+    invocation_prefix: "$"

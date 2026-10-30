@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# git-unlock — safely clear a stale Git index lock in the current repository.
+#
+# Usage:
+#   git-unlock
+#
+# Refuses to remove the lock while a process has it open.
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo 'git-unlock: run this from inside a Git repository.' >&2
+  exit 2
+}
+lock_path=$(git rev-parse --git-path index.lock)
+
+if [[ ! -e "$lock_path" ]]; then
+  echo "git-unlock: no index lock in $repo_root"
+  exit 0
+fi
+
+if ! command -v lsof >/dev/null 2>&1; then
+  echo 'git-unlock: cannot verify lock ownership because lsof is unavailable.' >&2
+  exit 2
+fi
+
+if lsof_output=$(lsof -- "$lock_path" 2>&1); then
+  echo "git-unlock: refusing to remove an active lock: $lock_path" >&2
+  printf '%s\n' "$lsof_output" >&2
+  exit 1
+else
+  lsof_status=$?
+fi
+
+if [[ $lsof_status -ne 1 || -n "$lsof_output" ]]; then
+  echo 'git-unlock: cannot verify lock ownership; lsof failed.' >&2
+  [[ -z "$lsof_output" ]] || printf '%s\n' "$lsof_output" >&2
+  exit 2
+fi
+
+rm -- "$lock_path"
+git status --short --branch
+echo "git-unlock: cleared stale lock in $repo_root"

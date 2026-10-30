@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Explainer template (see SKILL.md in this directory for the content contract).
+  Everything below is wired: design tokens (light/dark), code-cards, callouts,
+  decision cards, facts tables, mermaid (theme-aware re-render on toggle), highlight.js.
+  Replace the SAMPLE content inside each section; keep the component markup and
+  the section ids — verify.sh checks the required contract anchors.
+  Follow SKILL.md's Visual grammar policy; the static Mermaid samples are replaceable.
+  #sequence is a compatibility anchor, not a required diagram format.
+  Single-file, not offline: mermaid/highlight.js/fonts load from CDN, so the page
+  needs network to render diagrams and highlighting.
+  Verify with ./verify.sh <this-file> before shipping.
+  Review implemented interactions, keyboard access, current state, and both themes
+  in the rendered page; verify.sh does not check these automatically.
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TITLE — one line naming the concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link id="hljs-light" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
+<link id="hljs-dark" rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" disabled>
+<style>
+  :root {
+    --bg-primary: #fefdfb; --bg-secondary: #faf8f5; --bg-tertiary: #ebe9e6;
+    --fg-primary: #121715; --fg-secondary: #485450; --fg-tertiary: #717d79; --fg-muted: #969e9b;
+    --border-line: #f1f0ee; --border-primary: #0000000a; --border-secondary: #0000000f; --border-tertiary: #00000014;
+    --brand: #0c8c5e; --brand-vivid: #1fa77a; --brand-8: #0c8c5e14; --brand-10: #0c8c5e1a; --brand-20: #0c8c5e33;
+    --error: oklch(0.637 0.237 25.331); --caution: #b45309; --caution-bg: #b453091a;
+    --shadow-card: 0 1px 2px rgba(10,11,15,.04), 0 8px 24px rgba(10,11,15,.05);
+    --ease-out-soft: cubic-bezier(.22,1,.36,1);
+  }
+  .dark {
+    --bg-primary: #0a0b0f; --bg-secondary: #121715; --bg-tertiary: #485450;
+    --fg-primary: #faf8f5; --fg-secondary: #d9d7d4; --fg-tertiary: #cfcdca; --fg-muted: #969e9b;
+    --border-line: #1e1f21; --border-primary: #ffffff14; --border-secondary: #ffffff1a; --border-tertiary: #ffffff59;
+    --brand: #18e299; --brand-vivid: #1fa77a; --brand-8: #18e29914; --brand-10: #18e2991a; --brand-20: #18e29933;
+    --error: oklch(0.704 0.191 22.216); --caution: #f59e0b; --caution-bg: #f59e0b1a;
+    --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { animation: none !important; transition: none !important; } }
+  body { margin: 0; background: var(--bg-primary); color: var(--fg-primary); font-family: 'Inter', system-ui, sans-serif; font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
+  .container { max-width: 1088px; margin: 0 auto; padding: 0 32px; border-left: 1px solid var(--border-line); border-right: 1px solid var(--border-line); }
+  @media (max-width: 767px) { .container { padding: 0 16px; } }
+  header.hero { padding: 64px 0 40px; border-bottom: 1px solid var(--border-line); }
+  .eyebrow { font-family: 'Geist Mono', monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); font-weight: 600; }
+  h1 { font-size: 2.25rem; line-height: 2.5rem; font-weight: 600; letter-spacing: -0.72px; margin: 12px 0 8px; text-wrap: balance; }
+  .subtitle { color: var(--fg-tertiary); font-size: 1.15rem; max-width: 46em; text-wrap: pretty; }
+  h2 { font-size: 1.75rem; line-height: 2rem; font-weight: 600; letter-spacing: -0.5px; margin: 0 0 6px; text-wrap: balance; }
+  h2 .kicker { display: block; font-family: 'Geist Mono', monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); font-weight: 600; margin-bottom: 8px; }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 32px 0 8px; }
+  p { margin: 0 0 16px; color: var(--fg-secondary); max-width: 72ch; text-wrap: pretty; }
+  p strong, li strong { color: var(--fg-primary); }
+  section { padding: 48px 0; border-bottom: 1px solid var(--border-line); }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+  ul, ol { color: var(--fg-secondary); padding-left: 1.3em; }
+  li { margin-bottom: 6px; max-width: 70ch; }
+  code:not(pre code) { font-family: 'Geist Mono', monospace; font-size: .85em; background: var(--bg-tertiary); color: var(--fg-primary); padding: 1px 5px; border-radius: 4px; }
+  .dark code:not(pre code) { background: #ffffff14; }
+  nav.toc { padding: 28px 0; border-bottom: 1px solid var(--border-line); }
+  nav.toc ol { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 32px; margin: 0; padding: 0; list-style: none; counter-reset: toc; }
+  nav.toc a { display: flex; gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 6px; color: var(--fg-secondary); font-size: .95rem; }
+  nav.toc a:hover { background: var(--brand-8); text-decoration: none; color: var(--fg-primary); }
+  nav.toc a::before { counter-increment: toc; content: counter(toc, decimal-leading-zero); font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--brand); }
+  .codecard { margin: 20px 0 24px; border-radius: 6px; background: var(--bg-secondary); box-shadow: var(--shadow-card), inset 0 0 0 1px var(--border-secondary); overflow: hidden; }
+  .codecard .chrome { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border-line); font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--fg-tertiary); }
+  .codecard .chrome .path { color: var(--fg-secondary); font-weight: 500; overflow-wrap: anywhere; }
+  .codecard .chrome .tag { color: var(--brand); font-weight: 600; white-space: nowrap; margin-left: 12px; }
+  .codecard pre { margin: 0; padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+  .codecard pre code { font-family: 'Geist Mono', monospace; background: transparent !important; }
+  .callout { display: grid; grid-template-columns: auto 1fr; gap: 12px; margin: 20px 0; padding: 14px 16px; border-radius: 6px; font-size: .95rem; }
+  .callout .icon { font-size: 1rem; line-height: 1.6; }
+  .callout p { margin: 0 0 8px; font-size: .95rem; } .callout p:last-child { margin: 0; }
+  .callout .label { font-weight: 600; font-family: 'Geist Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .callout.ts { background: var(--brand-8); box-shadow: inset 0 0 0 1px var(--brand-20); } .callout.ts .label { color: var(--brand); }
+  .callout.watch { background: var(--caution-bg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--caution) 30%, transparent); } .callout.watch .label { color: var(--caution); }
+  .callout.quote { background: var(--bg-secondary); box-shadow: inset 0 0 0 1px var(--border-secondary); } .callout.quote .label { color: var(--fg-tertiary); }
+  figure { margin: 24px 0; }
+  figure .frame { background: var(--bg-secondary); border-radius: 6px; box-shadow: var(--shadow-card), inset 0 0 0 1px var(--border-secondary); padding: 20px; overflow-x: auto; }
+  figcaption { font-size: .85rem; color: var(--fg-tertiary); margin-top: 10px; max-width: 70ch; }
+  .mermaid { display: flex; justify-content: center; min-height: 60px; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  table.facts { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: .92rem; }
+  table.facts th { text-align: left; font-family: 'Geist Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-tertiary); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--border-tertiary); }
+  table.facts td { padding: 10px 12px; border-bottom: 1px solid var(--border-line); vertical-align: top; color: var(--fg-secondary); }
+  table.facts td:first-child { color: var(--fg-primary); font-weight: 500; }
+  .decisions { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin: 24px 0; }
+  .decision { background: var(--bg-secondary); border-radius: 6px; box-shadow: var(--shadow-card), inset 0 0 0 1px var(--border-secondary); padding: 18px; }
+  .decision h4 { margin: 0 0 8px; font-size: 1rem; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+  .decision h4 .n { font-family: 'Geist Mono', monospace; color: var(--brand); font-size: 12px; }
+  .decision p { font-size: .9rem; margin-bottom: 8px; }
+  .decision .incode { font-size: .8rem; font-family: 'Geist Mono', monospace; color: var(--fg-tertiary); border-top: 1px solid var(--border-line); padding-top: 8px; margin-top: 4px; overflow-wrap: anywhere; }
+  .prs { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+  .pr { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--bg-secondary); box-shadow: inset 0 0 0 1px var(--border-secondary); font-size: .85rem; color: var(--fg-secondary); }
+  .pr .num { font-family: 'Geist Mono', monospace; color: var(--brand); font-weight: 600; }
+  .pr .state { font-family: 'Geist Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; }
+  .pr .state.merged { background: var(--brand-10); color: var(--brand); }
+  .pr .state.open { background: var(--caution-bg); color: var(--caution); }
+  .toggle { position: fixed; top: 16px; right: 16px; z-index: 10; background: var(--bg-secondary); color: var(--fg-secondary); border: none; box-shadow: var(--shadow-card), inset 0 0 0 1px var(--border-secondary); border-radius: 999px; width: 40px; height: 40px; cursor: pointer; font-size: 16px; }
+  footer { padding: 40px 0 80px; color: var(--fg-tertiary); font-size: .9rem; }
+  dl.gloss { max-width: 76ch; }
+  dl.gloss dt { font-weight: 600; color: var(--fg-primary); margin-top: 14px; font-family: 'Geist Mono', monospace; font-size: .9rem; }
+  dl.gloss dd { margin: 2px 0 0 0; color: var(--fg-secondary); font-size: .95rem; }
+</style>
+</head>
+<body>
+<button class="toggle" id="themeToggle" aria-label="Toggle dark mode">◐</button>
+<div class="container">
+
+<!-- SLOT 1 · Hero: what, for whom, dated; artifact index (PR pills w/ state) -->
+<header class="hero">
+  <div class="eyebrow">PROJECT · TOPIC · DATE</div>
+  <h1>Concept, Grounded</h1>
+  <p class="subtitle">One-sentence promise: what the reader will understand after reading, and what it's grounded in.</p>
+  <div class="prs">
+    <span class="pr"><span class="num">#0000</span> short PR title <span class="state merged">merged</span></span>
+    <span class="pr"><span class="num">#0001</span> short PR title <span class="state open">open</span></span>
+  </div>
+</header>
+
+<!-- SLOT 2 · TOC — anchors must match section ids -->
+<nav class="toc" aria-label="Table of contents">
+  <ol>
+    <li><a href="#core-idea">The core idea, from first principles</a></li>
+    <li><a href="#design-space">The design space</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#anatomy">Anatomy</a></li>
+    <li><a href="#sequence">End-to-end behavior</a></li>
+    <li><a href="#decisions">Decisions decoded</a></li>
+    <li><a href="#open-tensions">Open tensions</a></li>
+    <li><a href="#glossary">Glossary &amp; sources</a></li>
+  </ol>
+</nav>
+
+<!-- SLOT 3 · Core idea from first principles, with a visual that explains the insight -->
+<section id="core-idea">
+  <h2><span class="kicker">01 · First principles</span>The core idea</h2>
+  <p>State the inverted assumption or key insight. Cite the literature with attribution: Author: <em>"short verbatim quote."</em></p>
+  <p>Name the assumption this insight changes. Cite its source and mark any uncertainty.</p>
+
+  <!-- Callout variants -->
+  <div class="callout ts"><span class="icon">🔷</span><div><span class="label">Language note</span><p>Reader-matched aside (e.g. TS concept for a Python-primary reader).</p></div></div>
+  <div class="callout quote"><span class="icon">❝</span><div><span class="label">From the source</span><p><em>"Verbatim quote"</em> — attribution.</p></div></div>
+
+  <!-- Follow SKILL.md's Visual grammar; comparisons and data shapes are replaceable examples.
+       Use <figure><div class="frame">…</div></figure> for a custom figure. -->
+</section>
+
+<!-- SLOT 4 · Design space — REQUIRED when the subject contains a design choice.
+     Forces first (quoted from sources), then alternatives with provenance labels. -->
+<section id="design-space">
+  <h2><span class="kicker">02 · The design space</span>What this beat</h2>
+  <p>This system optimizes for: <strong>force 1</strong> ("quote", source), <strong>force 2</strong>, <strong>force 3</strong>. The chosen design only makes sense against the candidates it beat:</p>
+  <table class="facts">
+    <thead><tr><th>Option</th><th>Provenance</th><th>Best case for it</th><th>The force that sank it (or won it)</th></tr></thead>
+    <tbody>
+      <tr><td><code>chosen design</code></td><td>debated</td><td>what recommends it</td><td>survives force 2 where the others break; its real cost is X, judged acceptable because…</td></tr>
+      <tr><td><code>alternative A</code></td><td>debated</td><td>its strongest property</td><td>dies at force 1 — concrete scenario from the sources where it breaks</td></tr>
+      <tr><td><code>alternative B</code></td><td>literature (cite)</td><td>its strongest property</td><td>dies at force 3; never discussed in the room — flagged in Open tensions</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- SLOT 5 · Architecture: overview of responsibilities, boundaries, and relationships -->
+<section id="architecture">
+  <h2><span class="kicker">03 · Architecture</span>The whole shape</h2>
+  <p>Identify system responsibilities, boundaries, and relationships. Cite the source for each ownership claim.</p>
+  <p>Label verified behavior and proposals separately. State uncertain boundaries explicitly.</p>
+  <!-- Replaceable static example; follow SKILL.md's Visual grammar. -->
+  <figure>
+    <div class="frame">
+      <pre class="mermaid">
+flowchart LR
+  A[Producer] --> Q[(store)]
+  Q --> B[Consumer]
+      </pre>
+    </div>
+    <figcaption>Caption naming the boundary or ownership split the diagram makes visible.</figcaption>
+  </figure>
+</section>
+
+<!-- SLOT 6 · Anatomy: real code in code-cards, each element mapped to the decision that produced it -->
+<section id="anatomy">
+  <h2><span class="kicker">04 · Anatomy</span>The code that embodies it</h2>
+
+  <!-- Code-card: verbatim code, real path in .path, source tag (#PR / origin/main) in .tag -->
+  <div class="codecard">
+    <div class="chrome"><span class="path">path/to/RealFile.ts</span><span class="tag">#0000 · merged</span></div>
+    <pre><code class="language-typescript">// verbatim code from the miner — escape &lt; &gt; &amp; in generics</code></pre>
+  </div>
+
+  <!-- Facts table: element ↔ role ↔ source moment/quote -->
+  <table class="facts">
+    <thead><tr><th>Element</th><th>Role</th><th>Source moment</th></tr></thead>
+    <tbody><tr><td><code>column</code></td><td>what it does</td><td>Who said what, when</td></tr></tbody>
+  </table>
+</section>
+
+<!-- SLOT 7 · End-to-end behavior; #sequence is an anchor, not a format requirement -->
+<section id="sequence">
+  <h2><span class="kicker">05 · End to end</span>The behavior end to end</h2>
+  <p>Trace the behavior from its trigger to its final effect. Ground scenarios in sources and label assumptions.</p>
+  <!-- Replaceable static example; sequence arrows must be HTML-escaped (-&gt;&gt;).
+       If adding interaction, implement keyboard-accessible controls in this document
+       without host APIs; preserve readable state, orientation, and both themes. -->
+  <figure>
+    <div class="frame">
+      <pre class="mermaid">
+sequenceDiagram
+  participant A as Writer A
+  participant DB as store
+  A-&gt;&gt;DB: read version → 3
+  A-&gt;&gt;DB: write version 4
+  DB--&gt;&gt;A: ok
+      </pre>
+    </div>
+    <figcaption>Caption stating what the diagram proves, not just what it shows.</figcaption>
+  </figure>
+</section>
+
+<!-- SLOT 8 · Decisions decoded: card per decision, with mini-ADR lines -->
+<section id="decisions">
+  <h2><span class="kicker">06 · Decisions</span>Decisions decoded</h2>
+  <div class="decisions">
+    <div class="decision">
+      <h4><span class="n">D1</span>Decision title</h4>
+      <p>First-principles rationale in 2–3 sentences.</p>
+      <p><strong>rejected:</strong> strongest alternative, and the force it failed. <strong>costs:</strong> what the winner gives up.</p>
+      <div class="incode">where it lives — File.ts / table.column</div>
+    </div>
+  </div>
+</section>
+
+<!-- SLOT 9 · Open tensions: unresolved review threads and contested calls, as teaching material -->
+<section id="open-tensions">
+  <h2><span class="kicker">07 · Open tensions</span>What's still contested</h2>
+  <p>Unresolved review threads, contested calls, and strong alternatives nobody discussed — consensus-only explainers teach less.</p>
+  <div class="callout watch"><span class="icon">⚠️</span><div><span class="label">Honest status / open tension</span><p>Where the story is ahead of the code ("hook exists, not implemented"), or a contested review thread quoted with attribution.</p></div></div>
+</section>
+
+<!-- SLOT 10 · Glossary + sources -->
+<section id="glossary">
+  <h2><span class="kicker">08 · Reference</span>Glossary &amp; sources</h2>
+  <dl class="gloss">
+    <dt>term</dt><dd>Definition tied to this system's concrete instance of it.</dd>
+  </dl>
+  <h3>Sources</h3>
+  <ul>
+    <li>Author, <a href="https://example.com">Title</a> (year) — what it contributed here.</li>
+    <li>The artifacts: PR links, transcript, tickets.</li>
+  </ul>
+</section>
+
+<footer>Prepared for READER · DATE · Code and quotes verbatim from the cited sources.</footer>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  import hljs from 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/es/highlight.min.js';
+  import typescript from 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/es/languages/typescript.min.js';
+  import python from 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/es/languages/python.min.js';
+  hljs.registerLanguage('typescript', typescript);
+  hljs.registerLanguage('python', python);
+  hljs.highlightAll();
+
+  const root = document.documentElement;
+  let dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // Cache innerHTML, not textContent: the browser parses allowed label tags (<br/>, <b>)
+  // inside the <pre> before this runs, and textContent would silently drop them.
+  // Mermaid entity-decodes innerHTML itself, so escaped arrows (-&gt;&gt;) still work.
+  document.querySelectorAll('.mermaid').forEach(el => { el.dataset.src = el.innerHTML; });
+
+  function mermaidVars(isDark) {
+    const brand = isDark ? '#18e299' : '#0c8c5e';
+    const bg = isDark ? '#121715' : '#faf8f5';
+    const fg = isDark ? '#faf8f5' : '#121715';
+    const line = isDark ? '#969e9b' : '#717d79';
+    const box = isDark ? '#0a0b0f' : '#ffffff';
+    return {
+      fontFamily: 'Inter, sans-serif', fontSize: '13px',
+      primaryColor: box, primaryTextColor: fg, primaryBorderColor: brand,
+      lineColor: line, secondaryColor: bg, tertiaryColor: bg,
+      background: bg, mainBkg: box, nodeBorder: brand, clusterBkg: bg,
+      clusterBorder: isDark ? '#1e1f21' : '#ebe9e6', titleColor: fg,
+      actorBkg: box, actorBorder: brand, actorTextColor: fg,
+      actorLineColor: line, signalColor: fg, signalTextColor: fg,
+      labelBoxBkgColor: bg, labelBoxBorderColor: brand, labelTextColor: fg,
+      noteBkgColor: isDark ? '#18e29914' : '#0c8c5e14', noteTextColor: fg, noteBorderColor: brand,
+      sequenceNumberColor: isDark ? '#0a0b0f' : '#ffffff',
+    };
+  }
+  async function renderAll() {
+    mermaid.initialize({ startOnLoad: false, theme: 'base', themeVariables: mermaidVars(dark), securityLevel: 'loose' });
+    const nodes = document.querySelectorAll('.mermaid');
+    nodes.forEach(el => { el.removeAttribute('data-processed'); el.innerHTML = el.dataset.src; });
+    await mermaid.run({ nodes });
+  }
+  function applyTheme() {
+    root.classList.toggle('dark', dark);
+    document.getElementById('hljs-light').disabled = dark;
+    document.getElementById('hljs-dark').disabled = !dark;
+    renderAll();
+  }
+  document.getElementById('themeToggle').addEventListener('click', () => { dark = !dark; applyTheme(); });
+  applyTheme();
+</script>
+</body>
+</html>

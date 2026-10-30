@@ -1,0 +1,8 @@
+{
+  "total_count": 3,
+  "check_runs": [
+    {"name": "lint", "head_sha": "4c9e2a71d8b05f36e1a7c42d9b8f0e3a5d6c7b18", "status": "completed", "conclusion": "success"},
+    {"name": "test", "head_sha": "4c9e2a71d8b05f36e1a7c42d9b8f0e3a5d6c7b18", "status": "completed", "conclusion": "success"},
+    {"name": "build", "head_sha": "4c9e2a71d8b05f36e1a7c42d9b8f0e3a5d6c7b18", "status": "completed", "conclusion": "success"}
+  ]
+}

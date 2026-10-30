@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Git pre-push hook: block a push when a newly published commit holds a private deny-list term.
+# A pushed branch of a public repository is public at once, so the leak check must run before the push.
+# scripts/install_git_hooks.sh sets core.hooksPath to config/git-hooks. `git push --no-verify` skips this hook.
+#
+# Git writes one line on stdin for each ref: <local ref> <local sha> <remote ref> <remote sha>.
+# A push publishes every commit that the remote does not have yet, not only the tip. So the hook lists the
+# commits that no remote-tracking ref of this remote holds (`$1` is the remote name that Git passes in),
+# and scripts/check_leaks.py --commits-from checks the files that each of them adds or changes. It reads
+# them from the object store, not the working tree. A remote with no tracking refs gives all ancestors,
+# which over-checks and is safe. The hook does not trust <remote sha>, because it can be absent locally.
+# scripts/check_leaks.py never prints a term.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+remote_name="${1:-}"
+while read -r local_ref local_sha _remote_ref _remote_sha; do
+  # An all-zero ID means the push deletes the remote ref, so it publishes nothing.
+  [[ "$local_sha" =~ ^0+$ ]] && continue
+  # With no term source, the check warns and allows the push, even in a CI=true shell such as a cloud session.
+  # A term source that is set but cannot be read still exits 2 and blocks the push.
+  # The check reads the commit list from the pipe, so it cannot read the remaining ref lines of this loop.
+  # With pipefail, a failed rev-list also blocks the push.
+  if ! git rev-list "$local_sha" --not --remotes="$remote_name" \
+    | DOTFILES_LEAK_TERMS_OPTIONAL=1 python3 "$root/scripts/check_leaks.py" --root "$root" --commits-from - >&2; then
+    echo "pre-push: the leak check blocked the push of $local_ref. The lines above name each commit and file." >&2
+    exit 1
+  fi
+done

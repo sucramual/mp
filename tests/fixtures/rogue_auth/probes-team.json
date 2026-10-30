@@ -1,0 +1,150 @@
+{
+  "exit": 1,
+  "stderr": "",
+  "stdout": {
+    "checked_at": "<time>",
+    "ok": false,
+    "probes": [
+      {
+        "detail": null,
+        "name": "gh-auth",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "spacelift-stacks",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "signadot-sandboxes",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "gcloud-adc-token",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "cloud-build:acme-internal",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "cloud-deploy:acme-internal",
+        "status": "ok"
+      },
+      {
+        "detail": "ERROR: (gcloud.run.services.list) denied",
+        "name": "cloud-run:acme-platform-staging",
+        "status": "fail"
+      },
+      {
+        "detail": null,
+        "name": "logging:acme-platform-staging",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "monitoring:acme-platform-staging",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "cloud-run:acme-platform",
+        "status": "ok"
+      },
+      {
+        "detail": null,
+        "name": "logging:acme-platform",
+        "status": "ok"
+      },
+      {
+        "detail": "HTTP 403: Permission monitoring.timeSeries.list denied",
+        "name": "monitoring:acme-platform",
+        "status": "fail"
+      }
+    ],
+    "providers": [
+      {
+        "account": "octo-fake",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gh",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": "marcus@example.com",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gcloud",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "gcloud-adc",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": "acmeholdings",
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": null,
+        "name": "spacelift",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": "fake-org",
+        "expires_at": "<time>",
+        "expires_source": "provider",
+        "fix": null,
+        "name": "signadot",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "ok",
+        "warning": null
+      },
+      {
+        "account": null,
+        "expires_at": null,
+        "expires_source": "unknown",
+        "fix": "Confirm Okta in Google Chrome: open https://login.acme.example and check that the dashboard loads without a sign-in page.",
+        "name": "okta",
+        "observed_lifetimes": {
+          "count": 0,
+          "shortest_seconds": null
+        },
+        "status": "manual",
+        "warning": null
+      }
+    ]
+  }
+}

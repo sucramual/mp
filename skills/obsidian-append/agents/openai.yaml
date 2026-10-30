@@ -1,0 +1,3 @@
+display_name: Obsidian Append
+short_description: Write concept notes into Marcus's Obsidian vault
+default_prompt: Write this concept into my Obsidian knowledge base.

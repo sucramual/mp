@@ -27,12 +27,23 @@ The reviewer and the controller are separate roles. The reviewer never merges.
   - The PR head is still the SHA that the reviewer reported.
   - The PR changes no file in [Merge-rule files](#merge-rule-files). Marcus merges a PR that changes one, whatever its verdict.
   - In the overlay, the PR changes only files in the [Overlay merge allowlist](#overlay-merge-allowlist). Marcus merges any other overlay PR, whatever its verdict.
-- Before you merge, post one line to `issues/<number>/comments` that says why, as a colleague does when they merge for you. Name the reviewed SHA, the ready verdict, the review rounds, and the CI result. For example: `Merging 4cf0af9 for Marcus: ready, 1 round with no findings, checks and leaks passed.`
+- Before you merge, post the [merge note](#merge-note).
 - To merge, run `gh pr merge <number> --repo sucramual/mp --squash --match-head-commit <reviewed SHA>`. Where GraphQL is blocked, as in a cloud session, use the REST form with the same pin: `gh api -X PUT repos/sucramual/mp/pulls/<number>/merge -f sha=<reviewed SHA> -f merge_method=squash`. Then read the receipt: `gh api repos/sucramual/mp/pulls/<number> --jq '{merged, merge_commit_sha}'` shows `merged: true`. Then run `dotfiles-pr sync`.
   For the overlay, use the same commands with `sucramual/mp-private` in place of `sucramual/mp`. After the receipt, run `git -C ~/dotfiles-work pull --ff-only`, because `dotfiles-pr sync` does not update the overlay.
 - If GitHub blocks the merge for unresolved threads or failed checks, return the PR to `review-pr`. Never resolve threads yourself to unblock a merge. Never pass `--admin` to `gh pr merge`.
 - For edges in an employer repository that has a rule in [Employer repository rules](../../skills/review-pr/references/risk-tiers.md#employer-repository-rules), merge only as that rule allows.
 - For edges in all other repositories, report that the PR is ready. Do not merge.
+
+### Merge note
+
+This rule applies in every repository. Before an agent merges a PR, adds it to a merge queue, or closes it for Marcus, it posts exactly one top-level comment to `issues/<number>/comments`. The comment says why, as a colleague does when they merge for you. Use one of these forms:
+
+- Merge: `Merging <sha> for Marcus: <verdict>, <rounds>, <CI result>.` For example: `Merging 4cf0af9 for Marcus: ready, 1 round with no findings, checks and leaks passed.`
+- Merge queue: `Enqueued <sha> for Marcus: <verdict>, <rounds>, <CI result>.`
+- Close: `Closing for Marcus: <reason>.`
+
+`<sha>` is the reviewed head. Post no other top-level comment for the same action.
+Some employer repositories have an enqueue rule that reads any comment from the driving login as a person speaking. In such a repository, the repository's own rule must accept these exact forms. When it does not yet, do not post the note and do not enqueue; report to Marcus instead.
 
 ### Merge-rule files
 

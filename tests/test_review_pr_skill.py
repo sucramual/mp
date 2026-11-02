@@ -171,6 +171,11 @@ def test_ready_check_line(needle: str, message: str) -> None:
         ("--squash --match-head-commit <reviewed SHA>", "the controller merge must be pinned to the reviewed SHA"),
         ("-f sha=<reviewed SHA>", "the REST merge must carry the same pin"),
         ("Never resolve threads yourself to unblock a merge.", "a merge must not skip open review feedback"),
+        ("This rule applies in every repository.", "the merge note is not limited to the dotfiles repositories"),
+        (
+            "When it does not yet, do not post the note and do not enqueue",
+            "a note that the repository reads as a person speaking must not precede an enqueue",
+        ),
     ],
 )
 def test_controller_merge_line(needle: str, message: str) -> None:

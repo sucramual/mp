@@ -49,6 +49,7 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
 Some repositories read the PR author's own comments as a person speaking. An employer repository's merge loop, for example, stops when the driving login posts anything except its reply grammar. Their reviewer entry sets `threadRepliesOnly: true`. For such a repository:
 
 - Post nothing on the PR except replies on review threads. Post no round summary, no `retrigger` text, and no quota note, also at the design stop.
+- The one top-level comment that this mode allows is the merge note of the PR review guide (`agents/guides/pr-review.md`), which the agent that merges, enqueues, or closes the PR posts. `review-pr` never posts it, because it never merges.
 - Write each reply as exactly one line, with no footer:
   - Fix, or Already addressed by a commit on the head: `Fixed in <short sha>: <what changed>`.
   - No change, Follow-up, or Already addressed with no commit to name: `Declined: <reason>`. A Follow-up reason links its issue.

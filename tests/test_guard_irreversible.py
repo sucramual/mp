@@ -143,6 +143,43 @@ def test_allows_reads_and_pinned_merges(command: str, tmp_path: Path):
     assert result.stdout == ""
 
 
+HEREDOC_ALLOWED = [
+    "gh pr comment 12 --body-file - <<'EOF'\nIt's fine.\nEOF",
+    "cat >> plan.md <<'EOF'\nThe router's note\nEOF\ngh pr view 12",
+    "gh pr create --title t --body \"$(cat <<'EOF'\nWe don't merge here.\nEOF\n)\"",
+    "cat <<-EOF > notes.md\n\tIt's indented.\n\tEOF",
+    "cat > example.md <<'EOF'\ngh pr merge 12 --squash\nEOF",
+]
+
+
+# Protects: a heredoc body is input to its command, so its quoting does not block the call.
+# Bug caught: shlex read an apostrophe in a PR comment body as an open quote and blocked with "could not split"
+# (3 failures in 3 /matrix sessions, 2026-11-02). A body that only feeds a file is data, not a command.
+@pytest.mark.parametrize("command", HEREDOC_ALLOWED)
+def test_allows_heredoc_bodies_with_any_quoting(command: str, tmp_path: Path):
+    result = run_guard(bash(command, tmp_path), tmp_path)
+    assert result.returncode == 0, f"should allow: {command}\n{result.stderr}"
+    assert result.stderr == ""
+
+
+HEREDOC_BLOCKED = [
+    ("cat >> plan.md <<'EOF'\nIt's data.\nEOF\ngh pr merge 12 --squash", PIN_REASON),
+    ("bash <<'EOF'\necho it's\ngh pr merge 12 --squash\nEOF", "could not split"),
+    ("bash -s <<'EOF'\ngh pr merge 12 --squash\nEOF", PIN_REASON),
+    ("cat <<'EOF' | sh\nspacectl stack deploy --id x\nEOF", SPACELIFT_REASON),
+]
+
+
+# Protects: removing heredoc bodies hides no command. Commands after the body, and a body that a shell runs,
+# are still checked, and a shell body that does not split fails closed.
+# Bug caught: a strip that also drops the rest of the call, or skips a body piped to a shell.
+@pytest.mark.parametrize(("command", "reason"), HEREDOC_BLOCKED)
+def test_checks_commands_around_and_inside_shell_heredocs(command: str, reason: str, tmp_path: Path):
+    result = run_guard(bash(command, tmp_path), tmp_path)
+    assert result.returncode == 2, f"should block: {command}\n{result.stderr}"
+    assert reason in result.stderr
+
+
 def test_allows_other_tools(tmp_path: Path):
     stdin = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": "x", "new_string": "gh pr merge 1"}})
     result = run_guard(stdin, tmp_path)

@@ -11,6 +11,7 @@ It reads the hook JSON on stdin and checks each simple command in a Bash tool ca
   - `spacectl` may run only read commands (READ_ONLY_SPACECTL).
 
 Allow: exit 0 with no output. Block: exit 2 with the reason on stderr; both agents read this as a block.
+A heredoc body is input, so its quoting is not checked. A body that a shell reads is checked as a command.
 It fails closed: bad input or any error blocks the call.
 It is a guardrail against mistakes, not a security boundary: shell tricks such as eval or variables get past it.
 Standard library only.
@@ -33,6 +34,8 @@ ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 WRAPPERS = frozenset({"command", "env", "sudo", "time", "nohup", "exec"})
 RESERVED_WORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"})
 SHELLS = frozenset({"bash", "sh", "zsh"})
+# A heredoc operator: << or <<-, then the delimiter, bare or quoted. <<< is a here-string, not a heredoc.
+HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
 MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge/?")
 # gh api flags that take a value. Every other flag is a switch.
 GH_API_VALUE_FLAGS = {
@@ -62,6 +65,41 @@ class Blocked(Exception):
 
 class BadInput(Exception):
     """The hook input is not what Claude Code or Codex sends."""
+
+
+def strip_heredocs(command: str) -> tuple[str, list[tuple[str, str]]]:
+    """Remove each heredoc body and its end line. Return the rest and a (operator line, body) pair for each body.
+
+    A body is input, not shell syntax, so an apostrophe in a PR comment must not break the split.
+    When a delimiter has no end line, the command is returned unchanged.
+    """
+    lines = command.split("\n")
+    kept: list[str] = []
+    bodies: list[tuple[str, str]] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        kept.append(line)
+        index += 1
+        for match in HEREDOC.finditer(line):
+            strip_tabs, delimiter = match.group(1) == "-", match.group(3)
+            start = index
+            while index < len(lines) and (lines[index].lstrip("\t") if strip_tabs else lines[index]) != delimiter:
+                index += 1
+            if index == len(lines):
+                return command, []
+            bodies.append((line, "\n".join(lines[start:index])))
+            index += 1
+    return "\n".join(kept), bodies
+
+
+def feeds_a_shell(line: str) -> bool:
+    """True when a simple command on the heredoc's line is a shell, as in `bash <<EOF` or `cat <<EOF | sh`."""
+    for part in re.split(r"[;&|()]", line):
+        words = strip_wrappers(part.split())
+        if words and os.path.basename(words[0]) in SHELLS:
+            return True
+    return False
 
 
 def split_segments(command: str) -> list[list[str]]:
@@ -226,6 +264,10 @@ def check_spacectl(args: list[str]) -> None:
 
 
 def check_command(command: str, cwd: Path) -> None:
+    command, bodies = strip_heredocs(command)
+    for line, body in bodies:
+        if feeds_a_shell(line):
+            check_command(body, cwd)
     try:
         segments = split_segments(command)
     except ValueError as error:

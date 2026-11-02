@@ -39,7 +39,22 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
    1. Commit the named paths, then `git push`. If the push fails, post no "Fixed" reply and no summary that says fixed.
    2. Reply to each thread: `gh api repos/<o>/<r>/pulls/<pr>/comments/<comment-id>/replies -F body=@<file>`. Unless [Thread replies only](#thread-replies-only) applies, end each body with a line `---`, then `agent on behalf of <login>` (from `gh api user --jq .login`).
    3. Resolve the Fixed, Already addressed, and No change threads, and a Follow-up thread whose reply links its issue. Leave Needs decision open. In a cloud session: `gh api -X POST repos/<o>/<r>/pulls/<pr>/ccr/comments/<comment-id>/resolve`. Locally: GraphQL `resolveReviewThread`.
-   4. Unless [Thread replies only](#thread-replies-only) applies, post one round summary to `issues/<pr>/comments`, in the [Round summary](references/round-summary.md) format.
+   4. Unless [Thread replies only](#thread-replies-only) applies, post one round summary to `issues/<pr>/comments` in every round that pushed or replied to a thread. Use this shape, never prose or bullets. [Round summary](references/round-summary.md) gives the rule for each cell:
+
+      ```markdown
+      **Review round <n> (<old SHA> → <new SHA>): <verdict>**
+
+      | Comment | Class | Disposition | Change |
+      | --- | --- | --- | --- |
+      | <one-line claim> | edges | Fix | <fix commit short SHA>: <one-line change> |
+
+      Validation: <checks run>. CI: <state>.
+      Earlier rounds: <one line per earlier round with its verdict and outcome>.
+      Open: <gaps, Follow-up, or Needs decision items>.
+
+      ---
+      agent on behalf of <login>
+      ```
 
    Write each body to a file outside the worktree. If a post fails, read the comments before you post again.
 7. **Repeat** from step 1 on the new head.

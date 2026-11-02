@@ -1,11 +1,11 @@
 ---
 name: perf
-description: Makes one metric faster by experiment, measurement, and report - a trend-checked baseline, throwaway-branch experiments, a same-runner A/B, and an adversarial review of each claim - then writes a Linear ticket and hands proven changes to /neo or /matrix after confirmation. Use for "/perf", "make CI faster", "prove this speeds X up", or measuring the gain of merged changes. Not for building a known change (neo, matrix).
+description: Makes one metric faster by experiment, measurement, and report - a trend-checked baseline, throwaway-branch experiments, a same-runner A/B, and an adversarial review of each claim - then writes a Linear ticket and hands proven changes to /neo or /matrix after confirmation. Takes a plan of items to test, or proposes one for approval. Use for "/perf", "make CI faster", "prove this speeds X up", or measuring the gain of merged changes. Not for building a known change (neo, matrix).
 ---
 
 # perf
 
-Take one metric from "slow" to proven changes and a ticket. This skill never ships code: `/neo` or `/matrix` builds each change test first. Marcus is present at intake and at the report.
+Take one metric from "slow" to proven changes and a ticket. This skill never ships code: `/neo` or `/matrix` builds each change test first. Marcus is present at intake, at plan approval when he gave no plan, and at the report.
 
 `<skill-dir>` is the folder of this `SKILL.md`. If `~/.claude/work-perf.md` exists, read it and follow it. It names the data sources and runners of an employer repository.
 
@@ -13,13 +13,14 @@ Take one metric from "slow" to proven changes and a ticket. This skill never shi
 
 Send Marcus one message:
 
+- **Plan.** When Marcus gave a plan, such as a list of items to test, a ticket, or a file, restate each item as a hypothesis in the [Plan](#2-plan) format. Name each item that has no measurable check, and propose one. When he gave no plan, say that the run starts with the baseline and then brings him a plan to approve.
 - **Metric.** Name the metric, its unit, where it is measured, and the target. For example "PR CI wall time, p50 of green runs, from the CI job table".
 - **Method.** Choose a measurement method from `<skill-dir>/references/methods/`. Version 1 has `ci.md` only. For another metric, propose a method in the same shape and wait for Marcus.
 - **Budget.** The cap on experiment runs. The default is 10 CI workflow runs. Marcus can change it with `--budget <n>`.
 - **Limits.** Restate the hard limits below. Ask about each limit that the goal could cross.
 - **Access.** Test each tool once with a real call: the data source query, push access to an experiment branch, and Linear. Name each missing item. Do not start until Marcus fixes it.
 
-Then run to the report. Do not come back to Marcus before it.
+With a plan, run to the report after intake. Without a plan, run the baseline, then stop at [Plan](#2-plan) for approval. Do not come back to Marcus at any other point before the report.
 
 ## 1. Baseline
 
@@ -28,9 +29,14 @@ Then run to the report. Do not come back to Marcus before it.
 - Find what decides the metric. For wall time, find the critical path: the step that finishes last, and how often. A gain on a step that does not finish last does not change the wall time.
 - Split each step into setup and work. In the spike, setup was 32–64% of each CI job.
 
-## 2. Hypotheses
+## 2. Plan
 
-Rank the hypotheses by expected gain divided by experiment cost. For each one, write the expected gain, the cheapest experiment, and what would refute it. Check each one locally first when local runs can show the effect.
+The plan is the list of items to test. Write each item as a hypothesis: the change, the expected gain, the cheapest experiment, its cost in runs, and what would refute it. Rank the items by expected gain divided by experiment cost.
+
+- **Marcus gave a plan.** Use his items in his order. Add an item only when the baseline shows a larger gain than every item he gave, and mark it as added. Drop no item without saying why in the report.
+- **Marcus gave no plan.** Build the plan from the baseline. Send Marcus the baseline summary and the ranked plan, with the items that fit the budget marked. Wait for him to approve or change it. Start no experiment before he does, because the plan decides what the budget is spent on.
+
+Check each item locally first when local runs can show the effect.
 
 ## 3. Experiment
 

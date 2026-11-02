@@ -66,6 +66,19 @@ def test_blocks_pr_create_on_a_new_line(command: str, isolated_env: IsolatedEnv,
     assert result.returncode == 2, result.stderr
 
 
+@pytest.mark.parametrize("command", ["# Create the PR\ngh pr create --fill", "cd /tmp # go\ngh pr create"])
+def test_blocks_pr_create_after_a_comment_line(command: str, isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    # Bug caught: shlex read the next line as part of the comment, so the gate was bypassed.
+    result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
+    assert result.returncode == 2, result.stderr
+
+
+def test_allows_a_comment_that_names_the_command(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    command = "cd /tmp # gh pr create"
+    result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
+    assert (result.returncode, result.stderr) == (0, "")
+
+
 def test_allows_a_newline_inside_quotes(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
     command = 'echo "line one\ngh pr create"'
     result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))

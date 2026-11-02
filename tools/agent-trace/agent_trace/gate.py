@@ -28,11 +28,19 @@ REASON = (
 
 
 def split_lines(command: str) -> str:
-    """Turn each unquoted newline into `;`, because the shell ends a command there and `tokens` drops it."""
+    """Turn each unquoted newline into `;`, because the shell ends a command there and `tokens` drops it.
+
+    Also drop a comment up to its newline, so that `shlex` cannot read the next line as part of the comment.
+    """
     out: list[str] = []
     quote = ""
     escaped = False
+    comment = False
     for char in command:
+        if comment:
+            if char != "\n":
+                continue
+            comment = False
         if escaped:
             escaped = False
         elif char == "\\" and quote != "'":
@@ -41,6 +49,9 @@ def split_lines(command: str) -> str:
             quote = "" if char == quote else quote
         elif char in "'\"":
             quote = char
+        elif char == "#" and (not out or out[-1] in " \t\n;&|()"):
+            comment = True
+            continue
         elif char == "\n":
             char = " ; "
         out.append(char)

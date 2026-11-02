@@ -50,6 +50,8 @@ Each work order has:
 - Start each `/neo` in its own session, or in a background agent with its own worktree. In the Claude desktop app, start a session for each chain. Brief it: "Run /neo with the work order at `<path>`. It owns `<PR list>`."
 - Start independent chains in parallel. Start a dependent chain when its dependency merges, or when the work order gives it a written contract to build against.
 - Near its context budget, a worker hands off its whole chain to one new worker. Never split a chain between two workers.
+- Put no ticket ID in a worker's branch name or PR title. Only you close the ticket, at [Close](#close). Linear closes a ticket when a merged PR's branch name or title holds its ID: a branch named after its ticket closed the ticket while two goal checks were still open. Instead, the worker writes `Part of <ID>` in the PR body. Linear links the PR but does not close the ticket on merge.
+- Tell each worker to pass `--ticket <ID>` on its first `agent-trace` call, so its spans join the ticket. Tell it to send you its close draft instead of posting it.
 
 ## Review gate
 
@@ -80,10 +82,18 @@ Restacks and cross-PR breaks are yours.
 - Hold the base branch fixed while workers run. Batch base changes, and rebase every affected branch once for each batch.
 - After a dependency merges, rebase each branch that depends on it onto the latest base. Run the tests that cross PR boundaries, such as a test that reads a file that another PR changes.
 - Send each failure to the worker that owns the failing file. Do not fix it yourself.
+- Before you forward a rule to workers, read its scope line and quote it with the rule. A rule from a guide can apply to one repository only. A merge-note rule forwarded without its scope had to be withdrawn from three workers. For an employer repository, merge authority is in the Merge authority section of `~/.claude/work.md`.
 
 ## Close
 
-Send Marcus one message: each PR with its state and link, each park with its pinned merge command, the decisions that you settled and their evidence, and the open items.
+You own the ticket's close. Workers do not write close comments to the ticket.
+
+1. Collect each worker's close draft: its verdict, the evidence for each check marked `live` or `unit only`, its decisions, and its open items. Each worker answers the `Reconcile` items of its own sessions before it sends the draft.
+2. Run `agent-trace show --ticket <ID>`. It joins the spans of every worker session bound to the ticket.
+3. Post one comment on the ticket: the `text` fence from `show`, each PR with its reviewed SHA and merge SHA, each park, the combined verdict for each goal check with its evidence, the decisions, and the open items.
+4. Close the ticket only when every goal check passes on the merged result, including checks that no PR covers. Otherwise leave it open and list what remains.
+
+Then send Marcus one message: each PR with its state and link, each park with its pinned merge command, the decisions that you settled and their evidence, the open items, and a link to the ticket comment. A goal with no ticket gets this message only.
 
 ## Hard limits
 

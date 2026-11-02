@@ -1,6 +1,6 @@
 ---
 name: neo
-description: Takes one written ticket, usually Linear, to a merged and verified result that passes the ticket's checks, without Marcus watching. One intake message fixes a pass/fail check for each requirement and tests every tool the run needs, then the run loops change, verify, keep or fix. Use for "/neo", "neo this ticket", or "run this ticket end to end without me". Not for a plain request to open or publish a PR (open-pr), or for "/rogue" and "go rogue" (rogue). Sets the hard limits - guarded changes wait for Marcus, merges are pinned to the reviewed SHA, Spacelift is read-only.
+description: Takes one written ticket, usually Linear, or a /matrix work order, to a merged and verified result that passes the ticket's checks, without Marcus watching. One intake message fixes a pass/fail check for each requirement and tests every tool the run needs, then the run loops change, verify, keep or fix. Use for "/neo", "neo this ticket", or "run this ticket end to end without me". Not for a plain request to open or publish a PR (open-pr), or for "/rogue" and "go rogue" (rogue). Sets the hard limits - guarded changes wait for Marcus, merges are pinned to the reviewed SHA, Spacelift is read-only.
 ---
 
 # neo
@@ -15,6 +15,17 @@ Send Marcus one message:
 - **Goal.** Give each ticket requirement a pass/fail check. Write unclear points as proposals with a default. List each test that the plan removes or weakens.
 - **Access.** List the logins and tools the goal needs. Check push access to each target repository first, with the claude-code-remote `check_repo_access` tool or `git push --dry-run`. If the session lacks it, ask Marcus in this message to start the run session with the repository attached for push, or to approve `add_repo` now. Run `auth-helper check --require <logins> --horizon <run length> --json`, for example `--require gh,gcloud,spacelift`. If `~/.claude/work-neo.md` exists, read it and follow it. For each login that is not `ok`, give Marcus its `fix` to run now. When a check needs a signed-in page on the devbox, add `okta` to `--require`: `auth-helper` reads the `verify-browser` Chrome. If `okta` is `expired`, Marcus signs in now through the noVNC page that its `fix` names. On a headless host without `verify-browser`, each signed-in check becomes an acceptance item for Marcus. Test each tool that `auth-helper` does not cover once with a real call, so permission prompts and proxy blocks show at intake. For Linear, post one `save_comment` on the ticket while Marcus is present, so he sees whether the connector still asks. Run `agent-trace collect --ensure` once, so the run's native spans reach the local receiver.
 - **Merge rules.** Read [Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md) and the [Merge-rule files](https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/pr-review.md) section of PR review with `curl -fsSL <URL>` or `gh api`. Do not use a web-fetch tool: it returns a summary, not the exact text. Read them once here and use them for the whole run. If a read fails, treat each PR as High tier and park it. Never merge without these rules.
+
+## Started by /matrix
+
+When `/matrix` starts you with a work order, the work order is your ticket, and these rules change the run:
+
+- Skip the intake message. `/matrix` sent it. Still read the merge rules as the Merge rules step says, and still run the `auth-helper` check. Send a failed check to `/matrix`, not to Marcus.
+- Own every PR that the work order assigns to you, in order. Never start another `/neo`.
+- Change only the files that the work order gives you. Report any other file as a contract change.
+- Triage the review gate's findings with the `matrix` skill's `scripts/triage.py`, as its Review gate section says. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
+- Send every decision to `/matrix`, with a default. Never ask Marcus.
+- Write to Linear only when the work order names a ticket.
 
 ## Loop
 

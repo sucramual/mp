@@ -73,6 +73,30 @@ class ParseLineTests(unittest.TestCase):
                 self.assertIsNone(log.parse_line(line))
 
 
+class ParseLinesTests(unittest.TestCase):
+    def test_mixed_block_returns_only_log_entries_in_order(self):
+        block = ["Starting work.", RUN, "Ran checks.", FRICTION, RUN_UPDATE, "done"]
+        self.assertEqual(
+            log.parse_lines(block),
+            [
+                {"kind": "run", "ticket": "ENG-1", "sessions": ["session_a"], "prs": []},
+                {
+                    "kind": "friction",
+                    "category": "permission",
+                    "what": "gh auth expired",
+                    "fix": "add gh to preflight",
+                    "at": "gh pr view",
+                },
+                {
+                    "kind": "run",
+                    "ticket": "ENG-1",
+                    "sessions": ["session_a", "session_b"],
+                    "prs": ["https://github.com/o/r/pull/1"],
+                },
+            ],
+        )
+
+
 class CliTests(unittest.TestCase):
     def test_malformed_line_exits_1_and_prints_no_entries(self):
         with TemporaryDirectory() as tmp:

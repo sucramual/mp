@@ -21,10 +21,17 @@ from agent_trace import emit, store
 from agent_trace.hook import SHELL_TOOLS
 
 SLASH_COMMAND = "<command-name>/neo</command-name>"
-# `gh pr create` anywhere in the call, also in echoed, quoted, or commented text. A false block is cheap: it fires
-# only in a /neo session with no ticket, and its fix is the step that session owes anyway. Parsing shell syntax
-# missed real calls three times in review (newline, comment, comment after a newline), so the gate does not parse.
-PR_CREATE = re.compile(r"\bgh\b(?:\s+(?:-R|--repo)(?:=|\s+)\S+)?\s+pr\s+create\b")
+# Each command that opens a PR, anywhere in the call, also in echoed, quoted, or commented text: `gh pr create`,
+# the wrappers `dotfiles-pr ship` (also as `$DOTFILES_PR ship`) and `gh stack submit`, and the REST create on
+# `repos/<o>/<r>/pulls`.
+# A false block is cheap: it fires only in a /neo session with no ticket, and its fix is owed anyway.
+# Parsing shell syntax missed real calls three times in review, so the gate does not parse.
+PR_CREATE = re.compile(
+    r"\bgh\b(?:\s+(?:-R|--repo)(?:=|\s+)\S+)?\s+pr\s+create\b"
+    r"|(?i:\bdotfiles[-_]pr\b)[\"'}]*\s+ship\b"
+    r"|\bgh\s+stack\s+submit\b"
+    r"|\bgh\s+api\b[^\n]*\brepos/[^/\s'\"]+/[^/\s'\"]+/pulls(?=['\"]?(?:\s|$))"
+)
 REASON = (
     "agent-trace gate: this /neo session has no ticket bound for its trace, so it cannot open a PR yet. "
     'Run `agent-trace span start --id run --name "neo run" --kind phase --ticket <ID>` first, with the ticket '
@@ -67,7 +74,7 @@ def blocks(payload: dict[str, Any]) -> bool:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if isinstance(command, list):
         command = " ".join(str(part) for part in command)
-    if not isinstance(command, str) or "gh" not in command:
+    if not isinstance(command, str):
         return False
     if not PR_CREATE.search(command):
         return False

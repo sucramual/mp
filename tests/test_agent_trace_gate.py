@@ -61,6 +61,7 @@ def test_blocks_pr_create_in_a_neo_session_with_no_ticket(
 
 # Protects: no shell layout hides a PR creation from the gate. Bug caught: in review, a newline, a comment line,
 # and a comment line after a newline each let `gh pr create` through a shell-parsing gate.
+# Bug caught: `dotfiles-pr ship`, the REST fallback, and `gh stack submit` open a PR with no `gh pr create` in the call.
 # Echoed, quoted, and commented mentions also block: in a /neo session with no ticket, the fix is owed anyway.
 @pytest.mark.parametrize(
     "command",
@@ -74,6 +75,11 @@ def test_blocks_pr_create_in_a_neo_session_with_no_ticket(
         "echo gh pr create",
         "cd /tmp # gh pr create",
         'echo "line one\ngh pr create"',
+        '"$DOTFILES_PR" ship "feat: x" --body-file /tmp/body.md',
+        "tools/dotfiles-pr/bin/dotfiles-pr ship 'msg'",
+        "gh api 'repos/o/r/pulls' -f title=x -f head=b -f base=main -F body=@b.md",
+        "gh api repos/o/r/pulls -X POST --input pr.json",
+        "gh stack submit --remote origin",
     ],
     ids=[
         "newline",
@@ -85,6 +91,11 @@ def test_blocks_pr_create_in_a_neo_session_with_no_ticket(
         "echoed",
         "commented",
         "quoted",
+        "dotfiles-pr-ship-variable",
+        "dotfiles-pr-ship-path",
+        "rest-create-quoted",
+        "rest-create-post",
+        "stack-submit",
     ],
 )
 def test_blocks_any_pr_create_in_a_neo_session(command: str, isolated_env: IsolatedEnv, tmp_path: Path) -> None:
@@ -111,8 +122,20 @@ def test_allows_pr_create_once_a_ticket_is_bound(isolated_env: IsolatedEnv, tmp_
         ("gh pr view 12", [SKILL_CALL]),
         ("gh pr list --search 'pr create'", [SKILL_CALL]),
         ("gh pr create --fill", [QUOTED_IN_TOOL_OUTPUT]),
+        ("gh api 'repos/o/r/pulls?head=o:b&state=open'", [SKILL_CALL]),
+        ("gh api -X PATCH 'repos/o/r/pulls/12' -F body=@b.md", [SKILL_CALL]),
+        ("dotfiles-pr start fix-gate", [SKILL_CALL]),
     ],
-    ids=["other-skill", "no-skill", "pr-view", "other-gh-command", "quoted-in-tool-output"],
+    ids=[
+        "other-skill",
+        "no-skill",
+        "pr-view",
+        "other-gh-command",
+        "quoted-in-tool-output",
+        "rest-pr-lookup",
+        "rest-pr-update",
+        "dotfiles-pr-start",
+    ],
 )
 def test_allows_outside_neo_pr_creation(
     command: str, lines: list[dict], isolated_env: IsolatedEnv, tmp_path: Path

@@ -1616,10 +1616,11 @@ def test_sync_registers_the_guard_hook(world: World) -> None:
     result = world.run_sync("hooks")
     assert result.returncode == 0, f"sync should succeed\n{result.stderr}"
     expected = f"python3 {checkout / 'config' / 'agent-hooks' / 'guard_irreversible.py'}"
+    gate = f"python3 {checkout / 'tools' / 'agent-trace' / 'bin' / 'agent-trace'} gate"
     for target in (".claude/settings.json", ".codex/hooks.json"):
         settings = json.loads((world.iso.home / target).read_text())
         commands = [hook["command"] for group in settings["hooks"]["PreToolUse"] for hook in group["hooks"]]
-        assert commands == [expected], f"sync should register the guard hook in {target}"
+        assert commands == [expected, gate], f"sync should register the guard hook and the gate in {target}"
     assert "main is at" in result.stdout, f"sync should still print its summary\n{result.stdout}"
 
 

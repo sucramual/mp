@@ -15,6 +15,7 @@ from conftest import REPO_ROOT
 
 SCRIPT = REPO_ROOT / "config" / "agent-hooks" / "install_hooks.py"
 TRACE_COMMAND = f"python3 {REPO_ROOT / 'tools' / 'agent-trace' / 'bin' / 'agent-trace'} hook"
+GATE_COMMAND = f"python3 {REPO_ROOT / 'tools' / 'agent-trace' / 'bin' / 'agent-trace'} gate"
 TELEMETRY_ENV = {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
     "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
@@ -53,6 +54,24 @@ def test_registers_the_trace_hook_once_in_both_files(tmp_path: Path) -> None:
         commands = post_tool_commands(json.loads(path.read_text()))
         assert commands.count(("Bash", TRACE_COMMAND)) == 1, f"{path.name} should hold the trace hook once: {commands}"
     assert ("Edit", "owner-post-hook") in post_tool_commands(json.loads(claude.read_text())), "owner hook kept"
+
+
+# Protects: Claude Code and Codex run the agent-trace PR-creation gate before Bash, beside the guard.
+# Bug caught: the gate exists but no settings file registers it, so a /neo run still opens a PR with no trace.
+def test_registers_the_gate_once_beside_the_guard(tmp_path: Path) -> None:
+    claude = tmp_path / "settings.json"
+    codex = tmp_path / "hooks.json"
+
+    first = install(claude, codex)
+    second = install(claude, codex)
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    for path in (claude, codex):
+        groups = json.loads(path.read_text())["hooks"]["PreToolUse"]
+        commands = [(group.get("matcher"), hook["command"]) for group in groups for hook in group["hooks"]]
+        assert commands.count(("Bash", GATE_COMMAND)) == 1, f"{path.name} should hold the gate once: {commands}"
+        assert any(command.endswith("guard_irreversible.py") for _, command in commands), "the guard stays"
 
 
 # Protects: a moved checkout updates the trace hook in place instead of adding a second copy.

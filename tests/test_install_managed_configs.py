@@ -567,7 +567,7 @@ def test_install_neither_installs_nor_runs_ro(
     settings = json.loads((isolated_env.home / ".claude/settings.json").read_text())
     # install.sh adds only its own guard_irreversible and agent-trace hooks, which other tests cover.
     owner_commands = [
-        command for command in hook_commands(settings) if not command.endswith((GUARD_NAME, TRACE_SUFFIX))
+        command for command in hook_commands(settings) if not command.endswith((GUARD_NAME, TRACE_SUFFIX, GATE_SUFFIX))
     ]
     assert sorted(owner_commands) == sorted(KEPT_COMMANDS), "install.sh should keep the owner's hooks"
     assert (isolated_env.home / ".config/review-pr/reviewers.json").is_symlink(), "the reviewers link should stay"
@@ -577,6 +577,7 @@ def test_install_neither_installs_nor_runs_ro(
 
 GUARD_NAME = "guard_irreversible.py"
 TRACE_SUFFIX = "agent-trace hook"
+GATE_SUFFIX = "agent-trace gate"
 
 
 # Protects: install.sh registers the guard hook for both Claude Code and Codex, and keeps the owner's hooks.
@@ -601,4 +602,7 @@ def test_install_registers_the_guard_hook(isolated_env: IsolatedEnv, fake_exe: C
         assert groups[0]["matcher"] == "Bash"
     claude = json.loads((isolated_env.home / ".claude/settings.json").read_text())
     trace = f"python3 {checkout / 'tools/agent-trace/bin/agent-trace'} hook"
-    assert set(hook_commands(claude)) == KEPT_COMMANDS | {expected, trace}, "install.sh should keep the owner's hooks"
+    gate = f"python3 {checkout / 'tools/agent-trace/bin/agent-trace'} gate"
+    assert set(hook_commands(claude)) == KEPT_COMMANDS | {expected, trace, gate}, (
+        "install.sh should keep the owner's hooks"
+    )

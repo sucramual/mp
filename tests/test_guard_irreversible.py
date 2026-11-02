@@ -285,7 +285,10 @@ def test_installer_updates_an_old_entry_in_place(tmp_path: Path):
 
     assert result.returncode == 0, result.stderr
     settings = json.loads(target.read_text())
-    assert len(settings["hooks"]["PreToolUse"]) == 1
+    guard_groups = [
+        g for g in settings["hooks"]["PreToolUse"] if any("guard_irreversible" in h["command"] for h in g["hooks"])
+    ]
+    assert len(guard_groups) == 1, "the old guard entry is updated, not copied"
     assert guard_hooks(settings) == [{"type": "command", "command": f"python3 {GUARD}", "timeout": 10}]
 
 

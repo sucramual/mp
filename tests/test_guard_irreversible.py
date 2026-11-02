@@ -143,12 +143,18 @@ def test_allows_reads_and_pinned_merges(command: str, tmp_path: Path):
     assert result.stdout == ""
 
 
+GRAPHQL_MERGE = (
+    "gh api graphql --input - <<'EOF'\n"
+    '{"query":"mutation { mergePullRequest(input: {pullRequestId: \\"X\\"%s}) { clientMutationId } }"}\nEOF'
+)
 HEREDOC_ALLOWED = [
     "gh pr comment 12 --body-file - <<'EOF'\nIt's fine.\nEOF",
     "cat >> plan.md <<'EOF'\nThe router's note\nEOF\ngh pr view 12",
     "gh pr create --title t --body \"$(cat <<'EOF'\nWe don't merge here.\nEOF\n)\"",
     "cat <<-EOF > notes.md\n\tIt's indented.\n\tEOF",
     "cat > example.md <<'EOF'\ngh pr merge 12 --squash\nEOF",
+    "cat <<EOF\n$(date) it's fine\nEOF",
+    GRAPHQL_MERGE % ', expectedHeadOid: \\"' + "a" * 40 + '\\"',
 ]
 
 
@@ -167,6 +173,10 @@ HEREDOC_BLOCKED = [
     ("bash <<'EOF'\necho it's\ngh pr merge 12 --squash\nEOF", "could not split"),
     ("bash -s <<'EOF'\ngh pr merge 12 --squash\nEOF", PIN_REASON),
     ("cat <<'EOF' | sh\nspacectl stack deploy --id x\nEOF", SPACELIFT_REASON),
+    ("cat <<EOF\n$(gh pr merge 12 --squash)\nEOF", PIN_REASON),
+    ("cat <<EOF\n`gh pr merge 12 --squash`\nEOF", PIN_REASON),
+    ("cat <<EOF\n$(echo $(gh pr merge 12 --squash))\nEOF", PIN_REASON),
+    (GRAPHQL_MERGE % "", "must pin the head"),
 ]
 
 

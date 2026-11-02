@@ -35,7 +35,7 @@ WRAPPERS = frozenset({"command", "env", "sudo", "time", "nohup", "exec"})
 RESERVED_WORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"})
 SHELLS = frozenset({"bash", "sh", "zsh"})
 # A heredoc operator: << or <<-, then the delimiter, bare or quoted. <<< is a here-string, not a heredoc.
-HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
+HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*(\\?)(['\"]?)([A-Za-z0-9_.-]+)\3")
 MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge/?")
 # gh api flags that take a value. Every other flag is a switch.
 GH_API_VALUE_FLAGS = {
@@ -67,28 +67,31 @@ class BadInput(Exception):
     """The hook input is not what Claude Code or Codex sends."""
 
 
-def strip_heredocs(command: str) -> tuple[str, list[tuple[str, str]]]:
-    """Remove each heredoc body and its end line. Return the rest and a (operator line, body) pair for each body.
+def strip_heredocs(command: str) -> tuple[str, list[tuple[str, str, bool]]]:
+    """Remove each heredoc body and its end line. Return the rest and a (operator line, body, expands) triple per body.
+
+    `expands` is True when the delimiter is unquoted, so the shell runs command substitutions in the body.
 
     A body is input, not shell syntax, so an apostrophe in a PR comment must not break the split.
     When a delimiter has no end line, the command is returned unchanged.
     """
     lines = command.split("\n")
     kept: list[str] = []
-    bodies: list[tuple[str, str]] = []
+    bodies: list[tuple[str, str, bool]] = []
     index = 0
     while index < len(lines):
         line = lines[index]
         kept.append(line)
         index += 1
         for match in HEREDOC.finditer(line):
-            strip_tabs, delimiter = match.group(1) == "-", match.group(3)
+            strip_tabs, delimiter = match.group(1) == "-", match.group(4)
+            expands = not (match.group(2) or match.group(3))
             start = index
             while index < len(lines) and (lines[index].lstrip("\t") if strip_tabs else lines[index]) != delimiter:
                 index += 1
             if index == len(lines):
                 return command, []
-            bodies.append((line, "\n".join(lines[start:index])))
+            bodies.append((line, "\n".join(lines[start:index]), expands))
             index += 1
     return "\n".join(kept), bodies
 
@@ -100,6 +103,18 @@ def feeds_a_shell(line: str) -> bool:
         if words and os.path.basename(words[0]) in SHELLS:
             return True
     return False
+
+
+def substitutions(body: str) -> list[str]:
+    """The text inside each $(...) and `...` in a heredoc body, which an unquoted heredoc runs."""
+    found = re.findall(r"`([^`]*)`", body)
+    for match in re.finditer(r"\$\(", body):
+        depth, end = 1, match.end()
+        while end < len(body) and depth:
+            depth += {"(": 1, ")": -1}.get(body[end], 0)
+            end += 1
+        found.append(body[match.end() : end - 1 if depth == 0 else end])
+    return found
 
 
 def split_segments(command: str) -> list[list[str]]:
@@ -208,12 +223,12 @@ def read_text(path: str, cwd: Path) -> str:
         return ""
 
 
-def check_gh_api(args: list[str], command: str, cwd: Path) -> None:
+def check_gh_api(args: list[str], command: str, cwd: Path, stdin_text: str = "") -> None:
     endpoint, method, fields, inputs = parse_gh_api(args)
     if endpoint == "graphql":
         files = [path for path in inputs if path != "-"]
         files += [value[1:] for key, value in fields if key == "query" and value.startswith("@") and value != "@-"]
-        text = "\n".join([command, *(read_text(path, cwd) for path in files)])
+        text = "\n".join([command, stdin_text, *(read_text(path, cwd) for path in files)])
         if "enablePullRequestAutoMerge" in text:
             raise Blocked(
                 "enablePullRequestAutoMerge merges later, at a head nobody reviewed. Wait for the checks, then "
@@ -265,9 +280,15 @@ def check_spacectl(args: list[str]) -> None:
 
 def check_command(command: str, cwd: Path) -> None:
     command, bodies = strip_heredocs(command)
-    for line, body in bodies:
+    stdin_text = ""
+    for line, body, expands in bodies:
         if feeds_a_shell(line):
             check_command(body, cwd)
+        elif expands:
+            for inner in substitutions(body):
+                check_command(inner, cwd)
+        if "graphql" in line:
+            stdin_text += body + "\n"
     try:
         segments = split_segments(command)
     except ValueError as error:
@@ -286,7 +307,7 @@ def check_command(command: str, cwd: Path) -> None:
         elif program == "gh" and args[:2] == ["pr", "merge"]:
             check_pr_merge(args[2:])
         elif program == "gh" and args[:1] == ["api"]:
-            check_gh_api(args[1:], command, cwd)
+            check_gh_api(args[1:], command, cwd, stdin_text)
         elif program == "spacectl":
             check_spacectl(args)
 

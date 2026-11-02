@@ -59,30 +59,38 @@ def test_blocks_pr_create_in_a_neo_session_with_no_ticket(
     assert result.stdout == ""
 
 
-@pytest.mark.parametrize("command", ["cd /tmp\ngh pr create --fill", "echo hi\n\n  gh pr create -R o/r"])
-def test_blocks_pr_create_on_a_new_line(command: str, isolated_env: IsolatedEnv, tmp_path: Path) -> None:
-    # Bug caught: an unquoted newline ends a command, but the tokenizer dropped it, so the gate was bypassed.
+# Protects: no shell layout hides a PR creation from the gate. Bug caught: in review, a newline, a comment line,
+# and a comment line after a newline each let `gh pr create` through a shell-parsing gate.
+# Echoed, quoted, and commented mentions also block: in a /neo session with no ticket, the fix is owed anyway.
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd /tmp\ngh pr create --fill",
+        "echo hi\n\n  gh pr create -R o/r",
+        "# Create the PR\ngh pr create --fill",
+        "cd /tmp # go\ngh pr create",
+        "cd /tmp\n# Create the PR\ngh pr create --fill",
+        "gh --repo=o/r pr create --fill",
+        "echo gh pr create",
+        "cd /tmp # gh pr create",
+        'echo "line one\ngh pr create"',
+    ],
+    ids=[
+        "newline",
+        "blank-line-and-indent",
+        "comment-line",
+        "trailing-comment",
+        "comment-after-newline",
+        "repo-flag",
+        "echoed",
+        "commented",
+        "quoted",
+    ],
+)
+def test_blocks_any_pr_create_in_a_neo_session(command: str, isolated_env: IsolatedEnv, tmp_path: Path) -> None:
     result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
     assert result.returncode == 2, result.stderr
-
-
-@pytest.mark.parametrize("command", ["# Create the PR\ngh pr create --fill", "cd /tmp # go\ngh pr create"])
-def test_blocks_pr_create_after_a_comment_line(command: str, isolated_env: IsolatedEnv, tmp_path: Path) -> None:
-    # Bug caught: shlex read the next line as part of the comment, so the gate was bypassed.
-    result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
-    assert result.returncode == 2, result.stderr
-
-
-def test_allows_a_comment_that_names_the_command(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
-    command = "cd /tmp # gh pr create"
-    result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
-    assert (result.returncode, result.stderr) == (0, "")
-
-
-def test_allows_a_newline_inside_quotes(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
-    command = 'echo "line one\ngh pr create"'
-    result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
-    assert (result.returncode, result.stderr) == (0, "")
+    assert FIX in result.stderr
 
 
 def test_allows_pr_create_once_a_ticket_is_bound(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
@@ -101,10 +109,10 @@ def test_allows_pr_create_once_a_ticket_is_bound(isolated_env: IsolatedEnv, tmp_
         ("gh pr create --fill", [OTHER_SKILL]),
         ("gh pr create --fill", []),
         ("gh pr view 12", [SKILL_CALL]),
-        ("echo gh pr create", [SKILL_CALL]),
+        ("gh pr list --search 'pr create'", [SKILL_CALL]),
         ("gh pr create --fill", [QUOTED_IN_TOOL_OUTPUT]),
     ],
-    ids=["other-skill", "no-skill", "pr-view", "echoed-text", "quoted-in-tool-output"],
+    ids=["other-skill", "no-skill", "pr-view", "other-gh-command", "quoted-in-tool-output"],
 )
 def test_allows_outside_neo_pr_creation(
     command: str, lines: list[dict], isolated_env: IsolatedEnv, tmp_path: Path

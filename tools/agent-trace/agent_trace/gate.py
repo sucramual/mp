@@ -12,63 +12,24 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from agent_trace import emit, store
-from agent_trace.hook import SEPARATORS, SHELL_TOOLS, tokens
+from agent_trace.hook import SHELL_TOOLS
 
 SLASH_COMMAND = "<command-name>/neo</command-name>"
+# `gh pr create` anywhere in the call, also in echoed, quoted, or commented text. A false block is cheap: it fires
+# only in a /neo session with no ticket, and its fix is the step that session owes anyway. Parsing shell syntax
+# missed real calls three times in review (newline, comment, comment after a newline), so the gate does not parse.
+PR_CREATE = re.compile(r"\bgh\b(?:\s+(?:-R|--repo)(?:=|\s+)\S+)?\s+pr\s+create\b")
 REASON = (
     "agent-trace gate: this /neo session has no ticket bound for its trace, so it cannot open a PR yet. "
     'Run `agent-trace span start --id run --name "neo run" --kind phase --ticket <ID>` first, with the ticket '
     "from the work order, or the work-order ID (such as WO-5) when it names no ticket. Then run gh pr create again."
 )
-
-
-def split_lines(command: str) -> str:
-    """Turn each unquoted newline into `;`, because the shell ends a command there and `tokens` drops it.
-
-    Also drop a comment up to its newline, so that `shlex` cannot read the next line as part of the comment.
-    """
-    out: list[str] = []
-    quote = ""
-    escaped = False
-    comment = False
-    for char in command:
-        if comment:
-            if char != "\n":
-                continue
-            comment = False
-        if escaped:
-            escaped = False
-        elif char == "\\" and quote != "'":
-            escaped = True
-        elif quote:
-            quote = "" if char == quote else quote
-        elif char in "'\"":
-            quote = char
-        elif char == "#" and (not out or out[-1] in " \t\n;&|()"):
-            comment = True
-            continue
-        elif char == "\n":
-            char = " ; "
-        out.append(char)
-    return "".join(out)
-
-
-def creates_pr(words: list[str]) -> bool:
-    """True when a simple command starts with `gh pr create`, so echoed or quoted text does not count."""
-    for index, word in enumerate(words):
-        if word != "gh" or (index and words[index - 1] not in SEPARATORS):
-            continue
-        rest = words[index + 1 :]
-        while rest[:1] in (["-R"], ["--repo"]) or (rest and rest[0].startswith("--repo=")):
-            rest = rest[1:] if "=" in rest[0] else rest[2:]
-        if rest[:2] == ["pr", "create"]:
-            return True
-    return False
 
 
 def ran_neo(transcript: Path) -> bool:
@@ -108,7 +69,7 @@ def blocks(payload: dict[str, Any]) -> bool:
         command = " ".join(str(part) for part in command)
     if not isinstance(command, str) or "gh" not in command:
         return False
-    if not creates_pr(tokens(split_lines(command))):
+    if not PR_CREATE.search(command):
         return False
     session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else emit.session_id()
     ticket = os.environ.get("AGENT_TRACE_TICKET") or store.read_ticket(store.state_dir(), session)

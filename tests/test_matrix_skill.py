@@ -82,6 +82,22 @@ def test_llm_triage_is_the_default() -> None:
     assert_contains(SKILL, "use LLM triage. This is not an error.", "a missing TypeSafe key must not stop the gate")
 
 
+# Protects: a ticket stays open until the whole goal passes. Bug caught: on 2026-11-02 a worker branch named
+# after its ticket made Linear close the ticket on merge while two goal checks were still open.
+@pytest.mark.parametrize(
+    ("needle", "message"),
+    [
+        (
+            "Put no ticket ID in a worker's branch name or PR title. Only you close the ticket",
+            "Linear closes a ticket when a merged PR's branch name or title holds its ID",
+        ),
+        ("Close the ticket only when every goal check passes", "the router must not close a ticket early"),
+    ],
+)
+def test_ticket_closes_only_with_the_goal(needle: str, message: str) -> None:
+    assert_contains(SKILL, needle, message)
+
+
 def test_work_orders_require_red_first_tests() -> None:
     assert_contains(
         SKILL,

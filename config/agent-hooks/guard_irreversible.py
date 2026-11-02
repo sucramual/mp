@@ -37,6 +37,8 @@ RESERVED_WORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until"
 SHELLS = frozenset({"bash", "sh", "zsh"})
 # A heredoc operator: << or <<-, then the delimiter, bare or quoted. <<< is a here-string, not a heredoc.
 HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
+# Shell quoting that joins a word, as in g\h or g''h, so the match runs on the body without it.
+UNQUOTE = re.compile(r"[\\'\"]")
 # A heredoc body with one of these words may hold a command, so the guard keeps the whole call.
 GUARDED_WORD = re.compile(r"\b(gh|spacectl|graphql|mergePullRequest|enqueuePullRequest|enablePullRequestAutoMerge)\b")
 MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge/?")
@@ -89,7 +91,7 @@ def strip_heredocs(command: str) -> str:
             start = index
             while index < len(lines) and (lines[index].lstrip("\t") if strip_tabs else lines[index]) != delimiter:
                 index += 1
-            if index == len(lines) or GUARDED_WORD.search("\n".join(lines[start:index])):
+            if index == len(lines) or GUARDED_WORD.search(UNQUOTE.sub("", "\n".join(lines[start:index]))):
                 return command
             index += 1
     return "\n".join(kept)

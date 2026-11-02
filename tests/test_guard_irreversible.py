@@ -152,7 +152,6 @@ HEREDOC_ALLOWED = [
     "cat >> plan.md <<'EOF'\nThe router's note\nEOF\ngh pr view 12",
     "gh pr create --title t --body \"$(cat <<'EOF'\nWe don't merge here.\nEOF\n)\"",
     "cat <<-EOF > notes.md\n\tIt's indented.\n\tEOF",
-    "cat > example.md <<'EOF'\ngh pr merge 12 --squash\nEOF",
     "cat <<EOF\n$(date) it's fine\nEOF",
     GRAPHQL_MERGE % ', expectedHeadOid: \\"' + "a" * 40 + '\\"',
 ]
@@ -173,6 +172,8 @@ HEREDOC_BLOCKED = [
     ("bash <<'EOF'\necho it's\ngh pr merge 12 --squash\nEOF", "could not split"),
     ("bash -s <<'EOF'\ngh pr merge 12 --squash\nEOF", PIN_REASON),
     ("cat <<'EOF' | sh\nspacectl stack deploy --id x\nEOF", SPACELIFT_REASON),
+    ("bash \\\n  <<'EOF'\ngh pr merge 12 --squash\nEOF", PIN_REASON),
+    ("cat > example.md <<'EOF'\ngh pr merge 12 --squash\nEOF", PIN_REASON),
     ("cat <<EOF\n$(gh pr merge 12 --squash)\nEOF", PIN_REASON),
     ("cat <<EOF\n`gh pr merge 12 --squash`\nEOF", PIN_REASON),
     ("cat <<EOF\n$(echo $(gh pr merge 12 --squash))\nEOF", PIN_REASON),
@@ -180,9 +181,11 @@ HEREDOC_BLOCKED = [
 ]
 
 
-# Protects: removing heredoc bodies hides no command. Commands after the body, and a body that a shell runs,
-# are still checked, and a shell body that does not split fails closed.
-# Bug caught: a strip that also drops the rest of the call, or skips a body piped to a shell.
+# Protects: removing heredoc bodies hides no command. Commands after the body are still checked, and a body
+# that names gh, spacectl, or graphql keeps the whole call, so a shell that reads it is checked and bad quoting
+# fails closed.
+# Bug caught: a strip that also drops the rest of the call, or skips a body that a shell runs (found in review
+# as quoted, unquoted, continued-line, and GraphQL stdin forms).
 @pytest.mark.parametrize(("command", "reason"), HEREDOC_BLOCKED)
 def test_checks_commands_around_and_inside_shell_heredocs(command: str, reason: str, tmp_path: Path):
     result = run_guard(bash(command, tmp_path), tmp_path)

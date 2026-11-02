@@ -23,6 +23,28 @@ QUOTED_IN_TOOL_OUTPUT = {
     "type": "user",
     "message": {"content": [{"type": "tool_result", "content": "SLASH = '<command-name>/neo</command-name>'"}]},
 }
+# Codex rollout records, in the shape of a local rollout and of codex-rs/app-server/tests/common/rollout.rs.
+CODEX_META = {"type": "session_meta", "payload": {"id": "s1", "cwd": "/tmp"}}
+
+
+def codex_user(text: str) -> dict:
+    return {
+        "type": "response_item",
+        "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]},
+    }
+
+
+CODEX_SKILL = codex_user("<skill>\n<name>neo</name>\n<path>/h/.agents/skills/neo/SKILL.md</path>\n---\nname: neo")
+CODEX_MENTION = {"type": "event_msg", "payload": {"type": "user_message", "message": "$neo ABC-1", "kind": "plain"}}
+CODEX_READ = {
+    "type": "response_item",
+    "payload": {"type": "function_call", "name": "shell", "arguments": '{"command":["cat","/h/skills/neo/SKILL.md"]}'},
+}
+CODEX_OTHER_SKILL = codex_user("<skill>\n<name>open-pr</name>\n<path>/h/skills/open-pr/SKILL.md</path>")
+CODEX_TOOL_OUTPUT = {
+    "type": "response_item",
+    "payload": {"type": "function_call_output", "output": "<skill>\n<name>neo</name>"},
+}
 OTHER_SKILL = {
     "type": "assistant",
     "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "open-pr"}}]},
@@ -48,11 +70,22 @@ def gate(isolated_env: IsolatedEnv, state: Path, stdin: str):
 
 # Protects: a /neo run cannot open a PR without a ticket-bound trace.
 # Bug caught: on 2026-11-02 a /neo worker skipped agent-trace, so its ticket had no trace and no reconcile list.
-@pytest.mark.parametrize("line", [SKILL_CALL, SLASH_COMMAND], ids=["skill-tool", "slash-command"])
+# In review, a Codex /neo session passed, because the gate read only Claude Code's transcript shape.
+@pytest.mark.parametrize(
+    "lines",
+    [
+        [SKILL_CALL],
+        [SLASH_COMMAND],
+        [CODEX_META, CODEX_MENTION, CODEX_SKILL],
+        [CODEX_META, CODEX_MENTION],
+        [CODEX_META, CODEX_READ],
+    ],
+    ids=["skill-tool", "slash-command", "codex-skill", "codex-mention", "codex-reads-skill"],
+)
 def test_blocks_pr_create_in_a_neo_session_with_no_ticket(
-    line: dict, isolated_env: IsolatedEnv, tmp_path: Path
+    lines: list[dict], isolated_env: IsolatedEnv, tmp_path: Path
 ) -> None:
-    stdin = payload("cd repo && gh pr create --fill", transcript(tmp_path, line))
+    stdin = payload("cd repo && gh pr create --fill", transcript(tmp_path, *lines))
     result = gate(isolated_env, tmp_path / "state", stdin)
     assert result.returncode == 2, result.stderr
     assert FIX in result.stderr and "--ticket" in result.stderr
@@ -125,6 +158,8 @@ def test_allows_pr_create_once_a_ticket_is_bound(isolated_env: IsolatedEnv, tmp_
         ("gh api 'repos/o/r/pulls?head=o:b&state=open'", [SKILL_CALL]),
         ("gh api -X PATCH 'repos/o/r/pulls/12' -F body=@b.md", [SKILL_CALL]),
         ("dotfiles-pr start fix-gate", [SKILL_CALL]),
+        ("gh pr create --fill", [CODEX_META, CODEX_OTHER_SKILL]),
+        ("gh pr create --fill", [CODEX_META, CODEX_TOOL_OUTPUT]),
     ],
     ids=[
         "other-skill",
@@ -135,6 +170,8 @@ def test_allows_pr_create_once_a_ticket_is_bound(isolated_env: IsolatedEnv, tmp_
         "rest-pr-lookup",
         "rest-pr-update",
         "dotfiles-pr-start",
+        "codex-other-skill",
+        "codex-tool-output",
     ],
 )
 def test_allows_outside_neo_pr_creation(

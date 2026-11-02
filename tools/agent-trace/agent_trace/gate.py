@@ -39,17 +39,46 @@ REASON = (
 )
 
 
+# Codex writes a rollout, not a Claude Code transcript. An invoked skill arrives as a user message that starts
+# with CODEX_SKILL; a typed `$neo` or `/neo` is a user_message event; an implicit run reads the SKILL.md file.
+CODEX_SKILL = "<skill>\n<name>neo</name>"
+CODEX_MENTION = re.compile(r"^\s*[$/]neo\b")
+NEO_SKILL_FILE = "skills/neo/SKILL.md"
+
+
+def codex_ran_neo(payload: dict[str, Any]) -> bool:
+    kind = payload.get("type")
+    if kind == "user_message":
+        return isinstance(payload.get("message"), str) and bool(CODEX_MENTION.match(payload["message"]))
+    if kind == "message" and payload.get("role") == "user":
+        content = payload.get("content")
+        return any(
+            isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"].startswith(CODEX_SKILL)
+            for item in (content if isinstance(content, list) else [])
+        )
+    if kind in ("function_call", "custom_tool_call", "local_shell_call"):
+        call = payload.get("arguments") or payload.get("input") or payload.get("action")
+        return NEO_SKILL_FILE in (call if isinstance(call, str) else json.dumps(call))
+    return False
+
+
 def ran_neo(transcript: Path) -> bool:
-    """True when the transcript holds a Skill tool call for neo or a /neo slash command."""
+    """True when the transcript or Codex rollout shows that the session ran the neo skill."""
     with transcript.open(encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            if SLASH_COMMAND not in line and '"Skill"' not in line:
+            if "neo" not in line and '"Skill"' not in line:
                 continue
             try:
                 record = json.loads(line)
             except ValueError:
                 continue
-            message = record.get("message") if isinstance(record, dict) else None
+            if not isinstance(record, dict):
+                continue
+            if record.get("type") in ("response_item", "event_msg") and isinstance(record.get("payload"), dict):
+                if codex_ran_neo(record["payload"]):
+                    return True
+                continue
+            message = record.get("message")
             content = message.get("content") if isinstance(message, dict) else None
             # A typed slash command is a user prompt with string content. Tool output is a list, so quoted text
             # in a file that the session read does not count.

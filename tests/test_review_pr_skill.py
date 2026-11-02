@@ -44,7 +44,7 @@ def test_frontmatter_names_the_skill_and_triggers_on_reviewing_another_persons_p
         assert word in description.lower(), f"the description should trigger on {word!r}"
 
 
-ALLOWED_REVIEWER_KEYS = {"login", "retrigger", "doneReaction", "doneComment"}
+ALLOWED_REVIEWER_KEYS = {"login", "retrigger", "doneReaction", "doneComment", "threadRepliesOnly"}
 REACTIONS = {"+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"}
 
 
@@ -60,6 +60,8 @@ def test_reviewers_file_has_the_shape_the_ready_check_reads() -> None:
             assert isinstance(entry["retrigger"], str) and entry["retrigger"]
         if "doneReaction" in entry:
             assert entry["doneReaction"] in REACTIONS
+        if "threadRepliesOnly" in entry:
+            assert isinstance(entry["threadRepliesOnly"], bool), f"{repo} threadRepliesOnly should be a boolean"
         if "doneComment" in entry:
             # Without {head}, a comment about an older head would count as coverage of the new one.
             assert isinstance(entry["doneComment"], str) and "{head}" in entry["doneComment"], (
@@ -91,6 +93,12 @@ def test_reviewers_file_has_the_shape_the_ready_check_reads() -> None:
         ("8 rounds have run.", "the loop should be bounded"),
         ("The same claim returns after two attempted fixes", "a claim that does not converge should stop the loop"),
         ("In author mode, do not start a fresh review.", "only reviewer mode may form a fresh review"),
+        (
+            "Post nothing on the PR except replies on review threads.",
+            "a summary or footer from the driving login stops an employer repository's merge loop",
+        ),
+        ("`Fixed in <short sha>: <what changed>`", "the merge loop parses this reply shape"),
+        ("`Declined: <reason>`", "the merge loop parses this reply shape"),
     ],
 )
 def test_safety_line(needle: str, message: str) -> None:
@@ -100,7 +108,7 @@ def test_safety_line(needle: str, message: str) -> None:
 def test_publish_order_pushes_before_replies_and_summary() -> None:
     # Bug caught: a "Fixed" reply posted before the push reports a fix that is not on the branch.
     assert_before(SKILL, "then `git push`", "/replies -F body=@<file>", "the push should come before the replies")
-    assert_before(SKILL, "/replies -F body=@<file>", "Post one round summary", "the summary should come last")
+    assert_before(SKILL, "/replies -F body=@<file>", "post one round summary", "the summary should come last")
 
 
 @pytest.mark.parametrize(

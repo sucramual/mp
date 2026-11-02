@@ -13,7 +13,7 @@ The reviewer and the controller are separate roles. The reviewer never merges.
 **Reviewer:** the agent that runs `review-pr`, usually the background agent that `open-pr` starts.
 
 - Classify each round before you change anything. Include attributable CI failures in the batch. Then follow `review-pr` for dispositions, fixes, replies, and when to stop.
-- Use the `review-pr` round summary on the PR as the record of each round. Lead it with the verdict. Do not post a separate triage comment.
+- Use the `review-pr` round summary on the PR as the record of each round. Lead it with the verdict. Do not post a separate triage comment. Where the reviewer entry sets `threadRepliesOnly: true`, put the round summary in your report instead.
 - For a design round, give each design comment the `Needs decision` disposition. Name the shared root and propose a change to the root choice. Typical changes: narrow the scope, give the job to the tool that owns the state, or use a real implementation instead of a hand-rolled one. Do not fix the other comments in the batch, because a root change can make them irrelevant.
 - When you stop, report the final head SHA, the verdict of each round, and the result of [Ready to merge](../../skills/review-pr/references/ready-to-merge.md).
 

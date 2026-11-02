@@ -1,6 +1,6 @@
 # Round summary
 
-`review-pr` posts one round summary to `issues/<pr>/comments` in each round that has something to report. It is the record of the round. Use this format:
+`review-pr` posts one round summary to `issues/<pr>/comments` in each round that has something to report. It is the record of the round. For a repository with `threadRepliesOnly: true`, it puts the summary in its report to Marcus, not on the PR. Use this format:
 
 ```markdown
 **Review round <n> (<old SHA> → <new SHA>): <verdict>**

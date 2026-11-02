@@ -17,6 +17,7 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
 - Stop immediately when asked to stop background review. Make no further edits or GitHub writes.
 - Work in a clean worktree on the PR branch. Stop when it cannot fast-forward to the remote head.
 - Read with REST (`gh api repos/...`). Cloud sessions block GraphQL, which `gh pr view` uses.
+- When the repository's reviewer entry sets `threadRepliesOnly: true`, follow [Thread replies only](#thread-replies-only). It overrides every PR post in the loop.
 
 ## Loop
 
@@ -36,12 +37,24 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
 5. **Fix.** Send the accepted claims to one fixer worker as one batch. A risky or semantic fix (behaviour, contracts, data, security, or several files) also gets one fresh read-only verifier, which checks only that the claims are resolved and the scope did not grow. Run the repository's focused checks.
 6. **Publish, in this order.** A round with nothing actionable posts nothing.
    1. Commit the named paths, then `git push`. If the push fails, post no "Fixed" reply and no summary that says fixed.
-   2. Reply to each thread: `gh api repos/<o>/<r>/pulls/<pr>/comments/<comment-id>/replies -F body=@<file>`. End each body with a line `---`, then `agent on behalf of <login>` (from `gh api user --jq .login`).
+   2. Reply to each thread: `gh api repos/<o>/<r>/pulls/<pr>/comments/<comment-id>/replies -F body=@<file>`. Unless [Thread replies only](#thread-replies-only) applies, end each body with a line `---`, then `agent on behalf of <login>` (from `gh api user --jq .login`).
    3. Resolve the Fixed, Already addressed, and No change threads, and a Follow-up thread whose reply links its issue. Leave Needs decision open. In a cloud session: `gh api -X POST repos/<o>/<r>/pulls/<pr>/ccr/comments/<comment-id>/resolve`. Locally: GraphQL `resolveReviewThread`.
-   4. Post one round summary to `issues/<pr>/comments`, in the [Round summary](references/round-summary.md) format.
+   4. Unless [Thread replies only](#thread-replies-only) applies, post one round summary to `issues/<pr>/comments`, in the [Round summary](references/round-summary.md) format.
 
    Write each body to a file outside the worktree. If a post fails, read the comments before you post again.
 7. **Repeat** from step 1 on the new head.
+
+## Thread replies only
+
+Some repositories read the PR author's own comments as a person speaking. An employer repository's merge loop, for example, stops when the driving login posts anything except its reply grammar. Their reviewer entry sets `threadRepliesOnly: true`. For such a repository:
+
+- Post nothing on the PR except replies on review threads. Post no round summary, no `retrigger` text, and no quota note, also at the design stop.
+- The one top-level comment that this mode allows is a merge note: one line in the form `Merging <sha> for Marcus: ...`, `Enqueued <sha> for Marcus: ...`, or `Closing for Marcus: <reason>.`. Only the agent that merges, enqueues, or closes the PR posts it. `review-pr` never posts it, because it never merges.
+- Write each reply as exactly one line, with no footer:
+  - Fix, or Already addressed by a commit on the head: `Fixed in <short sha>: <what changed>`.
+  - No change, Follow-up, or Already addressed with no commit to name: `Declined: <reason>`. A Follow-up reason links its issue.
+- Post no reply on a Needs decision thread, and leave it open.
+- Put the round summary in your report to Marcus instead. When the reviewer has not covered the head after 15 minutes, report that as a gap.
 
 ## Stop
 

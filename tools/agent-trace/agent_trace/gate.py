@@ -27,6 +27,26 @@ REASON = (
 )
 
 
+def split_lines(command: str) -> str:
+    """Turn each unquoted newline into `;`, because the shell ends a command there and `tokens` drops it."""
+    out: list[str] = []
+    quote = ""
+    escaped = False
+    for char in command:
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif char == "\n":
+            char = " ; "
+        out.append(char)
+    return "".join(out)
+
+
 def creates_pr(words: list[str]) -> bool:
     """True when a simple command starts with `gh pr create`, so echoed or quoted text does not count."""
     for index, word in enumerate(words):
@@ -77,7 +97,7 @@ def blocks(payload: dict[str, Any]) -> bool:
         command = " ".join(str(part) for part in command)
     if not isinstance(command, str) or "gh" not in command:
         return False
-    if not creates_pr(tokens(command)):
+    if not creates_pr(tokens(split_lines(command))):
         return False
     session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else emit.session_id()
     ticket = os.environ.get("AGENT_TRACE_TICKET") or store.read_ticket(store.state_dir(), session)

@@ -59,6 +59,19 @@ def test_blocks_pr_create_in_a_neo_session_with_no_ticket(
     assert result.stdout == ""
 
 
+@pytest.mark.parametrize("command", ["cd /tmp\ngh pr create --fill", "echo hi\n\n  gh pr create -R o/r"])
+def test_blocks_pr_create_on_a_new_line(command: str, isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    # Bug caught: an unquoted newline ends a command, but the tokenizer dropped it, so the gate was bypassed.
+    result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
+    assert result.returncode == 2, result.stderr
+
+
+def test_allows_a_newline_inside_quotes(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    command = 'echo "line one\ngh pr create"'
+    result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, SKILL_CALL)))
+    assert (result.returncode, result.stderr) == (0, "")
+
+
 def test_allows_pr_create_once_a_ticket_is_bound(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
     state = tmp_path / "state"
     (state / "sessions").mkdir(parents=True)

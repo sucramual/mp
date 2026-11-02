@@ -92,6 +92,7 @@ Also reserved, at every tier:
   - `config/git-hooks/pre-push`
   - `scripts/install_git_hooks.sh`
   - `.github/workflows/checks.yml`
+  - `config/agent-hooks/guard_irreversible.py`
   - `config/agent-hooks/install_hooks.py`
   - `tools/agent-trace/agent_trace/gate.py`
 

@@ -11,6 +11,8 @@ It reads the hook JSON on stdin and checks each simple command in a Bash tool ca
   - `spacectl` may run only read commands (READ_ONLY_SPACECTL).
 
 Allow: exit 0 with no output. Block: exit 2 with the reason on stderr; both agents read this as a block.
+A heredoc body is input, so its quoting is not checked, unless a body names gh, spacectl, graphql, or a merge mutation.
+Then the whole call is checked as written, and bad quoting fails closed.
 It fails closed: bad input or any error blocks the call.
 It is a guardrail against mistakes, not a security boundary: shell tricks such as eval or variables get past it.
 Standard library only.
@@ -28,11 +30,17 @@ from pathlib import Path
 PREFIX = "Blocked by the guard_irreversible hook: "
 SHELL_TOOLS = frozenset({"Bash", "exec_command", "shell"})
 SHA = re.compile(r"[0-9a-fA-F]{40}")
-PUNCTUATION = "();<>|&\n"
+PUNCTUATION = "();<>|&`\n"
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 WRAPPERS = frozenset({"command", "env", "sudo", "time", "nohup", "exec"})
 RESERVED_WORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"})
 SHELLS = frozenset({"bash", "sh", "zsh"})
+# A heredoc operator: << or <<-, then the delimiter, bare or quoted. <<< is a here-string, not a heredoc.
+HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
+# Shell quoting that joins a word, as in g\h or g''h, so the match runs on the body without it.
+UNQUOTE = re.compile(r"[\\'\"]")
+# A heredoc body with one of these words may hold a command, so the guard keeps the whole call.
+GUARDED_WORD = re.compile(r"\b(gh|spacectl|graphql|mergePullRequest|enqueuePullRequest|enablePullRequestAutoMerge)\b")
 MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge/?")
 # gh api flags that take a value. Every other flag is a switch.
 GH_API_VALUE_FLAGS = {
@@ -64,8 +72,33 @@ class BadInput(Exception):
     """The hook input is not what Claude Code or Codex sends."""
 
 
+def strip_heredocs(command: str) -> str:
+    """Remove each heredoc body and its end line, unless a body names gh, spacectl, graphql, or a merge mutation.
+
+    A body is input, not shell syntax, so an apostrophe in a PR comment must not break the split.
+    A body with a guarded word may be run by a shell, so then the command is returned unchanged.
+    So is a command with a delimiter that has no end line.
+    """
+    lines = command.split("\n")
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        kept.append(line)
+        index += 1
+        for match in HEREDOC.finditer(line):
+            strip_tabs, delimiter = match.group(1) == "-", match.group(3)
+            start = index
+            while index < len(lines) and (lines[index].lstrip("\t") if strip_tabs else lines[index]) != delimiter:
+                index += 1
+            if index == len(lines) or GUARDED_WORD.search(UNQUOTE.sub("", "\n".join(lines[start:index]))):
+                return command
+            index += 1
+    return "\n".join(kept)
+
+
 def split_segments(command: str) -> list[list[str]]:
-    """Split a shell command into simple commands at ;, &&, ||, |, &, parentheses, and newlines."""
+    """Split a shell command into simple commands at ;, &&, ||, |, &, backticks, parentheses, and newlines."""
     lexer = shlex.shlex(command, posix=True, punctuation_chars=PUNCTUATION)
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
@@ -226,6 +259,7 @@ def check_spacectl(args: list[str]) -> None:
 
 
 def check_command(command: str, cwd: Path) -> None:
+    command = strip_heredocs(command)
     try:
         segments = split_segments(command)
     except ValueError as error:

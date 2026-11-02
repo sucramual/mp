@@ -83,6 +83,7 @@ When Marcus confirms, start the named skill with the ticket. When he changes the
 - Use only runs created after the last merge. Compare them with the stable baseline window from step 1, not with all history.
 - **Match the workload.** Group runs by the work they did, such as uncached task time or test count, and compare inside each group. In the spike, the runs after the merge did half the usual work, and the raw comparison overstated the gain.
 - Check each "Done when" item. Tick it with its evidence only when it passes. Post the numbers as one dated comment.
+- Add the same numbers to the step 6 report page, so the ticket and the report agree. A check that updates only the ticket leaves the report showing projections.
 - With fewer than 30 runs after the merge, say so and schedule another check.
 
 ## Hard limits

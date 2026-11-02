@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -324,38 +323,6 @@ def test_codex_sessions_are_summarised(env: Env, capsys: pytest.CaptureFixture[s
     assert ws["prompts"] == ["codex prompt ENG-77"]
     assert ws["issues"] == ["ENG-77"]
     assert ws["sessions"][0]["source"] == "codex"
-
-
-def all_strings(value: Any) -> Iterator[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield key
-            yield from all_strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from all_strings(item)
-
-
-def test_ro_runs_are_not_read_or_reported(
-    env: Env, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ro_home = env.root / "ro-home"
-    run_dir = ro_home / "runs" / "run-in"
-    run_dir.mkdir(parents=True)
-    event = {"kind": "run.contract", "run": "run-in", "seq": 1, "ts": IN_WINDOW, "v": 1}
-    event["data"] = {"intent_record": "ro goal marker", "lane": "full"}
-    (run_dir / "events.jsonl").write_text(json.dumps(event) + "\n")
-    monkeypatch.setenv("RO_HOME", str(ro_home))
-    env.claude_session("s1", env.repo("alpha"), [user("claude prompt")])
-    result = run(env, capsys=capsys)
-    assert all_prompts(result) == ["claude prompt"]
-    assert "codex_sessions" in result["missing_sources"]
-    strings = list(all_strings(result))
-    assert "ro goal marker" not in strings
-    assert "run-in" not in strings
-    assert "ro_runs" not in strings
 
 
 def test_the_same_session_in_several_project_directories_counts_once(

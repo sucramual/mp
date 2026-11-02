@@ -133,7 +133,6 @@ def test_javascript_links_are_not_rendered_as_links(tmp_path: Path) -> None:
     path = write(tmp_path, text)
     assert render.main([str(path)]) == 0
     html = outputs(path)[0].read_text().lower()
-    assert "javascript:" not in html.replace("&#x3a;", ":") or 'href="javascript' not in html
     assert 'href="javascript' not in html
     assert 'href="data' not in html
     assert "click" in html

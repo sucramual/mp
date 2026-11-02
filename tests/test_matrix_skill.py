@@ -71,6 +71,10 @@ def test_safety_line(needle: str, message: str) -> None:
         ("Never start another `/neo`.", "only /matrix starts workers"),
         ("Never ask Marcus.", "a worker under /matrix sends decisions to the router"),
         ("Still read the merge rules", "a worker under /matrix must not merge without the merge rules"),
+        (
+            "Then send your close draft to `/matrix`",
+            "the /matrix Close step builds the one ticket comment from each worker's draft",
+        ),
     ],
 )
 def test_neo_keeps_the_matrix_rules(needle: str, message: str) -> None:

@@ -26,6 +26,9 @@ When `/matrix` starts you with a work order, the work order is your ticket, and 
 - Triage the review gate's findings with the `matrix` skill's triage rule, by the method that its Review gate section names. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
 - Send every decision to `/matrix`, with a default. Never ask Marcus.
 - Write to Linear only when the work order names a ticket.
+- Put no ticket ID in your branch name or PR title, and write `Part of <ID>` in the PR body. Linear closes a ticket when a merged PR's branch name or title holds its ID, and only `/matrix` closes the ticket.
+- Trace the run as [Loop](#loop) says. When the work order names a ticket, pass that ticket ID with `--ticket` on your first `agent-trace` call, so `/matrix` can join your sessions with the other workers'.
+- Do not post the [Close](#close) comments. `/matrix` posts one close comment for the whole ticket. Do Close steps 1 and 2 for your own sessions with `agent-trace show --session <id>`. Then send your close draft to `/matrix`: the verdict, the evidence for each check marked `live` or `unit only`, each PR with its reviewed SHA and merge SHA, each park, the decisions, and the open items.
 
 ## Loop
 

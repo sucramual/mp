@@ -17,8 +17,6 @@ import pytest
 from conftest import REPO_ROOT
 
 SCRIPT = REPO_ROOT / "skills" / "open-pr" / "scripts" / "check-mermaid.sh"
-PACKAGE = SCRIPT.parent / "check-mermaid" / "package.json"
-MERMAID = f"mermaid {json.loads(PACKAGE.read_text())['dependencies']['mermaid']}"
 
 FLOWCHART = """```mermaid
 ---
@@ -77,7 +75,7 @@ def test_valid_blocks_pass_and_leave_no_files(dirs: tuple[Path, Path]) -> None:
     result = run_checker(str(body), cwd)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"{MERMAID}: 2 blocks parsed\n"
+    assert result.stdout == "mermaid 12.1.0: 2 blocks parsed\n"
     assert snapshot(docs, cwd) == before, "the check should leave no files behind"
 
 
@@ -111,7 +109,7 @@ def test_body_without_mermaid_passes(dirs: tuple[Path, Path]) -> None:
     result = run_checker(str(body), cwd)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"{MERMAID}: no mermaid blocks\n"
+    assert result.stdout == "mermaid 12.1.0: no mermaid blocks\n"
 
 
 def test_indented_code_example_is_not_a_diagram(dirs: tuple[Path, Path]) -> None:
@@ -125,7 +123,7 @@ def test_indented_code_example_is_not_a_diagram(dirs: tuple[Path, Path]) -> None
     result = run_checker(str(body), cwd)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"{MERMAID}: no mermaid blocks\n"
+    assert result.stdout == "mermaid 12.1.0: no mermaid blocks\n"
 
 
 def test_fence_in_blockquote_is_checked_with_its_line(dirs: tuple[Path, Path]) -> None:
@@ -207,7 +205,7 @@ def test_stale_dependency_triggers_reinstall(tmp_path: Path, dirs: tuple[Path, P
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "installing the pinned" in result.stderr, result.stderr
-    assert result.stdout == f"{MERMAID}: 1 block parsed\n"
+    assert result.stdout == "mermaid 12.1.0: 1 block parsed\n"
     assert json.loads((modules / "jsdom" / "package.json").read_text())["version"] == pins["jsdom"]
 
 
@@ -240,7 +238,7 @@ def test_partial_install_is_repaired_not_used(tmp_path: Path, dirs: tuple[Path, 
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "installing the pinned" in result.stderr, result.stderr
-    assert result.stdout == f"{MERMAID}: 1 block parsed\n"
+    assert result.stdout == "mermaid 12.1.0: 1 block parsed\n"
     assert (modules / "es-toolkit" / "package.json").is_file(), "the transitive packages should be installed"
 
 
@@ -273,7 +271,7 @@ def test_reader_waits_while_another_install_runs(tmp_path: Path, dirs: tuple[Pat
 
     assert process.returncode == 0, stdout + stderr
     assert "installing the pinned" in stderr, stderr
-    assert stdout == f"{MERMAID}: 1 block parsed\n"
+    assert stdout == "mermaid 12.1.0: 1 block parsed\n"
 
 
 def test_reads_stdin(dirs: tuple[Path, Path]) -> None:
@@ -283,7 +281,7 @@ def test_reads_stdin(dirs: tuple[Path, Path]) -> None:
     result = run_checker("-", cwd, stdin=f"Intro.\n\n{SEQUENCE}\n")
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"{MERMAID}: 1 block parsed\n"
+    assert result.stdout == "mermaid 12.1.0: 1 block parsed\n"
 
 
 def test_missing_argument_is_a_usage_error(dirs: tuple[Path, Path]) -> None:

@@ -21,6 +21,7 @@ Collector output (`collect.py`):
   {"repo": "dotfiles", "branch": "claude/wtprune-age", "sessions": 1, "date": "2026-10-31",
    "prs": ["https://github.com/sucramual/mp/pull/241"], "issues": [],
    "prompts": ["prune worktrees older than 14 days only when the branch is merged"]}],
+ "ro_runs": [{"run": "r-77", "goal": "ship PAY-412 retry fix", "state": "awaiting-review", "prs": ["https://github.com/example-co/app/pull/18402"]}],
  "recent_concepts": ["idempotency keys", "Temporal activity retries"],
  "missing_sources": ["codex"]}
 ```

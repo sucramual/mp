@@ -1,3 +1,4 @@
+import json
 import unittest
 from io import StringIO
 from pathlib import Path
@@ -51,7 +52,7 @@ class ParseLineTests(unittest.TestCase):
         self.assertEqual(entry["at"], "step 3")
 
     def test_missing_field_is_an_error(self):
-        with self.assertRaisesRegex(ValueError, "missing.*at"):
+        with self.assertRaisesRegex(ValueError, "^missing key for friction: at$"):
             log.parse_line("LOG friction | category=doc | what=x | fix=y")
 
     def test_unknown_field_is_an_error(self):
@@ -72,16 +73,6 @@ class ParseLineTests(unittest.TestCase):
                 self.assertIsNone(log.parse_line(line))
 
 
-class ParseLinesTests(unittest.TestCase):
-    def test_mixed_block_returns_only_log_entries_in_order(self):
-        block = ["Starting work.", RUN, "Ran checks.", FRICTION, RUN_UPDATE, "done"]
-        self.assertEqual(
-            log.parse_lines(block),
-            [log.parse_line(RUN), log.parse_line(FRICTION), log.parse_line(RUN_UPDATE)],
-        )
-        self.assertEqual([entry["kind"] for entry in log.parse_lines(block)], ["run", "friction", "run"])
-
-
 class CliTests(unittest.TestCase):
     def test_malformed_line_exits_1_and_prints_no_entries(self):
         with TemporaryDirectory() as tmp:
@@ -95,8 +86,22 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("error: line 2:", stderr.getvalue())
-        self.assertIn("at", stderr.getvalue().split("error: line 2:", 1)[1])
+        self.assertEqual(stderr.getvalue(), "error: line 2: missing key for friction: at\n")
         self.assertEqual(stdout.getvalue(), "")
+
+    def test_mixed_block_prints_only_log_entries_in_order(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "transcript.txt"
+            path.write_text(
+                "\n".join(["Starting work.", RUN, "Ran checks.", FRICTION, RUN_UPDATE, "done"]), encoding="utf-8"
+            )
+            with patch("sys.stdout", new_callable=StringIO) as stdout:
+                exit_code = log.main([str(path)])
+
+        self.assertEqual(exit_code, 0)
+        entries = json.loads(stdout.getvalue())
+        self.assertEqual([entry["kind"] for entry in entries], ["run", "friction", "run"])
+        self.assertEqual(entries[2]["sessions"], ["session_a", "session_b"])
 
 
 if __name__ == "__main__":

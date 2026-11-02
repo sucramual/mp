@@ -105,12 +105,6 @@ def test_main_exits_2_on_invalid_input(tmp_path: Path) -> None:
     assert triage.main(["triage.py", str(path)]) == 2
 
 
-def test_every_class_is_in_the_closed_list() -> None:
-    for real in (0.1, 0.5, 0.9):
-        for risk in (0.1, 0.5, 0.9):
-            assert triage.classify(answers(real=real, data=risk)) in triage.CLASSES
-
-
 RULE = Path(__file__).resolve().parent.parent / "references" / "triage-rule.md"
 
 

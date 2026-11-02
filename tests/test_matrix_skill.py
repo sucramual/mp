@@ -75,3 +75,8 @@ def test_safety_line(needle: str, message: str) -> None:
 )
 def test_neo_keeps_the_matrix_rules(needle: str, message: str) -> None:
     assert_contains(NEO, needle, message)
+
+
+def test_llm_triage_is_the_default() -> None:
+    assert_contains(SKILL, "**LLM triage** is the default.", "Marcus asked for LLM triage unless TypeSafe is opted in")
+    assert_contains(SKILL, "use LLM triage. This is not an error.", "a missing TypeSafe key must not stop the gate")

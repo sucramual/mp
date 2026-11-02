@@ -23,7 +23,7 @@ When `/matrix` starts you with a work order, the work order is your ticket, and 
 - Skip the intake message. `/matrix` sent it. Still read the merge rules as the Merge rules step says, and still run the `auth-helper` check. Send a failed check to `/matrix`, not to Marcus.
 - Own every PR that the work order assigns to you, in order. Never start another `/neo`.
 - Change only the files that the work order gives you. Report any other file as a contract change.
-- Triage the review gate's findings with the `matrix` skill's `scripts/triage.py`, as its Review gate section says. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
+- Triage the review gate's findings with the `matrix` skill's triage rule, by the method that its Review gate section names. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
 - Send every decision to `/matrix`, with a default. Never ask Marcus.
 - Write to Linear only when the work order names a ticket.
 

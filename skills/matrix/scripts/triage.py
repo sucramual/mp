@@ -9,7 +9,8 @@ Each finding gets one of four classes:
 Usage: triage.py <input.json>
 Input:  {"work_order": "<text>", "findings": [{"id": "<id>", "text": "<finding>"}]}
 Output: a JSON list on stdout, one {"id", "class", "answers"} object for each finding.
-Exit 3 when TYPESAFE_API_KEY is not set or the API call fails. /matrix then applies the rule itself.
+Exit 3 when TYPESAFE_API_KEY is not set or the API call fails. /matrix then uses LLM triage.
+The questions and the rule match references/triage-rule.md, which LLM triage reads. A test keeps them in step.
 
 The rule and the band come from the 2026-11-02 trial: 11 of 12 labelled findings matched.
 """
@@ -130,7 +131,7 @@ def main(argv: list[str]) -> int:
         return 2
     api_key = os.environ.get("TYPESAFE_API_KEY", "")
     if not api_key:
-        print("triage: TYPESAFE_API_KEY is not set. Apply the triage rule by hand.", file=sys.stderr)
+        print("triage: TYPESAFE_API_KEY is not set. Use LLM triage.", file=sys.stderr)
         return 3
     try:
         results = triage(raw, http_post(api_key))

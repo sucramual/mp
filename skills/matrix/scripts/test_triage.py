@@ -109,3 +109,21 @@ def test_every_class_is_in_the_closed_list() -> None:
     for real in (0.1, 0.5, 0.9):
         for risk in (0.1, 0.5, 0.9):
             assert triage.classify(answers(real=real, data=risk)) in triage.CLASSES
+
+
+RULE = Path(__file__).resolve().parent.parent / "references" / "triage-rule.md"
+
+
+def test_the_rule_file_asks_the_script_questions_word_for_word() -> None:
+    rule = RULE.read_text(encoding="utf-8")
+
+    for key, question in {**triage.RISK_QUESTIONS, "real": triage.REAL_QUESTION}.items():
+        assert f"- `{key}`: {question}" in rule, f"LLM triage and TypeSafe triage must ask the same {key!r} question"
+
+
+def test_the_rule_file_names_the_band_and_every_class() -> None:
+    rule = RULE.read_text(encoding="utf-8")
+
+    assert f"Below {triage.BAND_LOW} is no. From {triage.BAND_LOW} up to {triage.BAND_HIGH} is unsure." in rule
+    for name in triage.CLASSES:
+        assert f"`{name}`" in rule, f"the rule file should define the {name!r} class"

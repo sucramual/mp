@@ -1,6 +1,6 @@
 ---
 name: matrix
-description: Routes one goal to several /neo workers. Splits it into the smallest shippable PRs with a work order each, runs a review gate with TypeSafe triage, and brings Marcus a batched decision queue. Never writes code. Use for "/matrix", "matrix this goal", or "split this goal across neo workers". Not for one ticket that one worker can finish (neo).
+description: Routes one goal to several /neo workers. Splits it into the smallest shippable PRs with a work order each, runs a fresh review gate with LLM or TypeSafe triage, and brings Marcus a batched decision queue. Never writes code. Use for "/matrix", "matrix this goal", or "split this goal across neo workers". Not for one ticket that one worker can finish (neo).
 ---
 
 # matrix
@@ -15,6 +15,7 @@ Send Marcus one message:
 
 - **Goal.** Restate the goal. Give each requirement a pass/fail check. State what is out of scope. The router in the spike read the goal literally and dropped a case the team needed, so ask about each case that the goal text does not name.
 - **Split.** The PR plan from [Split](#split), with each PR's dependencies and its worker.
+- **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set.
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
 - **Access.** Do the Dependencies and Access steps of the `neo` intake once here, for every repository and login that the plan needs. Name each missing item. Do not start a worker until Marcus fixes it.
 
@@ -54,16 +55,14 @@ Each work order has:
 
 Before each PR opens, a fresh read-only reviewer reads the diff and its work order. The worker runs the gate. When the worker is a subagent that cannot start a reviewer, it sends you its branch and head SHA, and you run the gate.
 
-Triage each finding:
+Triage each finding with the [triage rule](references/triage-rule.md). Both triage methods apply that one rule and give the same four classes.
 
-1. Write the input file: `{"work_order": "<work order text>", "findings": [{"id": "<id>", "text": "<finding>"}]}`. Send only the work order and the finding text, with `file:line` references. Never send secrets, keys, routing-key values, or code.
-2. Run `python3 <skill-dir>/scripts/triage.py <input file>`. It needs `TYPESAFE_API_KEY`. It prints one class for each finding.
-3. Act on the class:
-   - `before-merge`: fix it in this PR before it opens.
-   - `fix-forward`: add it to the work order of the next PR in the same chain.
-   - `not-a-defect`: drop it, and record the reason in the work order.
-   - `decide`: an answer is near the threshold. Add it to the decision queue, with `fix-forward` as the default.
-4. If the script exits 3, apply the same rule by hand and mark the source as "reviewer". Fix before merge: a check or guard that can pass when it should fail, a leak of a secret or personal data, a wrong data change or migration, a broken contract that others rely on, and a problem in code that deploys straight to production. Everything else is fix forward.
+- **LLM triage** is the default. The reviewer, or you, answers the rule's questions for each finding and applies its classes.
+- **TypeSafe triage** runs only when Marcus passes `--triage typesafe`. Write the input file `{"work_order": "<work order text>", "findings": [{"id": "<id>", "text": "<finding>"}]}`. Send only the work order and the finding text, with `file:line` references. Never send secrets, keys, routing-key values, or code. Then run `python3 <skill-dir>/scripts/triage.py <input file>`. It needs `TYPESAFE_API_KEY` and prints one class for each finding.
+- When `--triage typesafe` is set but `TYPESAFE_API_KEY` is not set, or the script exits 3, use LLM triage. This is not an error.
+- Tell Marcus once which method ran: in the intake message, and again only if the method changes during the run.
+
+Act on each class as the rule says. Add each `decide` finding to the decision queue.
 
 The gate does not replace the review bots after the PR opens. `review-pr` still runs.
 

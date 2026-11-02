@@ -213,3 +213,19 @@ def test_every_ready_check_link_reaches_the_reference(path: Path) -> None:
 @pytest.mark.parametrize("path", [CONTROLLER_GUIDE, READY_CHECK])
 def test_the_controller_guide_calls_no_ro_round(path: Path) -> None:
     assert_not_contains(path, "ro round", "the ready check should use gh, not ro round")
+
+
+ROUND_SUMMARY = REPO_ROOT / "skills" / "review-pr" / "references" / "round-summary.md"
+SUMMARY_SHAPE = (
+    "**Review round <n> (<old SHA> → <new SHA>): <verdict>**",
+    "| Comment | Class | Disposition | Change |",
+)
+
+
+# Protects: the controller reads each round summary to check the round's verdict, so every summary has one shape.
+# Bug caught: on 2026-11-02, Sonnet review loops on sucramual/mp#26 and #32 never opened round-summary.md and
+# posted free prose, and one round posted no summary. The shape must be in SKILL.md and match the reference.
+@pytest.mark.parametrize("line", SUMMARY_SHAPE)
+def test_skill_inlines_the_round_summary_shape(line: str) -> None:
+    assert_contains(SKILL, line, "the publish step should show the summary shape inline")
+    assert_contains(ROUND_SUMMARY, line, "the inline shape should match the round-summary reference")

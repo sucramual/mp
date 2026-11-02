@@ -80,3 +80,11 @@ def test_neo_keeps_the_matrix_rules(needle: str, message: str) -> None:
 def test_llm_triage_is_the_default() -> None:
     assert_contains(SKILL, "**LLM triage** is the default.", "Marcus asked for LLM triage unless TypeSafe is opted in")
     assert_contains(SKILL, "use LLM triage. This is not an error.", "a missing TypeSafe key must not stop the gate")
+
+
+def test_work_orders_require_red_first_tests() -> None:
+    assert_contains(
+        SKILL,
+        "The worker writes each test first and sees it fail before it changes the code.",
+        "workers skipped red-first TDD until the brief stated it (spikes 1 and 2)",
+    )

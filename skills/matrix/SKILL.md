@@ -36,7 +36,7 @@ Write one work order for each PR. Keep all work orders and the decision queue in
 
 Each work order has:
 
-- **Checks.** The pass/fail checks this PR must pass, and the test that proves each one.
+- **Checks.** The pass/fail checks this PR must pass, and the test that proves each one. The worker writes each test first and sees it fail before it changes the code. Workers skipped this until a spike brief stated it.
 - **Files.** The files this PR owns. The worker reports any other file it must change as a contract change. It does not change it silently.
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin work order made the gate report settled decisions as bugs.

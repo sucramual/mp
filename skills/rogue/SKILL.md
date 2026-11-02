@@ -92,6 +92,7 @@ Also reserved, at every tier:
   - `config/git-hooks/pre-push`
   - `scripts/install_git_hooks.sh`
   - `.github/workflows/checks.yml`
+  - `config/agent-hooks/guard_irreversible.py`
 
 When you are not sure that a path is reserved, treat it as reserved.
 

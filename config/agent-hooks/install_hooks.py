@@ -5,9 +5,11 @@ Usage:
   install_hooks.py <json-file>...
 
 Each file is ~/.claude/settings.json or ~/.codex/hooks.json; both keep hooks under a top-level "hooks" object.
-The script adds two groups that match the Bash tool:
+The script adds three groups that match the Bash tool:
   - PreToolUse: guard_irreversible.py beside this script. An entry whose command ends with guard_irreversible.py
     is ours.
+  - PreToolUse: `agent-trace gate`, which blocks `gh pr create` in a /neo session with no ticket bound.
+    An entry whose command ends with `agent-trace gate` is ours.
   - PostToolUse: `agent-trace hook` from tools/agent-trace, which records PR creates and merges in the run trace.
     An entry whose command ends with `agent-trace hook` is ours.
 It updates our existing entry in place, drops a second copy, and keeps every other key and hook.
@@ -32,8 +34,13 @@ GUARD = HERE / "guard_irreversible.py"
 TRACE = HERE.parent.parent / "tools" / "agent-trace" / "bin" / "agent-trace"
 ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(GUARD))}", "timeout": 10}
 TRACE_ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(TRACE))} hook", "timeout": 5}
+GATE_ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(TRACE))} gate", "timeout": 5}
 # (event, our entry, how to recognise our entry from its command with quotes and spaces stripped at the end)
-HOOKS = (("PreToolUse", ENTRY, "guard_irreversible.py"), ("PostToolUse", TRACE_ENTRY, "agent-trace hook"))
+HOOKS = (
+    ("PreToolUse", ENTRY, "guard_irreversible.py"),
+    ("PreToolUse", GATE_ENTRY, "agent-trace gate"),
+    ("PostToolUse", TRACE_ENTRY, "agent-trace hook"),
+)
 # Claude Code exports OTLP traces with these. config/claude/settings.template.json holds the same keys.
 TELEMETRY_ENV = {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",

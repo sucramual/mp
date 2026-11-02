@@ -73,6 +73,8 @@ These files decide when an agent may merge, what blocks a merge or a push, or wh
 - `config/git-hooks/pre-push`
 - `scripts/install_git_hooks.sh`
 - `.github/workflows/checks.yml`
+- `config/agent-hooks/install_hooks.py`
+- `tools/agent-trace/agent_trace/gate.py`
 
 ### Overlay merge allowlist
 

@@ -55,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     common(none)
 
     commands.add_parser("hook", help="PostToolUse hook: record gh pr create and gh pr merge (reads JSON on stdin)")
+    commands.add_parser("gate", help="PreToolUse gate: block gh pr create in a /neo session with no ticket bound")
 
     show = commands.add_parser("show", help="print the joined timeline of a ticket or sessions")
     show.add_argument("--ticket")
@@ -76,6 +77,13 @@ def main(argv: list[str] | None = None) -> int:
         except BaseException:  # noqa: BLE001 (the hook must never fail the agent's tool call)
             pass
         return 0
+    if argv[:1] == ["gate"]:
+        try:
+            from agent_trace import gate
+
+            return gate.main()
+        except BaseException:  # noqa: BLE001 (the gate fails open, so a bug never blocks a PR)
+            return 0
     args = build_parser().parse_args(argv)
     if args.command == "collect":
         from agent_trace import collect as module

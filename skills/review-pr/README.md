@@ -11,7 +11,7 @@ So the skill is now prose over `gh` and `git`. Do not add a state file or a wrap
 
 ## Reviewer list
 
-`config/review-pr/reviewers.json` names one reviewer per repository: its `login`, an optional `retrigger` text, an optional `doneReaction`, and an optional `doneComment`: text that the reviewer's own comment holds when it has reviewed the head, with `{head}` for the full head SHA. The installers link it to `~/.config/review-pr/reviewers.json`. The private work overlay holds the entries for work repositories in its own `config/review-pr/reviewers.json`, and its installer links that file to `~/.config/review-pr/work-reviewers.json`.
+`config/review-pr/reviewers.json` names one reviewer per repository: its `login`, an optional `retrigger` text, an optional `doneReaction`, an optional `threadRepliesOnly` boolean (see the decision below), and an optional `doneComment`: text that the reviewer's own comment holds when it has reviewed the head, with `{head}` for the full head SHA. The installers link it to `~/.config/review-pr/reviewers.json`. The private work overlay holds the entries for work repositories in its own `config/review-pr/reviewers.json`, and its installer links that file to `~/.config/review-pr/work-reviewers.json`.
 The [Ready to merge](references/ready-to-merge.md) check reads it to decide reviewer coverage.
 `tests/test_review_pr_skill.py` checks the file's shape.
 
@@ -27,6 +27,7 @@ The [Ready to merge](references/ready-to-merge.md) check reads it to decide revi
 | One round-summary format, in `references/round-summary.md`, for the design stop and each published round. | The controller reads the summaries to check every round's verdict, so they need one shape. It sits in the skill folder so that an isolated eval can read it. |
 | Push with plain `git push`, never force. | A plain push already refuses when the remote moved. |
 | Replies go through `gh api` with the `agent on behalf of` footer. | The footer shows that an agent wrote the text, not Marcus. |
+| A repository whose reviewer entry sets `threadRepliesOnly: true` gets only one-line `Fixed in <sha>:` and `Declined:` thread replies, with no footer, round summary, or re-trigger. The round record goes to Marcus's report. The private work overlay sets the flag and records why. | An employer repository's merge loop reads any other comment from the driving login as a person speaking, so it does not enqueue. On 2026-11-02 a round summary and the footer parked a PR there, and Marcus enqueued it by hand. The flag is per repository, so other repositories keep the summary and the footer. |
 | Resolve only threads that a bot or the PR author opened. | A person's thread is theirs to close. |
 | A guard claim that fails safe gets No change, not a push. | Every push starts a new full review, and a safe failure only waits or stops. |
 | A design batch stops, leaves its threads open, and messages Marcus. | Marcus owns design. An open thread blocks the merge until he decides. |

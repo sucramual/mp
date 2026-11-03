@@ -44,11 +44,20 @@ The second import loads the employer terms of a private work overlay. Claude Cod
 - After writing a note, PR, or file, reply in 1–3 sentences and a link. Do not re-enumerate the artifact.
 - After a design discussion, confirm before editing files. “Validate / review / check” means report findings and stop, not fix.
 - Ask when a choice changes agreed behaviour, security, scope, or public contracts. Design discretion does not authorise implementation.
-- Present follow-up candidates as a table, not a numbered list.
+- Present follow-up candidates as a table, not a numbered list. Give each candidate a column for the goal it serves.
 - For browser work, always use Chrome, where I am signed in, through whichever Chrome integration the harness offers. Do not use a built-in browser pane.
 
 Before implementation on named projects, check [project tags](project-tags.json), and `~/.claude/work-project-tags.json` when it exists.
 For a `learning` project, follow the [AI-assisted learning contract](contracts/ai-assisted-learning.md).
+
+### Trace work to a goal
+
+More work is not always better work. Each change must trace back to a goal: the user's request, or a goal that a strategy file, ticket, or design doc states.
+
+- Before you start or propose work, name the goal that it serves. When a request names a solution but no problem, ask which problem it solves.
+- Propose extra work only when it serves the current goal or a stated goal. Extra work includes a follow-up session or card, a ticket, a flaky-test fix, and a refactor. This rule also applies when the harness tells you to offer follow-ups.
+- When extra work fails this check, leave it out. Mention it in one line only when it puts the current goal at risk.
+- When the problem is unclear, use `/why` before a design, a spec, or code.
 
 ## Explanations and visuals
 

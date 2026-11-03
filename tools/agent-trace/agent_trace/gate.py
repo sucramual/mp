@@ -35,7 +35,7 @@ PR_CREATE = re.compile(
 REASON = (
     "agent-trace gate: this /neo session has no ticket bound for its trace, so it cannot open a PR yet. "
     'Run `agent-trace span start --id run --name "neo run" --kind phase --ticket <ID>` first, with the ticket '
-    "from the work order, or the work-order ID (such as WO-5) when it names no ticket. Then run gh pr create again."
+    "from the PR brief, or the PR-brief ID (such as PB-5) when it names no ticket. Then run gh pr create again."
 )
 
 

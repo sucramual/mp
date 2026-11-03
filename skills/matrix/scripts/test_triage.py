@@ -49,9 +49,9 @@ def fake_post(result: dict[str, float], seen: list[dict[str, Any]]) -> triage.Po
     return post
 
 
-def test_triage_sends_the_work_order_with_each_finding() -> None:
+def test_triage_sends_the_pr_brief_with_each_finding() -> None:
     seen: list[dict[str, Any]] = []
-    raw = {"work_order": "Owner decided: refuse two sites.", "findings": [{"id": "A", "text": "refusal is a bug"}]}
+    raw = {"pr_brief": "Owner decided: refuse two sites.", "findings": [{"id": "A", "text": "refusal is a bug"}]}
 
     results = triage.triage(raw, fake_post(answers(real=0.1), seen))
 
@@ -65,11 +65,11 @@ def test_triage_sends_the_work_order_with_each_finding() -> None:
     "raw",
     [
         {"findings": [{"id": "A", "text": "x"}]},
-        {"work_order": "", "findings": [{"id": "A", "text": "x"}]},
-        {"work_order": "w", "findings": []},
-        {"work_order": "w", "findings": [{"id": "A"}]},
-        {"work_order": "w", "findings": [{"id": "A", "text": "x", "class": "fix-forward"}]},
-        {"work_order": "w", "findings": [], "extra": 1},
+        {"pr_brief": "", "findings": [{"id": "A", "text": "x"}]},
+        {"pr_brief": "w", "findings": []},
+        {"pr_brief": "w", "findings": [{"id": "A"}]},
+        {"pr_brief": "w", "findings": [{"id": "A", "text": "x", "class": "fix-forward"}]},
+        {"pr_brief": "w", "findings": [], "extra": 1},
     ],
 )
 def test_invalid_input_is_refused(raw: Any) -> None:
@@ -82,7 +82,7 @@ def test_a_missing_answer_is_refused() -> None:
         return {"answers": {"real": {"noul": 0.9}}}
 
     with pytest.raises(triage.TriageError):
-        triage.triage({"work_order": "w", "findings": [{"id": "A", "text": "x"}]}, post)
+        triage.triage({"pr_brief": "w", "findings": [{"id": "A", "text": "x"}]}, post)
 
 
 def test_an_answer_outside_zero_to_one_is_refused() -> None:
@@ -93,7 +93,7 @@ def test_an_answer_outside_zero_to_one_is_refused() -> None:
 def test_main_exits_3_without_a_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     path = tmp_path / "in.json"
-    path.write_text(json.dumps({"work_order": "w", "findings": [{"id": "A", "text": "x"}]}))
+    path.write_text(json.dumps({"pr_brief": "w", "findings": [{"id": "A", "text": "x"}]}))
 
     assert triage.main(["triage.py", str(path)]) == 3
 

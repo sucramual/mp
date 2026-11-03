@@ -1,6 +1,6 @@
 ---
 name: neo
-description: Takes one written ticket, usually Linear, or a /matrix work order, to a merged and verified result that passes the ticket's checks, without Marcus watching. One intake message fixes a pass/fail check for each requirement and tests every tool the run needs, then the run loops change, verify, keep or fix. Use for "/neo", "neo this ticket", or "run this ticket end to end without me". Not for a plain request to open or publish a PR (open-pr), or for "/rogue" and "go rogue" (rogue). Sets the hard limits - guarded changes wait for Marcus, merges are pinned to the reviewed SHA, Spacelift is read-only.
+description: Takes one written ticket, usually Linear, or a /matrix PR brief, to a merged and verified result that passes the ticket's checks, without Marcus watching. One intake message fixes a pass/fail check for each requirement and tests every tool the run needs, then the run loops change, verify, keep or fix. Use for "/neo", "neo this ticket", or "run this ticket end to end without me". Not for a plain request to open or publish a PR (open-pr), or for "/rogue" and "go rogue" (rogue). Sets the hard limits - guarded changes wait for Marcus, merges are pinned to the reviewed SHA, Spacelift is read-only.
 ---
 
 # neo
@@ -18,16 +18,16 @@ Send Marcus one message:
 
 ## Started by /matrix
 
-When `/matrix` starts you with a work order, the work order is your ticket, and these rules change the run:
+When `/matrix` starts you with a PR brief, the PR brief is your ticket, and these rules change the run:
 
 - Skip the intake message. `/matrix` sent it. Still read the merge rules as the Merge rules step says, and still run the `auth-helper` check. Send a failed check to `/matrix`, not to Marcus.
-- Own every PR that the work order assigns to you, in order. Never start another `/neo`.
-- Change only the files that the work order gives you. Report any other file as a contract change.
+- Own every PR that the PR brief assigns to you, in order. Never start another `/neo`.
+- Change only the files that the PR brief gives you. Report any other file as a contract change.
 - Triage the review gate's findings with the `matrix` skill's triage rule, by the method that its Review gate section names. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
 - Send every decision to `/matrix`, with a default. Never ask Marcus.
-- Write to Linear only when the work order names a ticket.
+- Write to Linear only when the PR brief names a ticket.
 - Put no ticket ID in your branch name or PR title, and write `Part of <ID>` in the PR body. Linear closes a ticket when a merged PR's branch name or title holds its ID, and only `/matrix` closes the ticket.
-- Trace the run as [Loop](#loop) says. When the work order names a ticket, pass that ticket ID with `--ticket` on your first `agent-trace` call, so `/matrix` can join your sessions with the other workers'.
+- Trace the run as [Loop](#loop) says. When the PR brief names a ticket, pass that ticket ID with `--ticket` on your first `agent-trace` call, so `/matrix` can join your sessions with the other workers'.
 - Do not post the [Close](#close) comments. `/matrix` posts one close comment for the whole ticket. Do Close steps 1 and 2 for your own sessions with `agent-trace show --session <id>`. Then send your close draft to `/matrix`: the verdict, the evidence for each check marked `live` or `unit only`, each PR with its reviewed SHA and merge SHA, each park, the decisions, and the open items.
 
 ## Loop

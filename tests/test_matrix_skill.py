@@ -102,7 +102,7 @@ def test_ticket_closes_only_with_the_goal(needle: str, message: str) -> None:
     assert_contains(SKILL, needle, message)
 
 
-def test_work_orders_require_red_first_tests() -> None:
+def test_pr_briefs_require_red_first_tests() -> None:
     assert_contains(
         SKILL,
         "The worker writes each test first and sees it fail before it changes the code.",

@@ -6,7 +6,7 @@ The neo suite takes written work to a merged and verified result while you are a
 flowchart TD
     you([You: a ticket or a goal])
     perf["perf<br/>proves a speed-up by experiment"]
-    matrix["matrix<br/>splits the goal into small PRs,<br/>one work order for each chain"]
+    matrix["matrix<br/>splits the goal into small PRs,<br/>one PR brief for each PR"]
     intake["neo intake<br/>a pass/fail check for each requirement;<br/>auth-helper tests each login"]
     loop["neo loop<br/>change, verify, keep or fix"]
     openpr["fresh-context review, then open-pr<br/>publishes the PR"]
@@ -37,7 +37,7 @@ flowchart TD
 
 | Part | Kind | Its job in a run |
 | --- | --- | --- |
-| `neo` | Skill | Runs one ticket or one `matrix` work order, from intake to close. |
+| `neo` | Skill | Runs one ticket or one `matrix` PR brief, from intake to close. |
 | `matrix` | Skill | Splits a large goal across several `neo` workers, batches decisions for you, and closes the ticket. It never writes code. |
 | `perf` | Skill | Proves a speed-up with a same-runner A/B test, then writes a ticket for `neo` or `matrix`. It never ships code. |
 | `open-pr` | Skill | Publishes each change as a PR and starts the `review-pr` follow-up. |

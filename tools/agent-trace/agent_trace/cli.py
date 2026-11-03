@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     common(none)
 
     commands.add_parser("hook", help="PostToolUse hook: record gh pr create and gh pr merge (reads JSON on stdin)")
-    commands.add_parser("gate", help="PreToolUse gate: block gh pr create in a /neo session with no ticket bound")
+    commands.add_parser("gate", help="PreToolUse gate: block edits and gh pr create in a /neo session with no ticket")
 
     show = commands.add_parser("show", help="print the joined timeline of a ticket or sessions")
     show.add_argument("--ticket")

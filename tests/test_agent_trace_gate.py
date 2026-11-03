@@ -1,6 +1,6 @@
-"""Black-box tests for `agent-trace gate`, the PreToolUse PR-creation gate.
+"""Black-box tests for `agent-trace gate`, the PreToolUse ticket gate.
 
-In a session that ran the /neo skill, `gh pr create` waits until the session has a ticket bound for its trace.
+In a session that ran the /neo skill, a file edit and `gh pr create` wait until the session has a ticket bound.
 It blocks with exit 2 and a reason on stderr. In every other case, and on any error, it allows with exit 0.
 """
 
@@ -58,7 +58,11 @@ def transcript(tmp_path: Path, *lines: dict) -> Path:
 
 
 def payload(command: str, transcript_path: Path | str | None, session: str = "s1") -> str:
-    data = {"session_id": session, "tool_name": "Bash", "tool_input": {"command": command}, "cwd": "/tmp"}
+    return tool_payload("Bash", {"command": command}, transcript_path, session)
+
+
+def tool_payload(tool: str, tool_input: dict, transcript_path: Path | str | None, session: str = "s1") -> str:
+    data = {"session_id": session, "tool_name": tool, "tool_input": tool_input, "cwd": "/tmp"}
     if transcript_path is not None:
         data["transcript_path"] = str(transcript_path)
     return json.dumps(data)
@@ -178,6 +182,56 @@ def test_allows_outside_neo_pr_creation(
     command: str, lines: list[dict], isolated_env: IsolatedEnv, tmp_path: Path
 ) -> None:
     result = gate(isolated_env, tmp_path / "state", payload(command, transcript(tmp_path, *lines)))
+    assert (result.returncode, result.stderr) == (0, "")
+
+
+EDITS = [
+    ("Edit", {"file_path": "/r/a.py", "old_string": "a", "new_string": "b"}),
+    ("Write", {"file_path": "/r/a_test.py", "content": "x"}),
+    ("MultiEdit", {"file_path": "/r/a.py", "edits": []}),
+    ("NotebookEdit", {"notebook_path": "/r/n.ipynb", "new_source": "x"}),
+]
+
+
+# Protects: a /neo run binds its ticket before its first file change, so the trace covers the red test and the fix.
+# Bug caught: on 2026-11-03 a /neo run bound its ticket only at PR time, so the trace held no span for
+# intake, the red test, the fix, or the review. The PR gate alone fires too late for that.
+@pytest.mark.parametrize(("tool", "tool_input"), EDITS, ids=[tool for tool, _ in EDITS])
+def test_blocks_the_first_edit_in_a_neo_session_with_no_ticket(
+    tool: str, tool_input: dict, isolated_env: IsolatedEnv, tmp_path: Path
+) -> None:
+    stdin = tool_payload(tool, tool_input, transcript(tmp_path, SKILL_CALL))
+    result = gate(isolated_env, tmp_path / "state", stdin)
+    assert result.returncode == 2, result.stderr
+    assert FIX in result.stderr and "--ticket" in result.stderr
+    assert "before its first file change" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize(("tool", "tool_input"), EDITS, ids=[tool for tool, _ in EDITS])
+def test_allows_edits_once_a_ticket_is_bound_or_outside_neo(
+    tool: str, tool_input: dict, isolated_env: IsolatedEnv, tmp_path: Path
+) -> None:
+    state = tmp_path / "state"
+    (state / "sessions").mkdir(parents=True)
+    (state / "sessions" / "s1.ticket").write_text("ABC-1\n")
+    bound = gate(isolated_env, state, tool_payload(tool, tool_input, transcript(tmp_path, SKILL_CALL)))
+    other = gate(isolated_env, tmp_path / "other", tool_payload(tool, tool_input, transcript(tmp_path, OTHER_SKILL)))
+    assert (bound.returncode, bound.stderr) == (0, "")
+    assert (other.returncode, other.stderr) == (0, "")
+
+
+# Protects: intake reads stay allowed before the ticket exists. Bug caught: a gate that blocks Read or a plain
+# shell call, so a /neo run cannot even look up or create its ticket.
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [("Read", {"file_path": "/r/a.py"}), ("Bash", {"command": "git log -5 --oneline"}), ("Grep", {"pattern": "x"})],
+    ids=["read", "shell", "grep"],
+)
+def test_allows_reads_in_a_neo_session_with_no_ticket(
+    tool: str, tool_input: dict, isolated_env: IsolatedEnv, tmp_path: Path
+) -> None:
+    result = gate(isolated_env, tmp_path / "state", tool_payload(tool, tool_input, transcript(tmp_path, SKILL_CALL)))
     assert (result.returncode, result.stderr) == (0, "")
 
 

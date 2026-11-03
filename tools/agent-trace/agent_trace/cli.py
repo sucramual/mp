@@ -25,7 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     def common(sub: argparse.ArgumentParser) -> None:
         sub.add_argument(
-            "--ticket", help="ticket such as ABC-123 (default: $AGENT_TRACE_TICKET or the session binding)"
+            "--work",
+            "--ticket",
+            dest="ticket",
+            help="work ID: a ticket ID such as ABC-123, or a chain ID such as CH-2 "
+            "(default: $AGENT_TRACE_WORK or the session binding). --ticket is the old name",
         )
 
     span = commands.add_parser("span", help="mark the start or end of an agent span")
@@ -55,10 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
     common(none)
 
     commands.add_parser("hook", help="PostToolUse hook: record gh pr create and gh pr merge (reads JSON on stdin)")
-    commands.add_parser("gate", help="PreToolUse gate: block edits and gh pr create in a /neo session with no ticket")
+    commands.add_parser("gate", help="PreToolUse gate: block edits and gh pr create in a /neo session with no work ID")
 
-    show = commands.add_parser("show", help="print the joined timeline of a ticket or sessions")
-    show.add_argument("--ticket")
+    show = commands.add_parser("show", help="print the joined timeline of a work ID or sessions")
+    show.add_argument("--work", "--ticket", dest="ticket", help="work ID. --ticket is the old name")
     show.add_argument("--session", action="append", default=[])
     show.add_argument("--width", type=int, default=60)
     show.add_argument("--jaeger", help="also POST the joined trace to this OTLP base URL")

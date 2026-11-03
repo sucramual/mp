@@ -27,7 +27,7 @@ Read the code that the goal touches before you split. A split from the goal text
 
 - Split into the smallest shippable PRs. A shippable PR merges alone, leaves main working, and has its own check. In a repository with a size gate, such as `yarn pr:size`, that gate is the upper bound.
 - Give each file one owner. When a test reads a file, the owner of that file owns the test too.
-- Group PRs into chains. A chain is a sequence of PRs where each one builds on the one before, or small PRs in one area. One `/neo` owns one chain.
+- Group PRs into chains. A chain is a sequence of PRs where each one builds on the one before, or small PRs in one area. One `/neo` owns one chain. Give each chain an ID, such as `CH-2`. The [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md) defines these terms.
 - A ticket is optional. One ticket can have several PRs. A PR with no ticket still has a PR brief.
 
 ## PR briefs
@@ -41,7 +41,7 @@ Each PR brief has:
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
-- **Chain and ticket.** The worker that owns the chain, and the ticket ID when there is one.
+- **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one.
 
 ## Workers
 
@@ -51,7 +51,7 @@ Each PR brief has:
 - Start independent chains in parallel. Start a dependent chain when its dependency merges, or when the PR brief gives it a written contract to build against.
 - Near its context budget, a worker hands off its whole chain to one new worker. Never split a chain between two workers.
 - Put no ticket ID in a worker's branch name or PR title. Only you close the ticket, at [Close](#close). Linear closes a ticket when a merged PR's branch name or title holds its ID: a branch named after its ticket closed the ticket while two goal checks were still open. Instead, the worker writes `Part of <ID>` in the PR body. Linear links the PR but does not close the ticket on merge.
-- Tell each worker to pass `--ticket <ID>` on its first `agent-trace` call, so its spans join the ticket. Tell it to send you its close draft instead of posting it.
+- Tell each worker to pass `--work` on its first `agent-trace` call: the ticket ID, so its spans join the ticket, or its chain ID when the goal has no ticket. Tell it to send you its close draft instead of posting it.
 
 ## Review gate
 
@@ -89,7 +89,7 @@ Restacks and cross-PR breaks are yours.
 You own the ticket's close. Workers do not write close comments to the ticket.
 
 1. Collect each worker's close draft: its verdict, the evidence for each check marked `live` or `unit only`, its decisions, and its open items. Each worker answers the `Reconcile` items of its own sessions before it sends the draft.
-2. Run `agent-trace show --ticket <ID>`. It joins the spans of every worker session bound to the ticket.
+2. Run `agent-trace show --work <ticket ID>`. It joins the spans of every worker session bound to the ticket. When the goal has no ticket, run it once for each chain ID.
 3. Post one comment on the ticket: the `text` fence from `show`, each PR with its reviewed SHA and merge SHA, each park, the combined verdict for each goal check with its evidence, the decisions, and the open items.
 4. Close the ticket only when every goal check passes on the merged result, including checks that no PR covers. Otherwise leave it open and list what remains.
 

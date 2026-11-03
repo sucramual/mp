@@ -640,13 +640,13 @@ def dedupe(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def run(args: argparse.Namespace) -> int:
     if not args.ticket and not args.session:
-        print("agent-trace: show needs --ticket or --session", file=sys.stderr)
+        print("agent-trace: show needs --work or --session", file=sys.stderr)
         return 2
     base = Path(args.dir).expanduser() if args.dir else store.state_dir()
     width = max(10, int(args.width))
     selection = select(dedupe(store.read_all(base)), args.ticket, list(args.session))
     if not selection.agent and not selection.native:
-        what = f"ticket {args.ticket}" if args.ticket else "session " + ", ".join(args.session)
+        what = f"work ID {args.ticket}" if args.ticket else "session " + ", ".join(args.session)
         print(f"agent-trace: no spans for {what}", file=sys.stderr)
         return 1
 
@@ -802,7 +802,7 @@ def run(args: argparse.Namespace) -> int:
     if unanswered:
         out.append("Reconcile:")
         out += [f"  {a.ref}  {clock(a.start)}  {a.kind}  {a.detail}" for a in unanswered]
-        ticket_flag = f" --ticket {args.ticket}" if args.ticket else ""
+        ticket_flag = f" --work {args.ticket}" if args.ticket else ""
         out += [
             "Answer each with one of:",
             f'  agent-trace note friction --category <category> --what "<what>" --fix "<fix>" --ref <ref>{ticket_flag}',

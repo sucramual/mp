@@ -63,7 +63,7 @@ def test_bad_ticket_exits_2_and_sends_nothing(isolated_env: IsolatedEnv, tmp_pat
         env["AGENT_TRACE_ENDPOINT"] = server.url
         result = run(["span", "start", "--id", "a", "--name", "x", "--kind", "phase", "--ticket", "abc-1"], env)
     assert result.returncode == 2
-    assert result.stderr.strip().startswith("agent-trace: --ticket must match")
+    assert result.stderr.strip().startswith("agent-trace: --work must match")
     assert server.requests == []
     assert not state.exists()
 
@@ -165,6 +165,33 @@ def test_ticket_binds_to_session_for_later_calls(isolated_env: IsolatedEnv, tmp_
     assert end_attrs["agent_trace.status"] == "ok"
     assert end_attrs["agent_trace.note"] == "done"
     assert end["spanId"] == start["spanId"]
+
+
+# Protects: a /matrix chain with no ticket can bind its chain ID with `--work`, and later calls reuse it.
+# Bug caught: the skills tell a worker to pass `--work CH-2`, but the CLI has only `--ticket` and exits 2.
+def test_work_flag_binds_a_chain_id_for_later_calls(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url, AGENT_TRACE_SESSION="s1")
+        first = run(["span", "start", "--id", "run", "--name", "neo run", "--kind", "phase", "--work", "CH-2"], env)
+        result = run(["span", "end", "--id", "run", "--status", "ok"], env)
+    assert first.returncode == 0, first.stderr
+    assert result.returncode == 0, result.stderr
+    start, end = server.spans()
+    assert {a["key"]: a["value"].get("stringValue") for a in end["attributes"]}["run.ticket"] == "CH-2"
+    assert start["spanId"] == end["spanId"] == span_id("CH-2", "run")
+
+
+# Protects: AGENT_TRACE_WORK scopes a span, and wins over the old AGENT_TRACE_TICKET when both are set.
+# Bug caught: emit reads only AGENT_TRACE_TICKET, so the span lands in the wrong scope.
+def test_work_env_scopes_the_span(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url, AGENT_TRACE_WORK="CH-3", AGENT_TRACE_TICKET="OLD-1")
+        result = run(["span", "start", "--id", "a", "--name", "A", "--kind", "check"], env)
+    assert result.returncode == 0, result.stderr
+    [span] = server.spans()
+    assert span["spanId"] == span_id("CH-3", "a")
 
 
 def test_session_scope_without_ticket(isolated_env: IsolatedEnv, tmp_path: Path) -> None:

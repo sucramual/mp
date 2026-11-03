@@ -92,7 +92,7 @@ def test_blocks_pr_create_in_a_neo_session_with_no_ticket(
     stdin = payload("cd repo && gh pr create --fill", transcript(tmp_path, *lines))
     result = gate(isolated_env, tmp_path / "state", stdin)
     assert result.returncode == 2, result.stderr
-    assert FIX in result.stderr and "--ticket" in result.stderr
+    assert FIX in result.stderr and "--work" in result.stderr
     assert result.stdout == ""
 
 
@@ -146,6 +146,14 @@ def test_allows_pr_create_once_a_ticket_is_bound(isolated_env: IsolatedEnv, tmp_
     (state / "sessions").mkdir(parents=True)
     (state / "sessions" / "s1.ticket").write_text("ABC-1\n")
     result = gate(isolated_env, state, payload("gh pr create --fill", transcript(tmp_path, SKILL_CALL)))
+    assert (result.returncode, result.stderr) == (0, "")
+
+
+# Protects: a run that binds its work ID through the environment is not blocked.
+# Bug caught: the gate reads only AGENT_TRACE_TICKET, so a run that sets AGENT_TRACE_WORK cannot open its PR.
+def test_allows_pr_create_with_a_work_id_in_the_environment(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    env = base_env(isolated_env.env, tmp_path / "state", "", AGENT_TRACE_WORK="CH-2")
+    result = run(["gate"], env, input=payload("gh pr create --fill", transcript(tmp_path, SKILL_CALL)))
     assert (result.returncode, result.stderr) == (0, "")
 
 
@@ -203,7 +211,7 @@ def test_blocks_the_first_edit_in_a_neo_session_with_no_ticket(
     stdin = tool_payload(tool, tool_input, transcript(tmp_path, SKILL_CALL))
     result = gate(isolated_env, tmp_path / "state", stdin)
     assert result.returncode == 2, result.stderr
-    assert FIX in result.stderr and "--ticket" in result.stderr
+    assert FIX in result.stderr and "--work" in result.stderr
     assert "before its first file change" in result.stderr
     assert result.stdout == ""
 

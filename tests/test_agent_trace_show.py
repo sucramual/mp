@@ -479,18 +479,29 @@ def test_jaeger_gets_one_joined_trace_without_identity(env: dict[str, str]) -> N
     assert f"jaeger: posted {len(spans)} spans, trace {run_trace}" in out.splitlines()
 
 
+# Protects: `--work` selects the same run as the old `--ticket` flag. Bug caught: the rename leaves `show`
+# without the new flag, so the skills' `show --work <ID>` exits 2.
+def test_work_flag_selects_the_same_run_as_ticket(env: dict[str, str]) -> None:
+    write_store(state_of(env), scenario())
+    code, by_work, err = show(env, "--work", "RUN-1", "--offline")
+    _, by_ticket, _ = show(env, "--ticket", "RUN-1", "--offline")
+    assert code == 0, err
+    assert rows(by_work)[0]["name"] == "run RUN-1"
+    assert by_work == by_ticket
+
+
 def test_nothing_matched_exits_1(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
     code, out, err = show(env, "--ticket", "NOPE-9")
     assert code == 1
-    assert err.strip() == "agent-trace: no spans for ticket NOPE-9"
+    assert err.strip() == "agent-trace: no spans for work ID NOPE-9"
     assert out == ""
 
 
 def test_needs_a_ticket_or_session(env: dict[str, str]) -> None:
     code, _, err = show(env)
     assert code == 2
-    assert "--ticket or --session" in err
+    assert "--work or --session" in err
 
 
 def test_narrow_width_moves_the_idle_label_to_a_footnote(env: dict[str, str]) -> None:

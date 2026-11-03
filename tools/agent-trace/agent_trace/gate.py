@@ -13,7 +13,6 @@ It fails open: a missing transcript, bad input, or any error allows the call, so
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -35,15 +34,15 @@ PR_CREATE = re.compile(
     r"|\bgh\s+api\b[^\n]*\brepos/[^/\s'\"]+/[^/\s'\"]+/pulls(?=['\"]?(?:\s|$))"
 )
 FIX = (
-    'Run `agent-trace span start --id run --name "neo run" --kind phase --ticket <ID>` first, with the ticket '
-    "from the PR brief, or the PR-brief ID (such as PB-5) when it names no ticket."
+    'Run `agent-trace span start --id run --name "neo run" --kind phase --work <ID>` first. The work ID is '
+    "the ticket ID, or the chain ID from the PR brief (such as CH-2) when the chain has no ticket."
 )
 REASON = (
-    "agent-trace gate: this /neo session has no ticket bound for its trace, so it cannot open a PR yet. "
+    "agent-trace gate: this /neo session has no work ID bound for its trace, so it cannot open a PR yet. "
     f"{FIX} Then run gh pr create again."
 )
 EDIT_REASON = (
-    "agent-trace gate: this /neo session has no ticket bound for its trace. Bind it before its first file change, "
+    "agent-trace gate: this /neo session has no work ID bound for its trace. Bind it before its first file change, "
     f"so the trace covers the red test and the fix. {FIX} Then make the edit again."
 )
 # Claude Code's file-changing tools. config/agent-hooks/install_hooks.py routes the same names to this gate.
@@ -108,9 +107,10 @@ def ran_neo(transcript: Path) -> bool:
 
 
 def unbound_neo(payload: dict[str, Any]) -> bool:
-    """True when the session ran /neo and has no valid ticket bound for its trace."""
+    """True when the session ran /neo and has no valid work ID bound for its trace."""
     session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else emit.session_id()
-    ticket = os.environ.get("AGENT_TRACE_TICKET") or store.read_ticket(store.state_dir(), session)
+    from_env = emit.env_work()
+    ticket = from_env[1] if from_env else store.read_ticket(store.state_dir(), session)
     if ticket and emit.TICKET.match(ticket):
         return False
     transcript = payload.get("transcript_path")

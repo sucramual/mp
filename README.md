@@ -14,7 +14,7 @@ My personal setup for macOS, a work devbox, and Claude Code cloud sessions. It h
 | --- | --- |
 | `config/` | Shell, Git, Ghostty, macOS, Claude, Codex, agent hook, launchd, and devbox configuration |
 | `agents/` | Personal project guidance and agent contracts |
-| `skills/` | Harness-agnostic personal skills, and the third-party skills list. See [how the neo suite works](skills/README.md#how-the-neo-suite-works). |
+| `skills/` | Harness-agnostic personal skills, and the third-party skills list. See [how the neo suite works](skills/neo-suite.md). |
 | `tools/` | Self-contained command-line tools and their documentation |
 | `scripts/` | Installer helpers, the cloud bootstrap, and the repository checks |
 | `tests/` | Installer, skill, and tool tests |

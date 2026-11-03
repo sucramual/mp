@@ -7,7 +7,7 @@ Each finding gets one of four classes:
   decide        an answer is near the threshold, so the finding goes to the decision queue
 
 Usage: triage.py <input.json>
-Input:  {"work_order": "<text>", "findings": [{"id": "<id>", "text": "<finding>"}]}
+Input:  {"pr_brief": "<text>", "findings": [{"id": "<id>", "text": "<finding>"}]}
 Output: a JSON list on stdout, one {"id", "class", "answers"} object for each finding.
 Exit 3 when TYPESAFE_API_KEY is not set or the API call fails. /matrix then uses LLM triage.
 The questions and the rule match references/triage-rule.md, which LLM triage reads. A test keeps them in step.
@@ -39,7 +39,7 @@ RISK_QUESTIONS = {
     "contract": "Does this finding show a break in an API or contract that other teams or services rely on?",
     "prod": "Does this finding show a problem in code that deploys straight to production?",
 }
-REAL_QUESTION = "Is this finding a real defect in the change, given the work order and the owner's decisions in it?"
+REAL_QUESTION = "Is this finding a real defect in the change, given the PR brief and the owner's decisions in it?"
 CLASSES = ("before-merge", "fix-forward", "not-a-defect", "decide")
 
 Post = Callable[[dict[str, Any]], dict[str, Any]]
@@ -64,10 +64,10 @@ def classify(answers: dict[str, float]) -> str:
     return "fix-forward"
 
 
-def request_body(work_order: str, finding: str) -> dict[str, Any]:
+def request_body(pr_brief: str, finding: str) -> dict[str, Any]:
     questions = {key: {"type": "noul", "instructions": text} for key, text in RISK_QUESTIONS.items()}
     questions["real"] = {"type": "noul", "instructions": REAL_QUESTION}
-    return {"model": MODEL, "state": f"Work order:\n{work_order}\n\nFinding:\n{finding}", "questions": questions}
+    return {"model": MODEL, "state": f"PR brief:\n{pr_brief}\n\nFinding:\n{finding}", "questions": questions}
 
 
 def http_post(api_key: str) -> Post:
@@ -84,11 +84,11 @@ def http_post(api_key: str) -> Post:
 
 
 def parse_input(raw: Any) -> tuple[str, list[dict[str, str]]]:
-    if not isinstance(raw, dict) or set(raw) != {"work_order", "findings"}:
-        raise TriageError("input must be an object with exactly 'work_order' and 'findings'")
-    work_order, findings = raw["work_order"], raw["findings"]
-    if not isinstance(work_order, str) or not work_order.strip():
-        raise TriageError("work_order must be non-empty text")
+    if not isinstance(raw, dict) or set(raw) != {"pr_brief", "findings"}:
+        raise TriageError("input must be an object with exactly 'pr_brief' and 'findings'")
+    pr_brief, findings = raw["pr_brief"], raw["findings"]
+    if not isinstance(pr_brief, str) or not pr_brief.strip():
+        raise TriageError("pr_brief must be non-empty text")
     if not isinstance(findings, list) or not findings:
         raise TriageError("findings must be a non-empty list")
     for finding in findings:
@@ -96,7 +96,7 @@ def parse_input(raw: Any) -> tuple[str, list[dict[str, str]]]:
             raise TriageError("each finding must have exactly 'id' and 'text'")
         if not all(isinstance(finding[key], str) and finding[key].strip() for key in ("id", "text")):
             raise TriageError("finding id and text must be non-empty text")
-    return work_order, findings
+    return pr_brief, findings
 
 
 def answers_from(response: dict[str, Any]) -> dict[str, float]:
@@ -111,10 +111,10 @@ def answers_from(response: dict[str, Any]) -> dict[str, float]:
 
 
 def triage(raw: Any, post: Post) -> list[dict[str, Any]]:
-    work_order, findings = parse_input(raw)
+    pr_brief, findings = parse_input(raw)
     results = []
     for finding in findings:
-        answers = answers_from(post(request_body(work_order, finding["text"])))
+        answers = answers_from(post(request_body(pr_brief, finding["text"])))
         results.append({"id": finding["id"], "class": classify(answers), "answers": answers})
     return results
 

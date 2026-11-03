@@ -4,11 +4,11 @@ LLM triage and TypeSafe triage both apply this rule. `scripts/triage.py` asks th
 
 ## Questions
 
-Answer each question about one finding, with the work order as context. The work order holds the owner's decisions, so a finding that disagrees with a settled decision is not a real defect.
+Answer each question about one finding, with the PR brief as context. The PR brief holds the owner's decisions, so a finding that disagrees with a settled decision is not a real defect.
 
 Real-defect question:
 
-- `real`: Is this finding a real defect in the change, given the work order and the owner's decisions in it?
+- `real`: Is this finding a real defect in the change, given the PR brief and the owner's decisions in it?
 
 Risk questions:
 
@@ -22,17 +22,17 @@ Risk questions:
 
 Each answer is yes, no, or unsure.
 
-- LLM triage answers each question with yes, no, or unsure. Answer unsure when the finding or the work order does not settle the question.
+- LLM triage answers each question with yes, no, or unsure. Answer unsure when the finding or the PR brief does not settle the question.
 - TypeSafe gives a probability from 0 to 1. Below 0.4 is no. From 0.4 up to 0.6 is unsure. 0.6 and above is yes.
 
 ## Classes
 
 Apply these in order. The first match gives the class.
 
-1. `real` is no: `not-a-defect`. Drop the finding and record the reason in the work order.
+1. `real` is no: `not-a-defect`. Drop the finding and record the reason in the PR brief.
 2. `real` is unsure: `decide`.
 3. Any risk question is yes: `before-merge`. Fix it in this PR before it opens.
 4. Any risk question is unsure: `decide`.
-5. Otherwise: `fix-forward`. Add it to the work order of the next PR in the same chain.
+5. Otherwise: `fix-forward`. Add it to the PR brief of the next PR in the same chain.
 
 A `decide` finding goes to the decision queue, with `fix-forward` as the default.

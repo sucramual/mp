@@ -1,6 +1,6 @@
 ---
 name: matrix
-description: Routes one goal to several /neo workers. Splits it into the smallest shippable PRs with a work order each, runs a fresh review gate with LLM or TypeSafe triage, and brings Marcus a batched decision queue. Never writes code. Use for "/matrix", "matrix this goal", or "split this goal across neo workers". Not for one ticket that one worker can finish (neo).
+description: Routes one goal to several /neo workers. Splits it into the smallest shippable PRs with a PR brief each, runs a fresh review gate with LLM or TypeSafe triage, and brings Marcus a batched decision queue. Never writes code. Use for "/matrix", "matrix this goal", or "split this goal across neo workers". Not for one ticket that one worker can finish (neo).
 ---
 
 # matrix
@@ -28,18 +28,18 @@ Read the code that the goal touches before you split. A split from the goal text
 - Split into the smallest shippable PRs. A shippable PR merges alone, leaves main working, and has its own check. In a repository with a size gate, such as `yarn pr:size`, that gate is the upper bound.
 - Give each file one owner. When a test reads a file, the owner of that file owns the test too.
 - Group PRs into chains. A chain is a sequence of PRs where each one builds on the one before, or small PRs in one area. One `/neo` owns one chain.
-- A ticket is optional. One ticket can have several PRs. A PR with no ticket still has a work order.
+- A ticket is optional. One ticket can have several PRs. A PR with no ticket still has a PR brief.
 
-## Work orders
+## PR briefs
 
-Write one work order for each PR. Keep all work orders and the decision queue in one plan file in the session scratch directory. This file is the one record of the run: rewrite a section when a decision changes it.
+A PR brief is everything one `/neo` worker needs to build one PR. Write one PR brief for each PR. Keep all PR briefs and the decision queue in one plan file in the session scratch directory. This file is the one record of the run: rewrite a section when a decision changes it.
 
-Each work order has:
+Each PR brief has:
 
 - **Checks.** The pass/fail checks this PR must pass, and the test that proves each one. The worker writes each test first and sees it fail before it changes the code. Workers skipped this until a spike brief stated it.
 - **Files.** The files this PR owns. The worker reports any other file it must change as a contract change. It does not change it silently.
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
-- **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin work order made the gate report settled decisions as bugs.
+- **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
 - **Chain and ticket.** The worker that owns the chain, and the ticket ID when there is one.
 
@@ -47,20 +47,20 @@ Each work order has:
 
 - One PR has exactly one `/neo` for its whole life. One `/neo` can own several PRs in its chain.
 - A `/neo` never starts another `/neo`. Only you start workers.
-- Start each `/neo` in its own session, or in a background agent with its own worktree. In the Claude desktop app, start a session for each chain. Brief it: "Run /neo with the work order at `<path>`. It owns `<PR list>`."
-- Start independent chains in parallel. Start a dependent chain when its dependency merges, or when the work order gives it a written contract to build against.
+- Start each `/neo` in its own session, or in a background agent with its own worktree. In the Claude desktop app, start a session for each chain. Brief it: "Run /neo with the PR brief at `<path>`. It owns `<PR list>`."
+- Start independent chains in parallel. Start a dependent chain when its dependency merges, or when the PR brief gives it a written contract to build against.
 - Near its context budget, a worker hands off its whole chain to one new worker. Never split a chain between two workers.
 - Put no ticket ID in a worker's branch name or PR title. Only you close the ticket, at [Close](#close). Linear closes a ticket when a merged PR's branch name or title holds its ID: a branch named after its ticket closed the ticket while two goal checks were still open. Instead, the worker writes `Part of <ID>` in the PR body. Linear links the PR but does not close the ticket on merge.
 - Tell each worker to pass `--ticket <ID>` on its first `agent-trace` call, so its spans join the ticket. Tell it to send you its close draft instead of posting it.
 
 ## Review gate
 
-Before each PR opens, a fresh read-only reviewer reads the diff and its work order. The worker runs the gate. When the worker is a subagent that cannot start a reviewer, it sends you its branch and head SHA, and you run the gate.
+Before each PR opens, a fresh read-only reviewer reads the diff and its PR brief. The worker runs the gate. When the worker is a subagent that cannot start a reviewer, it sends you its branch and head SHA, and you run the gate.
 
 Triage each finding with the [triage rule](references/triage-rule.md). Both triage methods apply that one rule and give the same four classes.
 
 - **LLM triage** is the default. The reviewer, or you, answers the rule's questions for each finding and applies its classes.
-- **TypeSafe triage** runs only when Marcus passes `--triage typesafe`. Write the input file `{"work_order": "<work order text>", "findings": [{"id": "<id>", "text": "<finding>"}]}`. Send only the work order and the finding text, with `file:line` references. Never send secrets, keys, routing-key values, or code. Then run `python3 <skill-dir>/scripts/triage.py <input file>`. It needs `TYPESAFE_API_KEY` and prints one class for each finding.
+- **TypeSafe triage** runs only when Marcus passes `--triage typesafe`. Write the input file `{"pr_brief": "<PR brief text>", "findings": [{"id": "<id>", "text": "<finding>"}]}`. Send only the PR brief and the finding text, with `file:line` references. Never send secrets, keys, routing-key values, or code. Then run `python3 <skill-dir>/scripts/triage.py <input file>`. It needs `TYPESAFE_API_KEY` and prints one class for each finding.
 - When `--triage typesafe` is set but `TYPESAFE_API_KEY` is not set, or the script exits 3, use LLM triage. This is not an error.
 - Tell Marcus once which method ran: in the intake message, and again only if the method changes during the run.
 
@@ -73,7 +73,7 @@ The gate does not replace the review bots after the PR opens. `review-pr` still 
 - Batch decisions. Send a batch only when a worker is blocked on one, or at the close.
 - Give each decision a default and its evidence. Settle a decision yourself when the code or a written rule answers it.
 - Bring Marcus only the decisions that change agreed behaviour, security, scope, or a public contract. The spike router raised 7 decisions for one goal, which is too many.
-- Write each answer into the work orders it affects.
+- Write each answer into the PR briefs it affects.
 
 ## Integration
 

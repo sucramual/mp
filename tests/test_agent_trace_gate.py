@@ -16,7 +16,7 @@ from test_agent_trace_support import base_env, run
 FIX = "agent-trace span start"
 SKILL_CALL = {
     "type": "assistant",
-    "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "neo", "args": "WO-5"}}]},
+    "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "neo", "args": "PB-5"}}]},
 }
 SLASH_COMMAND = {"type": "user", "message": {"content": "<command-name>/neo</command-name>\n<command-args>ABC-1"}}
 QUOTED_IN_TOOL_OUTPUT = {

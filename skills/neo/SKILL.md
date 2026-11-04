@@ -47,11 +47,11 @@ Before each `wrap_up`, and before you end any turn, check that one of these hold
 - Each open PR has a running background task that will wake the run, or a park that you sent to Marcus.
 - The ticket is finished: Close is done.
 
-A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. In one run, a worker opened a PR and ended its turn with no wait. The PR was approved two minutes later and waited about 7.5 hours until Marcus queued it by hand.
+A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready.
 
 ### Run state
 
-Context compaction drops rules from the conversation. In one run, the worker stopped its `agent-trace` spans for 11.7 hours after its first compaction.
+Context compaction drops rules from the conversation.
 
 - Before the first change, write a run-state file in the session scratch directory, such as `<scratchpad>/neo-run-state.md`. List the standing obligations: the work ID and the open `agent-trace` spans, a wait for each open PR, and each decision rule that intake or `/matrix` gave the run, with its source. Add the next step.
 - Update the file when a PR opens or merges, when a decision rule is added, and when the next step changes.

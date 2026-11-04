@@ -55,7 +55,7 @@ Each PR brief has:
 
 ### Heartbeat
 
-A worker can end its turn with nothing left to wake it. In one run, an approved PR waited about 7.5 hours for this reason, and the router was idle for the same window.
+A worker can end its turn with nothing left to wake it. The router is idle while it waits for worker notes, so it cannot see the stall either.
 
 - While any chain is open, keep one heartbeat: a background wake of about 30 minutes, such as `sleep 1800` run as a background command. Start the next one each time it fires.
 - On each wake, check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.

@@ -54,3 +54,13 @@ jobs:
         env:
           DOTFILES_LEAK_TERMS: ${{ secrets.DOTFILES_LEAK_TERMS }}
           DOTFILES_LEAK_TERMS_OPTIONAL: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '1' || '' }}
+
+  md-budgets:
+    name: md-budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # The Markdown line limits get their own check, so a failure names its cause. scripts/check runs the
+      # same script, so local runs and `dotfiles-pr ship` still catch it. It uses only the standard library.
+      - run: python3 scripts/check_md_budgets.py

@@ -6,7 +6,8 @@ The [vocabulary](neo-vocabulary.md) defines the terms, such as chain, PR brief, 
 ```mermaid
 flowchart TD
     you([You: a ticket or a goal])
-    perf["perf<br/>proves a speed-up by experiment"]
+    perf["perf<br/>runs a spike: experiments that end<br/>in a decision; it merges nothing"]
+    decision["Decision record<br/>the ticket, with no ship run"]
     matrix["matrix<br/>splits the goal into small PRs,<br/>one PR brief for each PR"]
     intake["neo intake<br/>a pass/fail check for each requirement;<br/>auth-helper tests each login"]
     loop["neo loop<br/>change, verify, keep or fix"]
@@ -22,9 +23,10 @@ flowchart TD
 
     you -->|one ticket| intake
     you -->|goal too big for one worker| matrix
-    you -->|speed goal| perf
-    perf -->|one proven change, after you confirm| intake
-    perf -->|several proven changes, after you confirm| matrix
+    you -->|speed goal or spike| perf
+    perf -->|one proven change, after you confirm;<br/>the ticket carries the hand-off| intake
+    perf -->|several proven changes, after you confirm;<br/>the ticket carries the hand-off| matrix
+    perf -->|no proven change| decision
     matrix -->|one neo for each chain| intake
     intake --> loop --> openpr --> reviewpr --> tier
     tier -->|yes| merge --> verify
@@ -40,7 +42,7 @@ flowchart TD
 | --- | --- | --- |
 | `neo` | Skill | Runs one ticket or one `matrix` chain, from intake to close. |
 | `matrix` | Skill | Splits a large goal across several `neo` workers, batches decisions for you, and closes the ticket. It never writes code. |
-| `perf` | Skill | Proves a speed-up with a same-runner A/B test, then writes a ticket for `neo` or `matrix`. It never ships code. |
+| `perf` | Skill | Runs a spike: it proves or refutes each idea by experiment, under the proof rule of its method. Its ticket carries a fixed hand-off for `neo` or `matrix`: baselines by run ID, methods, traps, dropped ideas, and open decisions. It never ships code. |
 | `open-pr` | Skill | Publishes each change as a PR and starts the `review-pr` follow-up. |
 | `review-pr` | Skill | Takes each PR through review comments and required CI until it is ready to merge. |
 | `verify` | Skill | Proves each ticket check on the merged result, with evidence. |

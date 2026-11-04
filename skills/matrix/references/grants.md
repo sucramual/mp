@@ -1,14 +1,6 @@
 # Grants and guarded changes
 
-The `matrix` router reads this file at intake, before it queues a granted PR, and when a worker parks a guarded change.
-
-## Asking at intake
-
-Ask once for each authority that the plan needs, because each later ask waits for Marcus.
-
-- Merges: ask only in a repository whose employer overlay merge rule accepts a written grant. That rule decides what a grant can cover. Ask whether Marcus grants you queue authority for each PR that the rule lets a grant cover. Write his answer word for word in the plan file. [Granted merges](#granted-merges) says how you use it.
-- Sign-offs: name each person outside the run whose agreement a PR needs, and where the link to that agreement goes.
-- Messages: list each message to a person outside the run that the plan needs, with its text. Ask Marcus to send it, to let you send it, or to drop it.
+The `matrix` router reads this file before it queues a granted PR, and when a worker parks a guarded change. The intake questions for grants are in `SKILL.md`.
 
 ## Granted merges
 

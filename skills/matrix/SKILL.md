@@ -15,10 +15,13 @@ Send Marcus one message:
 
 - **Goal.** Restate the goal. Give each requirement a pass/fail check. State what is out of scope. The router in the spike read the goal literally and dropped a case the team needed, so ask about each case that the goal text does not name.
 - **Split.** The PR plan from [Split](#split), with each PR's dependencies and its worker.
-- **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set.
+- **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set. Name it again only if it changes during the run.
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
 - **Access.** Do the Dependencies, Access, and Merge rules steps of the `neo` intake once here, for every repository and login that the plan needs. Set the `auth-helper` horizon to the whole plan, including the checks after the last merge, not to one PR. Name each missing item. Do not start a worker until Marcus fixes it.
-- **Grants.** Ask once for each merge grant, sign-off, and outside message that the plan needs, as [grants](references/grants.md#asking-at-intake) says.
+- **Grants.** Ask once for each authority that the plan needs, because each later ask waits for Marcus.
+  - Merges: ask only in a repository whose employer overlay merge rule accepts a written grant. That rule decides what a grant can cover. Ask whether Marcus grants you queue authority for each PR that the rule lets a grant cover. Write his answer word for word in the plan file.
+  - Sign-offs: name each person outside the run whose agreement a PR needs, and where the link to that agreement goes.
+  - Messages: list each message to a person outside the run that the plan needs, with its text. Ask Marcus to send it, to let you send it, or to drop it.
 - **Earlier findings.** When the goal comes from earlier findings, such as a spike, read them into the plan file: the baseline runs by run ID, the methods that prove a change, the known traps, the dropped ideas, and the open decisions with their owners. Put each part that the results do not give in this message as a question.
 
 Then start the workers. Do not come back to Marcus except with a decision batch or the close.
@@ -75,9 +78,7 @@ The worker fits the gate to the diff as the `neo` skill's Loop section says: no 
 Triage each finding with the [triage rule](references/triage-rule.md). Both triage methods apply that one rule and give the same four classes.
 
 - **LLM triage** is the default. The reviewer, or you, answers the rule's questions for each finding and applies its classes.
-- **TypeSafe triage** runs only when Marcus passes `--triage typesafe`. Write the input file `{"pr_brief": "<PR brief text>", "findings": [{"id": "<id>", "text": "<finding>"}]}`. Send only the PR brief and the finding text, with `file:line` references. Never send secrets, keys, routing-key values, or code. Then run `python3 <skill-dir>/scripts/triage.py <input file>`. It needs `TYPESAFE_API_KEY` and prints one class for each finding.
-- When `--triage typesafe` is set but `TYPESAFE_API_KEY` is not set, or the script exits 3, use LLM triage. This is not an error.
-- Tell Marcus once which method ran: in the intake message, and again only if the method changes during the run.
+- **TypeSafe triage** runs only when Marcus passes `--triage typesafe`. Run it as [TypeSafe triage](references/triage-rule.md#typesafe-triage) says. Never send secrets, keys, routing-key values, or code. When `TYPESAFE_API_KEY` is not set, or the script exits 3, use LLM triage. This is not an error.
 
 Act on each class as the rule says. Add each `decide` finding to the decision queue.
 

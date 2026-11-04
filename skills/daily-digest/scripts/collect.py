@@ -631,8 +631,12 @@ def render(result: dict[str, Any]) -> str:
     return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
 
 
+def shorten(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def fit_to_size(result: dict[str, Any]) -> None:
-    """Shorten replies first, then cut prompts, then the smallest workstreams, until the output fits."""
+    """Cut the least useful text first, until the output fits. Parked runs wait for Marcus, so they go last."""
 
     def too_big() -> bool:
         return len(render(result).encode("utf-8")) > MAX_BYTES
@@ -641,18 +645,39 @@ def fit_to_size(result: dict[str, Any]) -> None:
         return
     result["truncated"] = True
     workstreams: list[dict[str, Any]] = result["workstreams"]
-    for limit in (240, 160, 100):
+    runs: list[dict[str, Any]] = result.get("agent_runs", [])
+
+    def shorten_replies(limit: int) -> None:
         for workstream in workstreams:
-            workstream["replies"] = [
-                reply if reply is None or len(reply) <= limit else reply[: limit - 1] + "…"
-                for reply in workstream["replies"]
-            ]
-        if not too_big():
-            return
-    for cap in (6, 4, 3, 2, 1, 0):
+            workstream["replies"] = [None if r is None else shorten(r, limit) for r in workstream["replies"]]
+
+    def shorten_friction(limit: int) -> None:
+        for run in runs:
+            run["friction"] = [{key: shorten(value, limit) for key, value in f.items()} for f in run["friction"]]
+
+    def drop_friction() -> None:
+        for run in runs:
+            run["friction"] = []
+
+    def cap_prompts(cap: int) -> None:
         for workstream in workstreams:
             workstream["prompts"] = workstream["prompts"][:cap]
             workstream["replies"] = workstream["replies"][:cap]
+
+    def drop_unparked_runs() -> None:
+        runs[:] = [run for run in runs if run["parked"]]
+
+    stages = [
+        lambda: shorten_replies(240),
+        lambda: shorten_friction(120),
+        lambda: shorten_replies(160),
+        lambda: shorten_replies(100),
+        drop_friction,
+        *(lambda cap=cap: cap_prompts(cap) for cap in (6, 4, 3, 2, 1, 0)),
+        drop_unparked_runs,
+    ]
+    for stage in stages:
+        stage()
         if not too_big():
             return
     omitted = 0
@@ -660,6 +685,9 @@ def fit_to_size(result: dict[str, Any]) -> None:
         workstreams.pop()
         omitted += 1
         result["omitted_workstreams"] = omitted
+    while runs and too_big():
+        runs.pop()
+        result["omitted_agent_runs"] = result.get("omitted_agent_runs", 0) + 1
 
 
 def run_digest(argv: list[str]) -> int:

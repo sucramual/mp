@@ -688,3 +688,38 @@ def test_a_forked_session_does_not_repeat_the_parent_prompts(env: Env, capsys: p
     assert ws["replies"] == ["A limit that only tightens."]
     assert ws["prompt_count"] == 1
     assert len(ws["sessions"]) == 2
+
+
+def big_runs(count: int, *, parked: bool = False) -> list[dict[str, Any]]:
+    friction = {"category": "permission", "what": "w " * 120, "fix": "f " * 120}
+    park = [{"name": "step", "note": "n " * 100, "at": IN_WINDOW}] if parked else []
+    return [
+        {"ticket": f"ABC-{i}", "scope": f"ABC-{i}", "parked": park, "errors": [], "prs": [], "friction": [friction] * 5}
+        for i in range(count)
+    ]
+
+
+def test_size_cuts_shorten_agent_run_friction_before_they_drop_workstreams() -> None:
+    # Busy agent runs once filled the budget, so the cut dropped every workstream and still ran over.
+    result: dict[str, Any] = {
+        "workstreams": [{"prompts": ["work"], "replies": ["answer"]}],
+        "agent_runs": big_runs(30),
+        "truncated": False,
+    }
+    collect.fit_to_size(result)
+    assert len(collect.render(result).encode("utf-8")) <= collect.MAX_BYTES
+    assert result["workstreams"] == [{"prompts": ["work"], "replies": ["answer"]}]
+    assert len(result["agent_runs"]) == 30
+    assert result["truncated"] is True
+
+
+def test_size_cuts_always_end_under_the_limit_and_keep_parks_longest() -> None:
+    result: dict[str, Any] = {
+        "workstreams": [{"prompts": ["work"], "replies": ["answer"]}],
+        "agent_runs": big_runs(400, parked=True) + big_runs(400),
+        "truncated": False,
+    }
+    collect.fit_to_size(result)
+    assert len(collect.render(result).encode("utf-8")) <= collect.MAX_BYTES
+    assert result["agent_runs"]
+    assert all(run["parked"] for run in result["agent_runs"])

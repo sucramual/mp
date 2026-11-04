@@ -44,7 +44,10 @@ Each PR brief has:
 - **Checks.** The pass/fail checks this PR must pass, and the test that proves each one. The worker writes each test first and sees it fail before it changes the code. Workers skipped this until a spike brief stated it.
 - **Files.** The files this PR owns. The worker reports any other file it must change as a contract change. It does not change it silently.
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
-- **Evidence rules.** The baselines that a check compares with, cited by run ID and never as a typed number. How to prove each check, such as the change a throwaway PR needs before a test run starts. The known traps. A worker cannot see the spike, and a number copied by hand can drift from its source.
+- **How to prove the checks.** What the worker cannot learn from the spike, because it never saw it:
+  - The runs to compare with, by run ID, not as copied numbers.
+  - The method that makes each check work, such as the change a throwaway PR needs before a test run starts.
+  - The traps the spike found.
 - **Grants.** Marcus's merge grant for this PR, word for word, when he gave one.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.

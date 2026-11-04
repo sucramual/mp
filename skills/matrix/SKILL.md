@@ -29,6 +29,8 @@ Read the code that the goal touches before you split. A split from the goal text
 - Give each file one owner. When a test reads a file, the owner of that file owns the test too.
 - Group PRs into chains. A chain is a sequence of PRs where each one builds on the one before, or small PRs in one area. One `/neo` owns one chain. Give each chain an ID, such as `CH-2`. The [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md) defines these terms.
 - A ticket is optional. One ticket can have several PRs. A PR with no ticket still has a PR brief.
+- For a chain that shrinks a baseline, such as a ratchet file (a list of known failures that may only get shorter), size each layer before it gets its own PR. Count the entries that the layer clears with a dry run on main, and write the count in its PR brief. Merge a layer that clears fewer than about 10 entries into the next layer, unless the size gate prevents it. In one run, one-procedure layers cleared as few as 1 entry each and cost about 4 extra PR cycles.
+- Before the plan claims a share of a baseline for a codemod (a script that rewrites code), run the codemod on main and count what it clears. Mark every estimate in the plan as an estimate and give its basis, such as "about 15 PRs (estimate: 288 entries at about 20 for each PR)". In one run, the plan said "about half the baseline" for three codemods, and they cleared 35 entries.
 
 ## PR briefs
 
@@ -42,6 +44,7 @@ Each PR brief has:
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
 - **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one.
+- **Size.** For a chain that shrinks a baseline, the number of entries this PR clears, from a dry run on main.
 
 ## Workers
 
@@ -52,6 +55,14 @@ Each PR brief has:
 - Near its context budget, a worker hands off its whole chain to one new worker. Never split a chain between two workers.
 - Put no ticket ID in a worker's branch name or PR title. Only you close the ticket, at [Close](#close). Linear closes a ticket when a merged PR's branch name or title holds its ID: a branch named after its ticket closed the ticket while two goal checks were still open. Instead, the worker writes `Part of <ID>` in the PR body. Linear links the PR but does not close the ticket on merge.
 - Tell each worker to pass `--work` on its first `agent-trace` call: the ticket ID, so its spans join the ticket, or its chain ID when the goal has no ticket. Tell it to send you its close draft instead of posting it.
+
+### Heartbeat
+
+A worker can end its turn with nothing left to wake it. In one run, an approved PR waited about 7.5 hours for this reason, and the router was idle for the same window.
+
+- While any chain is open, keep one heartbeat: a background wake of about 30 minutes, such as `sleep 1800` run as a background command. Start the next one each time it fires.
+- On each wake, check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
+- Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Do not merge or enqueue the PR yourself: the worker owns the ready check and the merge.
 
 ## Review gate
 

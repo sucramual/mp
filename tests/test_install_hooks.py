@@ -16,6 +16,7 @@ from conftest import REPO_ROOT
 SCRIPT = REPO_ROOT / "config" / "agent-hooks" / "install_hooks.py"
 TRACE_COMMAND = f"python3 {REPO_ROOT / 'tools' / 'agent-trace' / 'bin' / 'agent-trace'} hook"
 GATE_COMMAND = f"python3 {REPO_ROOT / 'tools' / 'agent-trace' / 'bin' / 'agent-trace'} gate"
+GATE_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit"
 TELEMETRY_ENV = {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
     "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
@@ -56,7 +57,7 @@ def test_registers_the_trace_hook_once_in_both_files(tmp_path: Path) -> None:
     assert ("Edit", "owner-post-hook") in post_tool_commands(json.loads(claude.read_text())), "owner hook kept"
 
 
-# Protects: Claude Code and Codex run the agent-trace PR-creation gate before Bash, beside the guard.
+# Protects: Claude Code and Codex run the agent-trace gate before Bash and file edits, beside the guard.
 # Bug caught: the gate exists but no settings file registers it, so a /neo run still opens a PR with no trace.
 def test_registers_the_gate_once_beside_the_guard(tmp_path: Path) -> None:
     claude = tmp_path / "settings.json"
@@ -70,8 +71,28 @@ def test_registers_the_gate_once_beside_the_guard(tmp_path: Path) -> None:
     for path in (claude, codex):
         groups = json.loads(path.read_text())["hooks"]["PreToolUse"]
         commands = [(group.get("matcher"), hook["command"]) for group in groups for hook in group["hooks"]]
-        assert commands.count(("Bash", GATE_COMMAND)) == 1, f"{path.name} should hold the gate once: {commands}"
+        assert commands.count((GATE_MATCHER, GATE_COMMAND)) == 1, f"{path.name} should hold the gate once: {commands}"
+        assert commands.count(("Bash", GATE_COMMAND)) == 0, f"{path.name} keeps a Bash-only gate: {commands}"
         assert any(command.endswith("guard_irreversible.py") for _, command in commands), "the guard stays"
+
+
+# Protects: an existing install widens the gate to file edits, and the owner's hooks keep their own matcher.
+# Bug caught: the installer updates the gate entry in place inside its old Bash group, so Edit and Write never
+# reach the gate; or it widens a group that also holds an owner hook, so that hook starts running on edits.
+def test_widens_an_installed_bash_gate_and_keeps_owner_hooks(tmp_path: Path) -> None:
+    claude = tmp_path / "settings.json"
+    alone = {"matcher": "Bash", "hooks": [{"type": "command", "command": GATE_COMMAND, "timeout": 5}]}
+    shared = {"matcher": "Bash", "hooks": [{"type": "command", "command": "owner-pre-hook"}, dict(alone["hooks"][0])]}
+    for groups in ([alone], [shared]):
+        claude.write_text(json.dumps({"hooks": {"PreToolUse": groups}}))
+        result = install(claude)
+        assert result.returncode == 0, result.stderr
+        found = json.loads(claude.read_text())["hooks"]["PreToolUse"]
+        commands = [(group.get("matcher"), hook["command"]) for group in found for hook in group["hooks"]]
+        assert commands.count((GATE_MATCHER, GATE_COMMAND)) == 1, commands
+        assert ("Bash", GATE_COMMAND) not in commands, commands
+        if groups == [shared]:
+            assert ("Bash", "owner-pre-hook") in commands, commands
 
 
 # Protects: a moved checkout updates the trace hook in place instead of adding a second copy.

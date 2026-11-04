@@ -8,7 +8,8 @@ Each file is ~/.claude/settings.json or ~/.codex/hooks.json; both keep hooks und
 The script adds three groups that match the Bash tool:
   - PreToolUse: guard_irreversible.py beside this script. An entry whose command ends with guard_irreversible.py
     is ours.
-  - PreToolUse: `agent-trace gate`, which blocks `gh pr create` in a /neo session with no ticket bound.
+  - PreToolUse: `agent-trace gate`, which blocks file edits and `gh pr create` in a /neo session with no
+    ticket bound. It runs on Bash and on Claude Code's file-edit tools.
     An entry whose command ends with `agent-trace gate` is ours.
   - PostToolUse: `agent-trace hook` from tools/agent-trace, which records PR creates and merges in the run trace.
     An entry whose command ends with `agent-trace hook` is ours.
@@ -35,11 +36,13 @@ TRACE = HERE.parent.parent / "tools" / "agent-trace" / "bin" / "agent-trace"
 ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(GUARD))}", "timeout": 10}
 TRACE_ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(TRACE))} hook", "timeout": 5}
 GATE_ENTRY = {"type": "command", "command": f"python3 {shlex.quote(str(TRACE))} gate", "timeout": 5}
-# (event, our entry, how to recognise our entry from its command with quotes and spaces stripped at the end)
+# The gate also sees file edits, so a /neo run binds its ticket before its first change (agent_trace/gate.py).
+GATE_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit"
+# (event, our entry, how to recognise our entry from its command with quotes and spaces stripped at the end, matcher)
 HOOKS = (
-    ("PreToolUse", ENTRY, "guard_irreversible.py"),
-    ("PreToolUse", GATE_ENTRY, "agent-trace gate"),
-    ("PostToolUse", TRACE_ENTRY, "agent-trace hook"),
+    ("PreToolUse", ENTRY, "guard_irreversible.py", "Bash"),
+    ("PreToolUse", GATE_ENTRY, "agent-trace gate", GATE_MATCHER),
+    ("PostToolUse", TRACE_ENTRY, "agent-trace hook", "Bash"),
 )
 # Claude Code exports OTLP traces with these. config/claude/settings.template.json holds the same keys.
 TELEMETRY_ENV = {
@@ -57,8 +60,8 @@ def is_ours(hook: object, suffix: str) -> bool:
     return str(hook.get("command", "")).replace("'", "").replace('"', "").rstrip().endswith(suffix)
 
 
-def with_hook(hooks: dict, event: str, entry: dict, suffix: str) -> None:
-    """Leave exactly one copy of entry in hooks[event], updating our first entry in place."""
+def with_hook(hooks: dict, event: str, entry: dict, suffix: str, matcher: str = "Bash") -> None:
+    """Leave exactly one copy of entry in hooks[event] under matcher, updating our first entry in place."""
     groups = hooks.setdefault(event, [])
     if not isinstance(groups, list):
         raise ValueError(f'"hooks.{event}" is not a JSON list')
@@ -69,6 +72,11 @@ def with_hook(hooks: dict, event: str, entry: dict, suffix: str) -> None:
         if not isinstance(entries, list) or not any(is_ours(hook, suffix) for hook in entries):
             kept_groups.append(group)
             continue
+        # A group that also holds other hooks keeps its matcher, so our entry moves to a group of its own.
+        if group.get("matcher") != matcher and any(not is_ours(hook, suffix) for hook in entries):
+            kept_groups.append({**group, "hooks": [hook for hook in entries if not is_ours(hook, suffix)]})
+            continue
+        group = {**group, "matcher": matcher}
         kept = []
         for hook in entries:
             if not is_ours(hook, suffix):
@@ -79,7 +87,7 @@ def with_hook(hooks: dict, event: str, entry: dict, suffix: str) -> None:
         if kept:
             kept_groups.append({**group, "hooks": kept})
     if not found:
-        kept_groups.append({"matcher": "Bash", "hooks": [dict(entry)]})
+        kept_groups.append({"matcher": matcher, "hooks": [dict(entry)]})
     hooks[event] = kept_groups
 
 
@@ -89,8 +97,8 @@ def with_agent_hooks(settings: dict, claude: bool = False) -> dict:
     hooks = merged.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise ValueError('"hooks" is not a JSON object')
-    for event, entry, suffix in HOOKS:
-        with_hook(hooks, event, entry, suffix)
+    for event, entry, suffix, matcher in HOOKS:
+        with_hook(hooks, event, entry, suffix, matcher)
     if claude:
         env = merged.setdefault("env", {})
         if not isinstance(env, dict):

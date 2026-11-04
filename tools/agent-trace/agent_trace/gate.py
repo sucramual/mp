@@ -1,7 +1,9 @@
-"""`agent-trace gate`: a PreToolUse PR-creation gate for Claude Code and Codex.
+"""`agent-trace gate`: a PreToolUse ticket gate for Claude Code and Codex.
 
-In a session that ran the /neo skill, it blocks `gh pr create` until the session has a ticket bound for its trace.
+In a session that ran the /neo skill, it blocks the first file edit and `gh pr create` until the session has a
+ticket bound for its trace.
 A /neo worker that skipped agent-trace left its ticket with no trace and no reconcile list (retro, 2026-11-02).
+A /neo run that bound its ticket only at PR time left no span for its red test, fix, or review (2026-11-03).
 A session ran /neo when its transcript holds a Skill tool call for `neo` or a `/neo` slash command.
 
 Block: exit 2 with the reason on stderr. Allow: exit 0 with no output.
@@ -32,11 +34,20 @@ PR_CREATE = re.compile(
     r"|\bgh\s+stack\s+submit\b"
     r"|\bgh\s+api\b[^\n]*\brepos/[^/\s'\"]+/[^/\s'\"]+/pulls(?=['\"]?(?:\s|$))"
 )
+FIX = (
+    'Run `agent-trace span start --id run --name "neo run" --kind phase --ticket <ID>` first, with the ticket '
+    "from the PR brief, or the PR-brief ID (such as PB-5) when it names no ticket."
+)
 REASON = (
     "agent-trace gate: this /neo session has no ticket bound for its trace, so it cannot open a PR yet. "
-    'Run `agent-trace span start --id run --name "neo run" --kind phase --ticket <ID>` first, with the ticket '
-    "from the PR brief, or the PR-brief ID (such as PB-5) when it names no ticket. Then run gh pr create again."
+    f"{FIX} Then run gh pr create again."
 )
+EDIT_REASON = (
+    "agent-trace gate: this /neo session has no ticket bound for its trace. Bind it before its first file change, "
+    f"so the trace covers the red test and the fix. {FIX} Then make the edit again."
+)
+# Claude Code's file-changing tools. config/agent-hooks/install_hooks.py routes the same names to this gate.
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 
 # Codex writes a rollout, not a Claude Code transcript. An invoked skill arrives as a user message that starts
@@ -96,17 +107,8 @@ def ran_neo(transcript: Path) -> bool:
     return False
 
 
-def blocks(payload: dict[str, Any]) -> bool:
-    if payload.get("tool_name") not in SHELL_TOOLS:
-        return False
-    tool_input = payload.get("tool_input")
-    command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if isinstance(command, list):
-        command = " ".join(str(part) for part in command)
-    if not isinstance(command, str):
-        return False
-    if not PR_CREATE.search(command):
-        return False
+def unbound_neo(payload: dict[str, Any]) -> bool:
+    """True when the session ran /neo and has no valid ticket bound for its trace."""
     session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else emit.session_id()
     ticket = os.environ.get("AGENT_TRACE_TICKET") or store.read_ticket(store.state_dir(), session)
     if ticket and emit.TICKET.match(ticket):
@@ -115,10 +117,27 @@ def blocks(payload: dict[str, Any]) -> bool:
     return isinstance(transcript, str) and Path(transcript).is_file() and ran_neo(Path(transcript))
 
 
+def block_reason(payload: dict[str, Any]) -> str | None:
+    """The reason to block this call, or None to allow it."""
+    tool = payload.get("tool_name")
+    if tool in EDIT_TOOLS:
+        return EDIT_REASON if unbound_neo(payload) else None
+    if tool not in SHELL_TOOLS:
+        return None
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if isinstance(command, list):
+        command = " ".join(str(part) for part in command)
+    if not isinstance(command, str) or not PR_CREATE.search(command):
+        return None
+    return REASON if unbound_neo(payload) else None
+
+
 def main() -> int:
     raw = sys.stdin.read()
     payload = json.loads(raw) if raw.strip() else None
-    if isinstance(payload, dict) and blocks(payload):
-        print(REASON, file=sys.stderr)
+    reason = block_reason(payload) if isinstance(payload, dict) else None
+    if reason is not None:
+        print(reason, file=sys.stderr)
         return 2
     return 0

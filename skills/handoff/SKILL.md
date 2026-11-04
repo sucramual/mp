@@ -5,7 +5,7 @@ description: Create, resume, complete, and clean up durable, workflow-neutral ha
 
 # Handoff
 
-Capture enough state for a cold reader to act immediately. Treat `.handoff` as temporary workspace state: retain active notes, then remove them when their resumed work is complete. Do not make Easy Cheese the default transport.
+Capture enough state for a cold reader to act immediately. Treat `.handoff` as temporary workspace state: retain active notes, then remove them when their resumed work is complete.
 
 ## Choose the operation
 
@@ -63,8 +63,6 @@ An explicit destination wins. Otherwise use these defaults:
 | Research or decision work in progress | Continue that work directly |
 | No action is implied | Restore orientation and wait |
 | Work is complete | Record completion only |
-
-Use an Easy Cheese skill only when explicitly requested or when preserving an active Easy Cheese phase is itself the goal.
 
 ## Note format
 
@@ -125,7 +123,7 @@ When the resumed goal is fully complete and proportionately verified, delete `<a
 
 Make `## Resume` authoritative, executable, and specific:
 
-- Direct spec implementation: `Implement the approved spec at <path> directly. Inspect the current worktree first, preserve unrelated changes, and run proportionate verification. Do not invoke Easy Cheese unless explicitly requested.`
+- Direct spec implementation: `Implement the approved spec at <path> directly. Inspect the current worktree first, preserve unrelated changes, and run proportionate verification.`
 - Direct continuation: `Continue the in-progress implementation in <workspace> from the state below.`
 - Named skill: `Run /<skill> <argument>.`
 - Orientation only: `Restore this context and wait for the next instruction.`
@@ -149,12 +147,6 @@ Apply these safeguards to every deletion:
 - Delete the enumerated files by exact path. Do not use recursive deletion, globs, or a broad directory target.
 - Remove empty directories deepest-first after file deletion, including `.handoff` itself when empty. Never remove a non-empty directory.
 - Verify every target is gone and report deleted, retained, and failed counts. State that recovery requires Git history or a backup.
-
-## Easy Cheese compatibility
-
-The generic note does not require `next:` or a resume command.
-
-For an explicitly requested Easy Cheese destination, set `entrypoint: skill:<name>` and put the exact command in `## Resume`. This skill does not write `/cheese --continue` checkpoints, because `/cheese` and `/wheypoint` are retired.
 
 ## Compression and redaction
 

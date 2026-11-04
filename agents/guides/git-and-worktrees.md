@@ -22,7 +22,7 @@ These instructions supplement the global AGENTS.md.
 ## Hand-offs from other skills
 
 - `/plate` is uninstalled. When a skill hands off to `/plate`, use `open-pr`: publish, `--open-pr`, or a "Plate it" option uses `open-pr`. A stack uses its stack mode, which also starts the follow-up for every layer.
-- For a commit-only hand-off, commit with the named-path staging rule above, and do not push. Skip a `/plate` topology preflight: use the spec's `landing.shape` and `landing.layers` when present, otherwise publish one PR.
+- For a commit-only hand-off, commit with the named-path staging rule above, and do not push. Skip a `/plate` topology preflight: use the spec's `landing.shape` and `landing.layers` when present, otherwise publish one PR. For `/plate --hard`, run `/hard-cheese` first.
 - There is no `--commit-only` flag. Do not invent one.
 
 ## Worktrees

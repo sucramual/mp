@@ -41,7 +41,7 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 - When Auto-fix watches the PR, start no `review-pr` agent, because two writers would push to one branch.
 - Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So for each open PR, keep one background wait running that exits when the required checks finish or the review decision changes.
 - Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below, or park it to `/matrix` when the PR brief gives a merge grant for it.
-- A throwaway PR is one that you open only to test, never to merge. It gets no Auto-fix and no ready check: when the app turns Auto-fix on for it, turn it off with the `set_monitor` tool. It needs no wait at [Turn end](#turn-end). When its test ends, close it and delete its branch and any environment it made. Auto-fix on throwaway PRs woke one run 5 times with nothing to do.
+- A throwaway PR is one that you open only to test, never to merge. It gets no Auto-fix and no ready check: when the app turns Auto-fix on for it, turn it off with the `set_monitor` tool. It needs no wait at [Turn end](#turn-end). When its test ends, close it and delete its branch and any environment it made. Otherwise each CI result wakes the run with nothing to do.
 
 ### Turn end
 

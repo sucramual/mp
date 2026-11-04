@@ -18,7 +18,7 @@ Send Marcus one message:
 - **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set.
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
 - **Access.** Do the Dependencies, Access, and Merge rules steps of the `neo` intake once here, for every repository and login that the plan needs. Set the `auth-helper` horizon to the whole plan, including the checks after the last merge, not to one PR. Name each missing item. Do not start a worker until Marcus fixes it.
-- **Grants.** Ask once for each authority that the plan needs, so that no PR waits for Marcus later. In one five-PR run (2026-11-03), asking for each merge one PR at a time cost 57 minutes of waiting.
+- **Grants.** Ask once for each authority that the plan needs, so that no PR waits for Marcus later. Each ask after intake makes the run wait until Marcus returns.
   - Merges: ask only in a repository whose employer overlay merge rule accepts a written grant. For each PR that the rule reserves for Marcus, ask whether he grants you queue authority in this plan. In every other repository, a reserved-path or High PR parks for Marcus, and no grant changes that. Write his answer word for word in the plan file. [Granted merges](#granted-merges) says how you use it.
   - Sign-offs: name each person outside the run whose agreement a PR needs, and where the link to that agreement goes.
   - Messages: list each message to a person outside the run that the plan needs, with its text. Ask Marcus to send it, to let you send it, or to drop it.
@@ -44,7 +44,7 @@ Each PR brief has:
 - **Checks.** The pass/fail checks this PR must pass, and the test that proves each one. The worker writes each test first and sees it fail before it changes the code. Workers skipped this until a spike brief stated it.
 - **Files.** The files this PR owns. The worker reports any other file it must change as a contract change. It does not change it silently.
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
-- **Evidence rules.** The baselines that a check compares with, cited by run ID and never as a typed number. How to prove each check, such as the change a throwaway PR needs before a test run starts. The known traps. A worker without the spike's method lost a test run that selected nothing, and a typed baseline reached a worker wrong.
+- **Evidence rules.** The baselines that a check compares with, cited by run ID and never as a typed number. How to prove each check, such as the change a throwaway PR needs before a test run starts. The known traps. A worker cannot see the spike, and a number copied by hand can drift from its source.
 - **Grants.** Marcus's merge grant for this PR, word for word, when he gave one.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
@@ -67,7 +67,7 @@ A worker can end its turn with nothing left to wake it. The router is idle while
 - While any chain is open, keep one heartbeat: a background wake of about 30 minutes, such as `sleep 1800` run as a background command. Start the next one each time it fires.
 - On each wake, check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
 - Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Do not merge or enqueue the PR yourself: the worker owns the ready check and the merge. The one exception is a PR under [Granted merges](#granted-merges).
-- Keep each worker session until the ticket closes. The app archived a worker session when its first PR merged. If that happens, restore it with `unarchive_session`.
+- Keep each worker session until the ticket closes. The app can archive a session when its PR merges. If that happens, restore it with `unarchive_session`.
 
 ### Granted merges
 
@@ -81,7 +81,7 @@ A grant does not cover a Spacelift confirm, a head that changed after review, or
 
 ### Guarded changes
 
-A guarded change, such as a change to a test that guards a secret, is parked in the worker's own session. Marcus approves it there. Do not relay his approval: a permission check blocked a commit that the router had approved for Marcus. Add the park to the decision queue, and send the batch at once when the park blocks the chain. Name the session to open and the change.
+A guarded change, such as a change to a test that guards a secret, is parked in the worker's own session. Marcus approves it there. Do not relay his approval, because a permission check accepts it only from Marcus in that session. Add the park to the decision queue, and send the batch at once when the park blocks the chain. Name the session to open and the change.
 
 ## Review gate
 

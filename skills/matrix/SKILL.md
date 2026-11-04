@@ -18,11 +18,11 @@ Send Marcus one message:
 - **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set.
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
 - **Access.** Do the Dependencies, Access, and Merge rules steps of the `neo` intake once here, for every repository and login that the plan needs. Set the `auth-helper` horizon to the whole plan, including the checks after the last merge, not to one PR. Name each missing item. Do not start a worker until Marcus fixes it.
-- **Grants.** Ask once for each authority that the plan needs, so that no PR waits for Marcus later. Each ask after intake makes the run wait until Marcus returns.
-  - Merges: ask only in a repository whose employer overlay merge rule accepts a written grant. For each PR that the rule reserves for Marcus, ask whether he grants you queue authority in this plan. In every other repository, a reserved-path or High PR parks for Marcus, and no grant changes that. Write his answer word for word in the plan file. [Granted merges](#granted-merges) says how you use it.
+- **Grants.** Ask once for each authority that the plan needs, because each later ask waits for Marcus.
+  - Merges: ask only in a repository whose employer overlay merge rule accepts a written grant. That rule decides what a grant can cover. Ask whether Marcus grants you queue authority for each PR that the rule lets a grant cover. Write his answer word for word in the plan file. [Granted merges](#granted-merges) says how you use it.
   - Sign-offs: name each person outside the run whose agreement a PR needs, and where the link to that agreement goes.
   - Messages: list each message to a person outside the run that the plan needs, with its text. Ask Marcus to send it, to let you send it, or to drop it.
-- **Spike.** When the goal comes from a spike, read the spike's results into the plan file: the baseline runs by run ID, the methods that prove a change, the known traps, the dropped ideas, and the open decisions with their owners. Put each part that the results do not give in this message as a question.
+- **Earlier findings.** When the goal comes from earlier findings, such as a spike, read them into the plan file: the baseline runs by run ID, the methods that prove a change, the known traps, the dropped ideas, and the open decisions with their owners. Put each part that the results do not give in this message as a question.
 
 Then start the workers. Do not come back to Marcus except with a decision batch or the close.
 
@@ -77,7 +77,7 @@ When Marcus granted queue authority for a PR at intake, its worker parks the PR 
 2. Check that each person that the PR needs has signed off, with the link in the plan file. When a link is missing, ask Marcus. Do not assume agreement.
 3. Queue the PR with the pinned call that the merge rules name for the repository. Tell the worker, so that it starts its checks after the merge.
 
-A grant does not cover a Spacelift confirm, a head that changed after review, or a PR whose files grew beyond its PR brief. Send those to Marcus.
+A grant counts only in a repository whose employer overlay merge rule accepts it. In every other repository, the PR parks for Marcus. A grant does not cover a Spacelift confirm, a head that changed after review, or a PR whose files grew beyond its PR brief. Send those to Marcus.
 
 ### Guarded changes
 
@@ -130,5 +130,5 @@ Then send Marcus one message: each PR with its state and link, each park with it
 - Never write code, and never edit a worker's branch except to rebase it.
 - Every `/neo` hard limit applies to every worker. Guarded changes wait for Marcus, merges are pinned to the reviewed SHA, and Spacelift is read-only.
 - Never merge without the merge rules that the `neo` intake reads.
-- A grant counts only where the employer overlay merge rule accepts it. There, Marcus's grant, word for word in the plan file, is the only override of a reserved path, and it covers only the PR that it names, at the reviewed SHA. In every other repository, a grant never overrides a tier park or a reserved path, such as a merge-rule file or agent settings.
+- A grant counts only where the employer overlay merge rule accepts it, and only for what that rule lets it cover. It covers only the PR that it names, at the reviewed SHA. In every other repository, a grant never changes a park.
 - Done means every goal check passes on the merged result, not that the PRs merged.

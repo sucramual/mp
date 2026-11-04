@@ -154,6 +154,8 @@ Classify each instruction as a **hard guardrail** when its consequence requires 
 | No obsolete model compensation | High | Remove instructions that compensate for an old limitation unless current evaluation evidence still demonstrates the failure. |
 | Discoverable facts stay at source | Medium | Point to navigable code or documentation rather than restating retrievable facts. |
 | One authoritative owner | High | Avoid duplicating or conflicting instructions across project guidance, skills, tool descriptions, scripts, and references. |
+| Rationale is a reason, not a story | Medium | Give the reason for a rule in one clause. Put incident details, such as dates, durations, and counts, in the PR body or the retro report, not in the skill. |
+| Rules from one incident generalize | High | A rule that comes from one run states the general mechanism. Remove thresholds, jargon, or task shapes that only that run had, unless more than one run shows them. |
 | Subtraction is evaluated | High | For material pruning, compare representative inputs before and after with independent context; retain the smaller version only when it preserves required behaviour. |
 
 Choose the owner by scope:

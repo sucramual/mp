@@ -49,7 +49,7 @@ Next: <the smallest test, then the next skill, or "none">
 - **reframe**: there is a real goal, but the request solves the wrong problem, or a smaller change solves it. Give the better problem statement.
 - **drop**: no trace reaches a goal, or doing nothing costs little.
 
-For the next step, name the smallest test, and the skill that comes next: `design-doc` (or a project design-doc skill) for a design, `mold` for a spec, or `cook` for a small, clear change. For "drop", the next step is "none".
+For the next step, name the smallest test, and the skill that comes next: `design-doc` (or a project design-doc skill) for a design, `mold` for a spec, or a direct edit for a small, clear change. For "drop", the next step is "none".
 
 ## Example
 

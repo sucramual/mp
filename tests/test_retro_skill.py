@@ -5,6 +5,7 @@ Loaders read the frontmatter. The evals in skills/retro/evals cover what the ski
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from conftest import REPO_ROOT
@@ -55,3 +56,13 @@ def test_skill_stays_report_only() -> None:
     assert_contains(
         SKILL, "Report only: never edit a skill or a setting, and never open a PR.", "retro must only report"
     )
+
+
+def test_report_store_is_gitignored() -> None:
+    """Bug: the .gitignore entry goes, and saved retros with private run evidence get committed to a public repo."""
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--quiet", ".retro/2026-11-03-demo.md"],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    assert ignored.returncode == 0, ".retro/ must stay in .gitignore"

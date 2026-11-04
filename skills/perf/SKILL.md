@@ -1,11 +1,11 @@
 ---
 name: perf
-description: Makes one metric faster by experiment, measurement, and report - a trend-checked baseline, throwaway-branch experiments, a same-runner A/B, and an adversarial review of each claim - then writes a Linear ticket and hands proven changes to /neo or /matrix after confirmation. Takes a plan of items to test, or proposes one for approval. Use for "/perf", "make CI faster", "prove this speeds X up", or measuring the gain of merged changes. Not for building a known change (neo, matrix).
+description: Makes one metric faster by experiment, measurement, and report - a trend-checked baseline, throwaway-branch experiments, a same-runner A/B, and an adversarial review of each claim - then writes a Linear ticket and hands proven changes to /neo or /matrix after confirmation. Takes a plan of items to test, or proposes one for approval. Use for "/perf", "make CI faster", "prove this speeds X up", or measuring the gain of merged changes. Also use for a spike or experiment that ends in a decision and merges nothing. Not for building a known change (neo, matrix).
 ---
 
 # perf
 
-Take one metric from "slow" to proven changes and a ticket. This skill never ships code: `/neo` or `/matrix` builds each change test first. Marcus is present at intake, at plan approval when he gave no plan, and at the report.
+Take one metric from "slow" to a decision backed by evidence, and a ticket. This skill never ships code: `/neo` or `/matrix` builds each change test first. Marcus is present at intake, at plan approval when he gave no plan, and at the report.
 
 `<skill-dir>` is the folder of this `SKILL.md`. If `~/.claude/work-perf.md` exists, read it and follow it. It names the data sources and runners of an employer repository.
 
@@ -15,7 +15,7 @@ Send Marcus one message:
 
 - **Plan.** When Marcus gave a plan, such as a list of items to test, a ticket, or a file, restate each item as a hypothesis in the [Plan](#2-plan) format. Name each item that has no measurable check, and propose one. When he gave no plan, say that the run starts with the baseline and then brings him a plan to approve.
 - **Metric.** Name the metric, its unit, where it is measured, and the target. For example "PR CI wall time, p50 of green runs, from the CI job table".
-- **Method.** Choose a measurement method from `<skill-dir>/references/methods/`. Version 1 has `ci.md` only. For another metric, propose a method in the same shape and wait for Marcus.
+- **Method.** Choose a measurement method from `<skill-dir>/references/methods/`. Version 1 has `ci.md` only. For another metric, propose a method in the same shape, with its proof rule, and wait for Marcus.
 - **Budget.** The cap on experiment runs. The default is 10 CI workflow runs. Marcus can change it with `--budget <n>`.
 - **Limits.** Restate the hard limits below. Ask about each limit that the goal could cross.
 - **Access.** Test each tool once with a real call: the data source query, push access to an experiment branch, and Linear. Name each missing item. Do not start until Marcus fixes it.
@@ -41,6 +41,7 @@ Check each item locally first when local runs can show the effect.
 ## 3. Experiment
 
 - Use a throwaway branch `experiment/perf-<slug>`. Never merge it. Never open a PR from it unless the metric exists only on a PR. A push-triggered workflow that only that branch runs keeps review bots and reviewers out.
+- When the metric needs a PR, the method says how to start a measured run on it. Turn off the harness's PR monitor for that PR, if the harness has one, such as Auto-fix. Otherwise each CI result wakes the run with nothing to do.
 - Change only what the hypothesis needs. Leave every test as it is.
 - Count each workflow run against the budget. Stop at the budget and report what is left unproven.
 
@@ -48,23 +49,30 @@ Check each item locally first when local runs can show the effect.
 
 A claim is **proven** only when all of these are true:
 
-- **Same environment.** Both arms run in the same job on the same runner, interleaved ABBA, at least 6 runs for each arm, on at least 2 runners. History from other runs is never the proof. In the spike, CI history said a change gave nothing, and the same-runner A/B showed −59% with no overlap.
+- **Same environment.** Both arms run under the same conditions, interleaved ABBA, with the runs for each arm that the method's proof rule names, and never fewer than 3. History from other runs is never the proof. In the spike, CI history said a change gave nothing, and the same-runner A/B showed −59% with no overlap.
 - **Same work.** Every run passes, and both arms run the same number of test files and tests. A run that skips tests is fast for the wrong reason.
-- **Clear effect.** The arms do not overlap, or the difference of medians is at least 3 times the spread of arm A.
+- **Clear effect.** The arms do not overlap, or the difference of medians is at least 3 times the spread of arm A. The difference is also larger than the method's noise limit, a number measured from repeat runs of one arm or from the baseline.
 - **Review.** The adversarial review in step 5 returns "stands".
 
 Report anything weaker as "promising", with the reason. Do not hand it off.
 
 ## 5. Adversarial review
 
-For each claim, start a fresh read-only reviewer with the claim, the raw numbers, the data source, and the diff. Do not give it the expected verdict. Ask it to disprove the claim and to return stands, weakened, or refuted with evidence. In the spike, reviews found a wrong table row, an unproven wall-time claim, a refuted CI comparison, and a cache-key gap. Fix what it finds, or downgrade the claim.
+For each claim, start a fresh read-only reviewer with the claim, the raw numbers, the data source, and the diff. Do not give it the expected verdict. Ask it to disprove the claim, to check n and the noise limit against the method's proof rule, and to return stands, weakened, or refuted with evidence. In the spike, reviews found a wrong table row, an unproven wall-time claim, a refuted CI comparison, and a cache-key gap. Fix what it finds, or downgrade the claim.
 
 ## 6. Report
 
-- Create one Linear ticket in the goal's team and project. The description holds the goal, a "Done when" checklist, and non-goals. Write each "Done when" item as a result someone can check on `main`, with its threshold, such as "slowest test shard ≤ 275 s p50".
-- Post the results as one dated comment: baseline, each hypothesis with its verdict, numbers, n, and links to the runs. List what was refuted and why in the non-goals.
+- Create one Linear ticket in the goal's team and project. Its description is the hand-off to the run that ships the changes. `/neo` and `/matrix` take the ticket as their goal, so put the hand-off in the description, not in a comment. Use these headings in this order. Write "None" under a heading that has nothing.
+  - **Goal.** The problem, the metric, and the target.
+  - **Done when.** The pass/fail checks for the ship run. Write each one as a result someone can check on `main`, with its threshold, such as "slowest test shard ≤ 275 s p50". With no proven change, write "None" and put the next step under Open decisions.
+  - **Baselines.** Each baseline run by run ID, with its date and conditions. In an earlier spike, a typed number without a run ID reached a worker wrong.
+  - **Methods that prove a change.** How to get a valid measured run. For example, a throwaway PR can need one change before the run starts. In that spike, a worker that lacked this lost a run.
+  - **Known traps.** The noise level and the repeats it needs, and each failure that cost a run.
+  - **Non-goals.** Each refuted or dropped idea and why, so the ship run does not try it again.
+  - **Open decisions.** Each decision with its owner, and where the link to the owner's agreement goes.
+- Post the results as one dated comment: baseline, each hypothesis with its verdict, numbers, n, and links to the runs. Refuted ideas go under Non-goals in the description, not in the comment.
 - Write the long report as a Notion page and link it from the ticket.
-- Delete each experiment branch. If a delete is refused, give Marcus the command.
+- Delete each experiment branch, and each PR and environment that it made, such as a preview sandbox. If a delete is refused, give Marcus the command.
 
 ## 7. Hand-off
 

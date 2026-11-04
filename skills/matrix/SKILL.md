@@ -17,7 +17,12 @@ Send Marcus one message:
 - **Split.** The PR plan from [Split](#split), with each PR's dependencies and its worker.
 - **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set.
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
-- **Access.** Do the Dependencies and Access steps of the `neo` intake once here, for every repository and login that the plan needs. Name each missing item. Do not start a worker until Marcus fixes it.
+- **Access.** Do the Dependencies, Access, and Merge rules steps of the `neo` intake once here, for every repository and login that the plan needs. Set the `auth-helper` horizon to the whole plan, including the checks after the last merge, not to one PR. Name each missing item. Do not start a worker until Marcus fixes it.
+- **Grants.** Ask once for each authority that the plan needs, so that no PR waits for Marcus later. In one five-PR run (2026-11-03), asking for each merge one PR at a time cost 57 minutes of waiting.
+  - Merges: for each PR that the merge rules reserve for Marcus, ask whether he grants you queue authority in this plan. Write his answer word for word in the plan file. [Granted merges](#granted-merges) says how you use it.
+  - Sign-offs: name each person outside the run whose agreement a PR needs, and where the link to that agreement goes.
+  - Messages: list each message to a person outside the run that the plan needs, with its text. Ask Marcus to send it, to let you send it, or to drop it.
+- **Spike.** When the goal comes from a spike, read the spike's results into the plan file: the baseline runs by run ID, the methods that prove a change, the known traps, the dropped ideas, and the open decisions with their owners. Put each part that the results do not give in this message as a question.
 
 Then start the workers. Do not come back to Marcus except with a decision batch or the close.
 
@@ -39,6 +44,8 @@ Each PR brief has:
 - **Checks.** The pass/fail checks this PR must pass, and the test that proves each one. The worker writes each test first and sees it fail before it changes the code. Workers skipped this until a spike brief stated it.
 - **Files.** The files this PR owns. The worker reports any other file it must change as a contract change. It does not change it silently.
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
+- **Evidence rules.** The baselines that a check compares with, cited by run ID and never as a typed number. How to prove each check, such as the change a throwaway PR needs before a test run starts. The known traps. A worker without the spike's method lost a test run that selected nothing, and a typed baseline reached a worker wrong.
+- **Grants.** Marcus's merge grant for this PR, word for word, when he gave one.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
 - **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one.
@@ -59,7 +66,22 @@ A worker can end its turn with nothing left to wake it. The router is idle while
 
 - While any chain is open, keep one heartbeat: a background wake of about 30 minutes, such as `sleep 1800` run as a background command. Start the next one each time it fires.
 - On each wake, check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
-- Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Do not merge or enqueue the PR yourself: the worker owns the ready check and the merge.
+- Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Do not merge or enqueue the PR yourself: the worker owns the ready check and the merge. The one exception is a PR under [Granted merges](#granted-merges).
+- Keep each worker session until the ticket closes. The app archived a worker session when its first PR merged. If that happens, restore it with `unarchive_session`.
+
+### Granted merges
+
+When Marcus granted queue authority for a PR at intake, its worker parks the PR to you with its reviewed SHA when the ready check passes. You queue it, because the grant is in your session: a permission check can refuse an approval that one session relays to another.
+
+1. Read the PR state from GitHub. Check that the head is the reviewed SHA and that the ready check holds on it.
+2. Check that each person that the PR needs has signed off, with the link in the plan file. When a link is missing, ask Marcus. Do not assume agreement.
+3. Queue the PR with the pinned call that the merge rules name for the repository. Tell the worker, so that it starts its checks after the merge.
+
+A grant does not cover a Spacelift confirm, a head that changed after review, or a PR whose files grew beyond its PR brief. Send those to Marcus.
+
+### Guarded changes
+
+A guarded change, such as a change to a test that guards a secret, is parked in the worker's own session. Marcus approves it there. Do not relay his approval: a permission check blocked a commit that the router had approved for Marcus. Add the park to the decision queue, and send the batch at once when the park blocks the chain. Name the session to open and the change.
 
 ## Review gate
 
@@ -108,4 +130,5 @@ Then send Marcus one message: each PR with its state and link, each park with it
 - Never write code, and never edit a worker's branch except to rebase it.
 - Every `/neo` hard limit applies to every worker. Guarded changes wait for Marcus, merges are pinned to the reviewed SHA, and Spacelift is read-only.
 - Never merge without the merge rules that the `neo` intake reads.
+- Marcus's grant, word for word in the plan file, is the only override of a tier park or a reserved path. It covers only the PR that it names, at the reviewed SHA.
 - Done means every goal check passes on the merged result, not that the PRs merged.

@@ -24,7 +24,9 @@ When `/matrix` starts you with a PR brief, the PR brief is your ticket, and thes
 - Own every PR that the PR brief assigns to you, in order. Never start another `/neo`.
 - Change only the files that the PR brief gives you. Report any other file as a contract change.
 - Triage the review gate's findings with the `matrix` skill's triage rule, by the method that its Review gate section names. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
-- Send every decision to `/matrix`, with a default. Never ask Marcus.
+- Send every decision to `/matrix`, with a default. Never ask Marcus. The one exception is a guarded change from [Hard limits](#hard-limits): park it in this session, with the diff and the failing case, and keep working on items that it does not block. Tell `/matrix` about the park. Marcus approves it in this session, because a permission check refuses an approval that `/matrix` relays.
+- When the PR brief gives Marcus's merge grant for a PR, do not merge that PR. When its ready check passes, park it to `/matrix` with its reviewed SHA. `/matrix` queues it.
+- Follow the PR brief's evidence rules. Compare with the baselines it cites by run ID, and prove each check the way it says.
 - Write to Linear only when the PR brief names a ticket.
 - Put no ticket ID in your branch name or PR title, and write `Part of <ID>` in the PR body. Linear closes a ticket when a merged PR's branch name or title holds its ID, and only `/matrix` closes the ticket.
 - Trace the run as [Loop](#loop) says. On your first `agent-trace` call, pass `--work` with the ticket ID, so `/matrix` can join your sessions with the other workers'. When the chain has no ticket, pass its chain ID, such as `CH-2`.
@@ -38,13 +40,14 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 
 - When Auto-fix watches the PR, start no `review-pr` agent, because two writers would push to one branch.
 - Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So for each open PR, keep one background wait running that exits when the required checks finish or the review decision changes.
-- Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below.
+- Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below, or park it to `/matrix` when the PR brief gives a merge grant for it.
+- A throwaway PR is one that you open only to test, never to merge. It gets no Auto-fix and no ready check: when the app turns Auto-fix on for it, turn it off with the `set_monitor` tool. It needs no wait at [Turn end](#turn-end). When its test ends, close it and delete its branch and any environment it made. Auto-fix on throwaway PRs woke one run 5 times with nothing to do.
 
 ### Turn end
 
 Before each `wrap_up`, and before you end any turn, check that one of these holds:
 
-- Each open PR has a running background task that will wake the run, or a park that you sent to Marcus.
+- Each open PR has a running background task that will wake the run, or a park that you sent to Marcus or to `/matrix`.
 - The ticket is finished: Close is done.
 
 A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready.
@@ -83,5 +86,5 @@ Make reversible choices yourself and continue. Write to the ticket only at the s
 - Before a merge, classify the PR's tier with the [Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md) that you read at intake. Merge only a Low or Medium PR that changes no reserved path. Park a High PR. In an employer repository with an overlay rule, follow the Employer repository rules section of Risk tiers instead. When you are not sure, the tier is High.
 - Spacelift is read-only for the agent. Never confirm, apply, or discard a Spacelift run.
 - Merge only the reviewed commit: `gh pr merge <pr> --squash --match-head-commit <reviewed SHA>`, or `expectedHeadOid` set to the reviewed SHA with a merge queue. Never pass `--admin`. Never use `gh stack merge`; merge stack layers one at a time, bottom first.
-- At the end, send Marcus one message with every park and its pinned merge command. Wait in the background and end the turn. After he merges, run `verify`: a "merged" message is not proof.
+- At the end, send Marcus one message with every park and its pinned merge command. Give only the call that the merge rules allow for that repository, such as `enqueuePullRequest` with `expectedHeadOid` where an overlay rule forbids `gh pr merge`. Wait in the background and end the turn. After he merges, run `verify`: a "merged" message is not proof.
 - Done means every ticket check passes on the merged result, not that the PR merged.

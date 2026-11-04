@@ -244,7 +244,7 @@ def state_of(env: dict[str, str]) -> Path:
 
 def test_rows_tree_statuses_and_summary(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    code, out, err = show(env, "--ticket", "RUN-1", "--offline")
+    code, out, err = show(env, "--work", "RUN-1", "--offline")
     assert code == 0, err
     got = [(r["name"], r["dur"], r["status"]) for r in rows(out)]
     assert got == [
@@ -262,7 +262,7 @@ def test_rows_tree_statuses_and_summary(env: dict[str, str]) -> None:
 
 def test_idle_gap_is_one_column_in_every_row_and_labelled(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
     bars = [r["bar"] for r in rows(out)]
     columns = {i for bar in bars for i, ch in enumerate(bar) if ch == "┆"}
     assert len(columns) == 1
@@ -275,7 +275,7 @@ def test_idle_gap_is_one_column_in_every_row_and_labelled(env: dict[str, str]) -
 
 def test_error_retry_and_wait_markers(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
     by_name = {}
     for r in rows(out):
         by_name.setdefault(r["name"].strip(), []).append(r["bar"])
@@ -293,7 +293,7 @@ def test_error_retry_and_wait_markers(env: dict[str, str]) -> None:
 
 def test_reconcile_lists_each_unanswered_anomaly(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
     entries = reconcile(out)
     assert [(e[0], e[1], e[2]) for e in entries] == [
         ("a000000000000003", "09:05", "error"),
@@ -309,7 +309,7 @@ def test_reconcile_lists_each_unanswered_anomaly(env: dict[str, str]) -> None:
 
 def test_note_none_answers_its_ref(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario(), fallback=[note("none", at(12, 30), ["a000000000000003"])])
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
     refs = [e[0] for e in reconcile(out)]
     assert "a000000000000003" not in refs
     assert refs == ["a000000000000004", "gap-a000000000000010", "a000000000000011", "a000000000000012"]
@@ -323,7 +323,7 @@ def test_nearby_friction_note_answers_anomalies_in_its_window(env: dict[str, str
         **{"agent_trace.category": "flaky", "agent_trace.what": "false failed", "agent_trace.fix": "retry it"},
     )
     write_store(state_of(env), [*scenario(), friction])
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
     refs = [e[0] for e in reconcile(out)]
     assert refs == ["gap-a000000000000010", "a000000000000011", "a000000000000012"]
     assert "flaky: false failed (fix: retry it)" in out
@@ -332,14 +332,14 @@ def test_nearby_friction_note_answers_anomalies_in_its_window(env: dict[str, str
 def test_all_answered_prints_reconcile_none(env: dict[str, str]) -> None:
     refs = ["a000000000000003", "a000000000000004", "gap-a000000000000010", "a000000000000011", "a000000000000012"]
     write_store(state_of(env), [*scenario(), note("none", at(12, 1), refs)])
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
     assert "Reconcile: none" in out.splitlines()
     assert "run RUN-1" in out
 
 
 def test_parks_and_identity_never_printed(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
     assert "  wait-ci  waiting on CI" in out.splitlines()
     for secret in IDENTITY.values():
         assert secret not in out
@@ -354,7 +354,7 @@ printf '%s' '{{"state":"MERGED","headRefOid":"{MOVED}","mergeCommit":{{"oid":"{M
 """,
     )
     write_store(state_of(env), [*scenario(), pr("create", at(9, 30)), pr("merge", at(11, 58))])
-    _, out, _ = show(env, "--ticket", "RUN-1")
+    _, out, _ = show(env, "--work", "RUN-1")
     [line] = [line for line in out.splitlines() if PR_URL in line]
     assert "create, merge" in line
     assert "head 0123456" in line
@@ -374,11 +374,11 @@ def test_prs_offline_skips_github_and_gh_failure_is_reported(
 ) -> None:
     fake_exe("gh", 'printf x >>"$HOME/gh.log"\nexit 1\n')
     write_store(state_of(env), [*scenario(), pr("merge", at(11, 58))])
-    _, offline, _ = show(env, "--ticket", "RUN-1", "--offline")
+    _, offline, _ = show(env, "--work", "RUN-1", "--offline")
     [line] = [line for line in offline.splitlines() if PR_URL in line]
     assert "merge" in line
     assert not (isolated_env.home / "gh.log").exists()
-    _, online, _ = show(env, "--ticket", "RUN-1")
+    _, online, _ = show(env, "--work", "RUN-1")
     [line] = [line for line in online.splitlines() if PR_URL in line]
     assert "merge sha unknown (gh failed)" in line
     assert (isolated_env.home / "gh.log").exists()
@@ -442,7 +442,7 @@ def test_missing_native_spans_warns_and_falls_back_to_the_transcript(env: dict[s
     (projects / "-Users-x-repo").mkdir(parents=True)
     transcript = (REPO_ROOT / "tests" / "fixtures" / "retro" / "local_session.jsonl").read_text()
     (projects / "-Users-x-repo" / f"{session}.jsonl").write_text(transcript.replace("local-session-7", session))
-    code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--ticket", "RUN-2", "--offline")
+    code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-2", "--offline")
     assert code == 0, err
     lines = out.splitlines()
     warning = f"warning: session {session} has no native spans (collect was down or telemetry was off)"
@@ -455,7 +455,7 @@ def test_missing_native_spans_warns_and_falls_back_to_the_transcript(env: dict[s
 def test_jaeger_gets_one_joined_trace_without_identity(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
     with recorder(collect_header=False) as jaeger:
-        code, out, err = show(env, "--ticket", "RUN-1", "--offline", "--jaeger", jaeger.url)
+        code, out, err = show(env, "--work", "RUN-1", "--offline", "--jaeger", jaeger.url)
     assert code == 0, err
     assert [r.path for r in jaeger.requests] == ["/v1/traces"]
     body = json.dumps(jaeger.requests[0].body)
@@ -479,23 +479,36 @@ def test_jaeger_gets_one_joined_trace_without_identity(env: dict[str, str]) -> N
     assert f"jaeger: posted {len(spans)} spans, trace {run_trace}" in out.splitlines()
 
 
+# Protects: `show` selects a run by `--work`, and no longer accepts the old `--ticket` flag.
+# Bug caught: the rename leaves `show` without `--work`, or keeps the retired alias alive.
+def test_work_flag_selects_the_run_and_ticket_is_retired(env: dict[str, str]) -> None:
+    write_store(state_of(env), scenario())
+    code, by_work, err = show(env, "--work", "RUN-1", "--offline")
+    old_code, old_out, old_err = show(env, "--ticket", "RUN-1", "--offline")
+    assert code == 0, err
+    assert rows(by_work)[0]["name"] == "run RUN-1"
+    assert old_code == 2
+    assert "unrecognized arguments: --ticket" in old_err
+    assert old_out == ""
+
+
 def test_nothing_matched_exits_1(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    code, out, err = show(env, "--ticket", "NOPE-9")
+    code, out, err = show(env, "--work", "NOPE-9")
     assert code == 1
-    assert err.strip() == "agent-trace: no spans for ticket NOPE-9"
+    assert err.strip() == "agent-trace: no spans for work ID NOPE-9"
     assert out == ""
 
 
 def test_needs_a_ticket_or_session(env: dict[str, str]) -> None:
     code, _, err = show(env)
     assert code == 2
-    assert "--ticket or --session" in err
+    assert "--work or --session" in err
 
 
 def test_narrow_width_moves_the_idle_label_to_a_footnote(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--ticket", "RUN-1", "--offline", "--width", "20")
+    _, out, _ = show(env, "--work", "RUN-1", "--offline", "--width", "20")
     assert {len(r["bar"]) for r in rows(out)} == {20}
     assert "┆ = 2h20m idle (09:20–11:40)" in fence(out)
 
@@ -507,13 +520,13 @@ def test_collected_native_spans_join_emitted_agent_spans(env: dict[str, str]) ->
         emit_env["AGENT_TRACE_ENDPOINT"] = f"http://127.0.0.1:{port}"
         assert post(port, "/v1/traces", (FIXTURES / "claude_traces.json").read_bytes()) == 200
         for args in (
-            ["span", "start", "--id", "impl", "--name", "Implement", "--kind", "phase", "--ticket", "RUN-5"],
+            ["span", "start", "--id", "impl", "--name", "Implement", "--kind", "phase", "--work", "RUN-5"],
             ["span", "end", "--id", "impl", "--status", "ok"],
         ):
             result = run(args, emit_env)
             assert (result.returncode, result.stderr) == (0, "")
     assert not (state_of(env) / "fallback.jsonl").exists()
-    code, out, err = show(env, "--ticket", "RUN-5", "--offline")
+    code, out, err = show(env, "--work", "RUN-5", "--offline")
     assert code == 0, err
     assert [r["name"] for r in rows(out)] == ["run RUN-5", "  Implement", "  claude aaaaaaaa"]
     kinds = {(e[0], e[2]) for e in reconcile(out)}

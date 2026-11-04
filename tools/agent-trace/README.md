@@ -1,6 +1,6 @@
 # agent-trace
 
-`agent-trace` gives one timeline per ticket for an agent run. It joins the native OpenTelemetry spans of Claude Code and Codex with the spans that the agent marks itself: phases, PRs, waits, and friction notes. `show` then lists errors, retries, waits, and idle gaps that no note explains yet.
+`agent-trace` gives one timeline per work ID for an agent run. A work ID is a ticket ID, or a `/matrix` chain ID such as `CH-2`; the [neo suite vocabulary](../../skills/neo-vocabulary.md) defines it. It joins the native OpenTelemetry spans of Claude Code and Codex with the spans that the agent marks itself: phases, PRs, waits, and friction notes. `show` then lists errors, retries, waits, and idle gaps that no note explains yet.
 
 It is Python 3.11+ with only the standard library. `bin/agent-trace` is linked into `~/bin` by `dotfiles-pr sync`.
 
@@ -10,15 +10,15 @@ It is Python 3.11+ with only the standard library. `bin/agent-trace` is linked i
 | --- | --- |
 | `agent-trace collect [--port 4318] [--host 127.0.0.1] [--dir D] [--forward URL]` | Runs the local OTLP/HTTP receiver (JSON only, gzip allowed). Keeps `claude-code`, `agent-trace`, and `codex*` records, with a small Codex allowlist, and appends them to `spans/<UTC day>.jsonl`. Protobuf gets 415. Every answer has the header `X-Agent-Trace: collect`. `--dir` is the spans directory. |
 | `agent-trace collect --ensure` | Exits 0 when a collect answers `/health` on the port. Otherwise it starts a detached collect (output to `collect.log`) and waits up to 3 s. |
-| `agent-trace span start --id ID --name TEXT --kind phase\|pr\|wait\|infra\|check [--parent ID] [--ticket T]` | Marks the start of an agent span. |
-| `agent-trace span end --id ID --status ok\|error\|parked [--note TEXT] [--ticket T]` | Marks its end. `show` joins start and end by id. |
+| `agent-trace span start --id ID --name TEXT --kind phase\|pr\|wait\|infra\|check [--parent ID] [--work W]` | Marks the start of an agent span. |
+| `agent-trace span end --id ID --status ok\|error\|parked [--note TEXT] [--work W]` | Marks its end. `show` joins start and end by id. |
 | `agent-trace note friction --category permission\|doc\|flaky\|workaround\|missing-tool --what TEXT --fix TEXT [--ref REF]` | Records friction. |
 | `agent-trace note none --ref REF [--ref REF ...]` | Answers anomalies from `show` with "no friction". |
 | `agent-trace hook` | PostToolUse hook. Records `gh pr create` and `gh pr merge` (PR URL and head SHA). Always exits 0 and prints nothing. |
-| `agent-trace gate` | PreToolUse ticket gate. In a session that ran the /neo skill, it blocks the first file edit (Edit, Write, MultiEdit, NotebookEdit) and `gh pr create` (exit 2, reason on stderr) until a ticket is bound to the session, so the trace covers the red test and the fix. It allows reads and every other call, and fails open on any error. |
-| `agent-trace show (--ticket T \| --session S ...) [--width 60] [--offline] [--jaeger URL] [--dir D]` | Prints the joined timeline, then the PRs (with GitHub state unless `--offline`), parks, notes, and the reconcile list. `--jaeger` also posts the joined run as one trace. `--dir` is the state directory. |
+| `agent-trace gate` | PreToolUse trace gate. In a session that ran the /neo skill, it blocks the first file edit (Edit, Write, MultiEdit, NotebookEdit) and `gh pr create` (exit 2, reason on stderr) until a work ID is bound to the session, so the trace covers the red test and the fix. It allows reads and every other call, and fails open on any error. |
+| `agent-trace show (--work W \| --session S ...) [--width 60] [--offline] [--jaeger URL] [--dir D]` | Prints the joined timeline, then the PRs (with GitHub state unless `--offline`), parks, notes, and the reconcile list. `--jaeger` also posts the joined run as one trace. `--dir` is the state directory. |
 
-A ticket given once (flag or `AGENT_TRACE_TICKET`) is bound to the session, so later `span` and `note` calls in that session need no flag. An invalid value exits 2 with one line `agent-trace: <message>`, and nothing is sent or written. When collect does not answer, `span`, `note`, and `hook` write the record to `fallback.jsonl` and still exit 0. `span` and `note` then print one warning; `hook` prints nothing.
+A work ID given once (flag or `AGENT_TRACE_WORK`) is bound to the session, so later `span` and `note` calls in that session need no flag. An invalid value exits 2 with one line `agent-trace: <message>`, and nothing is sent or written. When collect does not answer, `span`, `note`, and `hook` write the record to `fallback.jsonl` and still exit 0. `span` and `note` then print one warning; `hook` prints nothing.
 
 ## Files
 
@@ -28,7 +28,7 @@ Under `AGENT_TRACE_DIR` (default `~/.local/state/agent-trace`; directories 0700,
 | --- | --- |
 | `spans/YYYY-MM-DD.jsonl` | Records that collect received, by UTC receive day. |
 | `fallback.jsonl` | Records written while collect was down. `show` reads it too. |
-| `sessions/<session-id>.ticket` | The ticket bound to a session. |
+| `sessions/<session-id>.ticket` | The work ID bound to a session. |
 | `collect.log` | Output of a collect that `--ensure` started. |
 
 ## Environment
@@ -38,7 +38,7 @@ Under `AGENT_TRACE_DIR` (default `~/.local/state/agent-trace`; directories 0700,
 | `AGENT_TRACE_DIR` | State directory. |
 | `AGENT_TRACE_ENDPOINT` | Where `span`, `note`, and `hook` send. Default `http://127.0.0.1:4318`. |
 | `AGENT_TRACE_FORWARD` | Same as `collect --forward`: also send kept native records to this OTLP base URL. |
-| `AGENT_TRACE_TICKET` | Ticket for `span` and `note`. |
+| `AGENT_TRACE_WORK` | Work ID for `span` and `note`. |
 | `AGENT_TRACE_SESSION` | Session id. Overrides `CLAUDE_CODE_SESSION_ID` and `CODEX_THREAD_ID`. Order: this, `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`. |
 | `TRACEPARENT` | W3C trace context. Sets the trace id and the default parent span. |
 | `AGENT_TRACE_CLAUDE_PROJECTS` | Root of Claude Code transcripts for the `show` fallback. Default `~/.claude/projects`. |

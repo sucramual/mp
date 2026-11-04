@@ -1,6 +1,7 @@
 # How the neo suite works
 
 The neo suite takes written work to a merged and verified result while you are away. You answer one intake message at the start. You read one message with every parked item at the end.
+The [vocabulary](neo-vocabulary.md) defines the terms, such as chain, PR brief, and work ID.
 
 ```mermaid
 flowchart TD
@@ -37,7 +38,7 @@ flowchart TD
 
 | Part | Kind | Its job in a run |
 | --- | --- | --- |
-| `neo` | Skill | Runs one ticket or one `matrix` PR brief, from intake to close. |
+| `neo` | Skill | Runs one ticket or one `matrix` chain, from intake to close. |
 | `matrix` | Skill | Splits a large goal across several `neo` workers, batches decisions for you, and closes the ticket. It never writes code. |
 | `perf` | Skill | Proves a speed-up with a same-runner A/B test, then writes a ticket for `neo` or `matrix`. It never ships code. |
 | `open-pr` | Skill | Publishes each change as a PR and starts the `review-pr` follow-up. |

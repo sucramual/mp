@@ -6,7 +6,7 @@ AGENT_TRACE_ENDPOINT/v1/traces (timeout 1 s), and prints nothing. The POST count
 is 200 with the X-Agent-Trace header, which tells collect apart from another OTLP receiver such as Jaeger. Otherwise
 the record goes to fallback.jsonl with one stderr warning, and the exit code stays 0.
 
-Scope (the namespace of span ids) is the ticket, else the session, else the TRACEPARENT trace id.
+Scope (the namespace of span ids) is the work ID, else the session, else the TRACEPARENT trace id.
 """
 
 from __future__ import annotations
@@ -93,13 +93,20 @@ class Context:
         return out
 
 
+def env_work() -> tuple[str, str] | None:
+    """The work ID from AGENT_TRACE_WORK as (variable, value), or None."""
+    value = os.environ.get("AGENT_TRACE_WORK")
+    return ("AGENT_TRACE_WORK", value) if value else None
+
+
 def resolve_context(flag_ticket: str | None, session: str | None, base: Path) -> tuple[Context, str | None]:
     """Return the context and the ticket to bind (a ticket given by flag or env), or raise Invalid."""
     given = None
+    from_env = env_work()
     if flag_ticket is not None:
-        given = check_pattern("--ticket", flag_ticket, TICKET)
-    elif os.environ.get("AGENT_TRACE_TICKET"):
-        given = check_pattern("AGENT_TRACE_TICKET", os.environ["AGENT_TRACE_TICKET"], TICKET)
+        given = check_pattern("--work", flag_ticket, TICKET)
+    elif from_env:
+        given = check_pattern(*from_env, TICKET)
     ticket = given
     if ticket is None:
         bound = store.read_ticket(base, session)
@@ -107,8 +114,7 @@ def resolve_context(flag_ticket: str | None, session: str | None, base: Path) ->
     context = Context(ticket, session, otlp.parse_traceparent(os.environ.get("TRACEPARENT")))
     if context.scope is None:
         raise Invalid(
-            "no scope: pass --ticket, or set AGENT_TRACE_TICKET, CLAUDE_CODE_SESSION_ID, "
-            "CODEX_THREAD_ID, or TRACEPARENT"
+            "no scope: pass --work, or set AGENT_TRACE_WORK, CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, or TRACEPARENT"
         )
     return context, given
 

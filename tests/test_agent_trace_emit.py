@@ -45,7 +45,7 @@ def test_invalid_input_exits_2_and_sends_and_writes_nothing(
 ) -> None:
     state = tmp_path / "state"
     with recorder() as server:
-        result = run([*args, "--ticket", "RUN-1"], base_env(isolated_env.env, state, server.url))
+        result = run([*args, "--work", "RUN-1"], base_env(isolated_env.env, state, server.url))
     assert result.returncode == 2
     lines = result.stderr.splitlines()
     assert len(lines) == 1
@@ -61,9 +61,9 @@ def test_bad_ticket_exits_2_and_sends_nothing(isolated_env: IsolatedEnv, tmp_pat
     env = base_env(isolated_env.env, state, "", CLAUDE_CODE_SESSION_ID="s1")
     with recorder() as server:
         env["AGENT_TRACE_ENDPOINT"] = server.url
-        result = run(["span", "start", "--id", "a", "--name", "x", "--kind", "phase", "--ticket", "abc-1"], env)
+        result = run(["span", "start", "--id", "a", "--name", "x", "--kind", "phase", "--work", "abc-1"], env)
     assert result.returncode == 2
-    assert result.stderr.strip().startswith("agent-trace: --ticket must match")
+    assert result.stderr.strip().startswith("agent-trace: --work must match")
     assert server.requests == []
     assert not state.exists()
 
@@ -84,7 +84,7 @@ def test_no_scope_exits_2_and_sends_nothing(isolated_env: IsolatedEnv, tmp_path:
 def test_missing_flag_exits_2_and_sends_nothing(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
     state = tmp_path / "state"
     with recorder() as server:
-        result = run(["span", "start", "--id", "a", "--ticket", "RUN-1"], base_env(isolated_env.env, state, server.url))
+        result = run(["span", "start", "--id", "a", "--work", "RUN-1"], base_env(isolated_env.env, state, server.url))
     assert result.returncode == 2
     assert "--name" in result.stderr
     assert server.requests == []
@@ -95,7 +95,7 @@ def test_valid_start_sends_one_span_and_prints_nothing(isolated_env: IsolatedEnv
     state = tmp_path / "state"
     with recorder() as server:
         result = run(
-            ["span", "start", "--id", "build", "--name", "Build it", "--kind", "phase", "--ticket", "RUN-1"],
+            ["span", "start", "--id", "build", "--name", "Build it", "--kind", "phase", "--work", "RUN-1"],
             base_env(isolated_env.env, state, server.url),
         )
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
@@ -121,12 +121,10 @@ def test_traceparent_sets_trace_and_parent_and_span_id_is_stable(isolated_env: I
     with recorder() as server:
         env = base_env(isolated_env.env, state, server.url)
         start = run(
-            ["span", "start", "--id", "build", "--name", "Build", "--kind", "phase", "--ticket", "RUN-1"],
+            ["span", "start", "--id", "build", "--name", "Build", "--kind", "phase", "--work", "RUN-1"],
             {**env, "TRACEPARENT": TP1},
         )
-        end = run(
-            ["span", "end", "--id", "build", "--status", "error", "--ticket", "RUN-1"], {**env, "TRACEPARENT": TP2}
-        )
+        end = run(["span", "end", "--id", "build", "--status", "error", "--work", "RUN-1"], {**env, "TRACEPARENT": TP2})
     assert start.returncode == end.returncode == 0
     first, second = server.spans()
     assert first["traceId"] == "0af7651916cd43dd8448eb211c80319c"
@@ -142,7 +140,7 @@ def test_parent_flag_overrides_traceparent(isolated_env: IsolatedEnv, tmp_path: 
     with recorder() as server:
         env = {**base_env(isolated_env.env, state, server.url), "TRACEPARENT": TP1}
         run(
-            ["span", "start", "--id", "pr", "--name", "PR", "--kind", "pr", "--parent", "build", "--ticket", "RUN-1"],
+            ["span", "start", "--id", "pr", "--name", "PR", "--kind", "pr", "--parent", "build", "--work", "RUN-1"],
             env,
         )
     [span] = server.spans()
@@ -154,7 +152,7 @@ def test_ticket_binds_to_session_for_later_calls(isolated_env: IsolatedEnv, tmp_
     state = tmp_path / "state"
     with recorder() as server:
         env = base_env(isolated_env.env, state, server.url, CLAUDE_CODE_SESSION_ID="claude-s", AGENT_TRACE_SESSION="s1")
-        run(["span", "start", "--id", "build", "--name", "Build", "--kind", "phase", "--ticket", "RUN-7"], env)
+        run(["span", "start", "--id", "build", "--name", "Build", "--kind", "phase", "--work", "RUN-7"], env)
         result = run(["span", "end", "--id", "build", "--status", "ok", "--note", "done"], env)
     assert result.returncode == 0, result.stderr
     assert (state / "sessions" / "s1.ticket").read_text().strip() == "RUN-7"
@@ -165,6 +163,59 @@ def test_ticket_binds_to_session_for_later_calls(isolated_env: IsolatedEnv, tmp_
     assert end_attrs["agent_trace.status"] == "ok"
     assert end_attrs["agent_trace.note"] == "done"
     assert end["spanId"] == start["spanId"]
+
+
+# Protects: a /matrix chain with no ticket can bind its chain ID with `--work`, and later calls reuse it.
+# Bug caught: the skills tell a worker to pass `--work CH-2`, but the CLI has only `--ticket` and exits 2.
+def test_work_flag_binds_a_chain_id_for_later_calls(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url, AGENT_TRACE_SESSION="s1")
+        first = run(["span", "start", "--id", "run", "--name", "neo run", "--kind", "phase", "--work", "CH-2"], env)
+        result = run(["span", "end", "--id", "run", "--status", "ok"], env)
+    assert first.returncode == 0, first.stderr
+    assert result.returncode == 0, result.stderr
+    start, end = server.spans()
+    assert {a["key"]: a["value"].get("stringValue") for a in end["attributes"]}["run.ticket"] == "CH-2"
+    assert start["spanId"] == end["spanId"] == span_id("CH-2", "run")
+
+
+# Protects: AGENT_TRACE_WORK scopes a span.
+# Bug caught: emit ignores AGENT_TRACE_WORK, so the span lands in the session scope.
+def test_work_env_scopes_the_span(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url, AGENT_TRACE_SESSION="s1", AGENT_TRACE_WORK="CH-3")
+        result = run(["span", "start", "--id", "a", "--name", "A", "--kind", "check"], env)
+    assert result.returncode == 0, result.stderr
+    [span] = server.spans()
+    assert span["spanId"] == span_id("CH-3", "a")
+
+
+# Protects: the old name --ticket is gone, so there is one way to pass a work ID.
+# Bug caught: the retired alias still works, so callers keep using two names.
+def test_old_ticket_flag_exits_2_and_sends_nothing(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url, AGENT_TRACE_SESSION="s1")
+        result = run(["span", "start", "--id", "a", "--name", "A", "--kind", "check", "--ticket", "RUN-1"], env)
+    assert result.returncode == 2
+    assert "unrecognized arguments: --ticket" in result.stderr
+    assert server.requests == []
+    assert not state.exists()
+
+
+# Protects: the old variable AGENT_TRACE_TICKET no longer scopes a span.
+# Bug caught: the retired variable still binds a work ID, so callers keep using two names.
+def test_old_ticket_env_is_ignored(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url, AGENT_TRACE_SESSION="s1", AGENT_TRACE_TICKET="OLD-1")
+        result = run(["span", "start", "--id", "a", "--name", "A", "--kind", "check"], env)
+    assert result.returncode == 0, result.stderr
+    [span] = server.spans()
+    assert span["spanId"] == span_id("s1", "a")
+    assert "run.ticket" not in {a["key"] for a in span["attributes"]}
 
 
 def test_session_scope_without_ticket(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
@@ -184,7 +235,7 @@ def test_codex_thread_id_binds_ticket_for_later_calls(isolated_env: IsolatedEnv,
     state = tmp_path / "state"
     with recorder() as server:
         env = base_env(isolated_env.env, state, server.url, CODEX_THREAD_ID="codex-t1")
-        run(["span", "start", "--id", "impl", "--name", "Implement", "--kind", "phase", "--ticket", "RUN-1"], env)
+        run(["span", "start", "--id", "impl", "--name", "Implement", "--kind", "phase", "--work", "RUN-1"], env)
         result = run(["span", "end", "--id", "impl", "--status", "ok"], env)
     assert result.returncode == 0, result.stderr
     assert (state / "sessions" / "codex-t1.ticket").read_text().strip() == "RUN-1"
@@ -211,12 +262,12 @@ def test_notes_are_zero_length_spans_with_one_event(isolated_env: IsolatedEnv, t
                 "F",
                 "--ref",
                 ref,
-                "--ticket",
+                "--work",
                 "RUN-1",
             ],
             env,
         )
-        none = run(["note", "none", "--ref", ref, "--ref", "gap-fedcba9876543210", "--ticket", "RUN-1"], env)
+        none = run(["note", "none", "--ref", ref, "--ref", "gap-fedcba9876543210", "--work", "RUN-1"], env)
     assert friction.returncode == none.returncode == 0
     first, second = server.spans()
     for span in (first, second):
@@ -240,7 +291,7 @@ def test_fallback_when_collect_is_down(isolated_env: IsolatedEnv, tmp_path: Path
     state = tmp_path / "state"
     endpoint = f"http://127.0.0.1:{closed_port()}"
     result = run(
-        ["span", "start", "--id", "build", "--name", "Build", "--kind", "phase", "--ticket", "RUN-1"],
+        ["span", "start", "--id", "build", "--name", "Build", "--kind", "phase", "--work", "RUN-1"],
         base_env(isolated_env.env, state, endpoint),
     )
     assert result.returncode == 0
@@ -261,7 +312,7 @@ def test_fallback_when_endpoint_is_not_collect(isolated_env: IsolatedEnv, tmp_pa
     state = tmp_path / "state"
     with recorder(collect_header=False) as jaeger:
         result = run(
-            ["note", "none", "--ref", "0123456789abcdef", "--ticket", "RUN-1"],
+            ["note", "none", "--ref", "0123456789abcdef", "--work", "RUN-1"],
             base_env(isolated_env.env, state, jaeger.url),
         )
     assert result.returncode == 0

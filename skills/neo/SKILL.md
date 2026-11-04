@@ -27,7 +27,7 @@ When `/matrix` starts you with a PR brief, the PR brief is your ticket, and thes
 - Send every decision to `/matrix`, with a default. Never ask Marcus.
 - Write to Linear only when the PR brief names a ticket.
 - Put no ticket ID in your branch name or PR title, and write `Part of <ID>` in the PR body. Linear closes a ticket when a merged PR's branch name or title holds its ID, and only `/matrix` closes the ticket.
-- Trace the run as [Loop](#loop) says. When the PR brief names a ticket, pass that ticket ID with `--ticket` on your first `agent-trace` call, so `/matrix` can join your sessions with the other workers'.
+- Trace the run as [Loop](#loop) says. On your first `agent-trace` call, pass `--work` with the ticket ID, so `/matrix` can join your sessions with the other workers'. When the chain has no ticket, pass its chain ID, such as `CH-2`.
 - Do not post the [Close](#close) comments. `/matrix` posts one close comment for the whole ticket. Do Close steps 1 and 2 for your own sessions with `agent-trace show --session <id>`. Then send your close draft to `/matrix`: the verdict, the evidence for each check marked `live` or `unit only`, each PR with its reviewed SHA and merge SHA, each park, the decisions, and the open items.
 
 ## Loop
@@ -40,9 +40,9 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 - Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So start one background wait that exits when the required checks finish or the review decision changes.
 - Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below.
 
-Trace the run with `agent-trace` through Bash. Chain each call onto a command that you run anyway, so it costs no extra turn: `agent-trace span start --id impl --name "implement" --kind phase && <command>`.
+Trace the run with `agent-trace` through Bash. Append each call to a command that you run anyway, so it costs no extra turn: `agent-trace span start --id impl --name "implement" --kind phase && <command>`.
 
-- Pass `--ticket <ID>` on the first call in each session, the main one and each child. Later calls in that session reuse it.
+- Pass `--work <ID>` on the first call in each session, the main one and each child. The work ID is the ticket ID, or the chain ID when the chain has no ticket. Later calls in that session reuse it. The [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md) defines these terms.
 - Open a span for each phase, PR, wait, infra step, and check: `span start --id <id> --name <text> --kind <phase|pr|wait|infra|check> [--parent <id>]`. End it with `span end --id <id> --status <ok|error|parked> [--note <text>]`.
 - Each time you hit friction that you want fixed, run `agent-trace note friction --category <permission|doc|flaky|workaround|missing-tool> --what <text> --fix <text>`.
 - A hook records each `gh pr create` and `gh pr merge`. Do not write `LOG` lines.
@@ -54,7 +54,7 @@ Make reversible choices yourself and continue. Write to the ticket only at the s
 
 ## Close
 
-1. Run `agent-trace show --ticket <ID>`. Add `--session <id>` for each session of the run that made no `agent-trace` call.
+1. Run `agent-trace show --work <ID>`. Add `--session <id>` for each session of the run that made no `agent-trace` call.
 2. Answer each item in its `Reconcile` list: `agent-trace note friction ... --ref <ref>`, or `agent-trace note none --ref <ref>` when the item was no friction. Run `show` again until it prints `Reconcile: none`.
 3. Post the run log comment: the `text` fence from `show`, each PR with its reviewed SHA and merge SHA, each CI or deploy run as a link, and each park.
 4. Then post the closing comment: the verdict; for each "Done when" check, its evidence marked `live` or `unit only`; the decisions and their evidence as text and links; the open items; and a link to the run log comment.

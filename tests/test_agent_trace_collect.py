@@ -148,9 +148,7 @@ def test_forward_sends_native_records_but_not_agent_trace_ones(isolated_env: Iso
         env = base_env(isolated_env.env, state, "")
         with collect(env, "--forward", jaeger.url) as port:
             emit_env = {**env, "AGENT_TRACE_ENDPOINT": f"http://127.0.0.1:{port}"}
-            emitted = run(
-                ["span", "start", "--id", "a", "--name", "A", "--kind", "phase", "--ticket", "RUN-1"], emit_env
-            )
+            emitted = run(["span", "start", "--id", "a", "--name", "A", "--kind", "phase", "--work", "RUN-1"], emit_env)
             assert (emitted.returncode, emitted.stderr) == (0, "")
             assert post(port, "/v1/traces", (FIXTURES / "claude_traces.json").read_bytes()) == 200
             assert post(port, "/v1/logs", (FIXTURES / "codex_logs.json").read_bytes()) == 200

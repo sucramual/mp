@@ -1,7 +1,7 @@
-"""`agent-trace show`: one joined text timeline of a ticket's run, from stored agent and native spans.
+"""`agent-trace show`: one joined text timeline of a work ID's run, from stored agent and native spans.
 
 Selection. Every spans/*.jsonl file and fallback.jsonl is read. The agent records are the `agent-trace` records
-with `run.ticket` == --ticket, plus the `agent-trace` records whose `session.id` is a --session. The sessions are
+with `run.ticket` == --work, plus the `agent-trace` records whose `session.id` is a --session. The sessions are
 the --session values plus the session ids of those agent records. Native records are the Claude Code spans of
 those sessions, and the Codex spans and logs whose `thread.id` or `conversation.id` is one of them, plus any Codex
 record that shares a trace id with such a record.

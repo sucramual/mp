@@ -94,11 +94,9 @@ class Context:
 
 
 def env_work() -> tuple[str, str] | None:
-    """The work ID from the environment as (variable, value). AGENT_TRACE_TICKET is the old name."""
-    for name in ("AGENT_TRACE_WORK", "AGENT_TRACE_TICKET"):
-        if os.environ.get(name):
-            return name, os.environ[name]
-    return None
+    """The work ID from AGENT_TRACE_WORK as (variable, value), or None."""
+    value = os.environ.get("AGENT_TRACE_WORK")
+    return ("AGENT_TRACE_WORK", value) if value else None
 
 
 def resolve_context(flag_ticket: str | None, session: str | None, base: Path) -> tuple[Context, str | None]:

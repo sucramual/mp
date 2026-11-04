@@ -46,5 +46,5 @@ These terms have one meaning in the `neo`, `matrix`, `retro`, and `review-pr` sk
 
 ## In code
 
-`agent-trace` takes the work ID as `--work` or `AGENT_TRACE_WORK`. The old names `--ticket` and `AGENT_TRACE_TICKET` still work.
+`agent-trace` takes the work ID as `--work` or `AGENT_TRACE_WORK`. It no longer accepts the old names `--ticket` and `AGENT_TRACE_TICKET`.
 The span records still store it as the `run.ticket` attribute, and the session binding is still `sessions/<id>.ticket`, so older span files stay readable.

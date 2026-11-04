@@ -40,7 +40,7 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 - Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So start one background wait that exits when the required checks finish or the review decision changes.
 - Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below.
 
-Trace the run with `agent-trace` through Bash. Chain each call onto a command that you run anyway, so it costs no extra turn: `agent-trace span start --id impl --name "implement" --kind phase && <command>`.
+Trace the run with `agent-trace` through Bash. Append each call to a command that you run anyway, so it costs no extra turn: `agent-trace span start --id impl --name "implement" --kind phase && <command>`.
 
 - Pass `--work <ID>` on the first call in each session, the main one and each child. The work ID is the ticket ID, or the chain ID when the chain has no ticket. Later calls in that session reuse it. The [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md) defines these terms.
 - Open a span for each phase, PR, wait, infra step, and check: `span start --id <id> --name <text> --kind <phase|pr|wait|infra|check> [--parent <id>]`. End it with `span end --id <id> --status <ok|error|parked> [--note <text>]`.

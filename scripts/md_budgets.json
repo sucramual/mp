@@ -1,0 +1,18 @@
+{
+  "_comment": "Line limits for tracked Markdown files. scripts/check_md_budgets.py reads this file. A file at its limit can change only when it stays at the same length or gets shorter: replace or delete a line for each line you add. See the docstring of that script.",
+  "defaults": {
+    "skills/*/SKILL.md": 120,
+    "*.md": 200
+  },
+  "files": {
+    "agents/global.md": 120,
+    "agents/personal.md": 120,
+    "agents/vocabulary.md": 50,
+    "skills/handoff/SKILL.md": 167,
+    "skills/improve-skill/references/compliance-checklist.md": 227,
+    "skills/maintain-verification-skill/SKILL.md": 142,
+    "skills/obsidian-append/SKILL.md": 413,
+    "skills/rogue/SKILL.md": 122,
+    "tools/auth-helper/README.md": 250
+  }
+}

@@ -56,8 +56,18 @@ Reply with the saved path and the ranked findings, one block each:
 ```text
 1. <title> — cost: <time lost, N times Marcus was needed, or N wakes>
    Evidence: <session ID>, <UTC time>, "<short quote>"
-   Fix: <one concrete change: a skill line to change, a permission to grant at intake, or a tool to fix>
+   Fix: <one concrete change, from the fix ladder below>
 ```
+
+Pick each fix from the first rung that can fix the cause:
+
+1. A tool or script to fix.
+2. A permission to grant at intake.
+3. An existing skill line to change.
+4. A new line in the skill's `references/`.
+5. A new `SKILL.md` line, only for a finding seen in two or more runs.
+
+A new line goes into a file that has a line limit in [md_budgets.json](https://github.com/sucramual/mp/blob/main/scripts/md_budgets.json), and `scripts/check` fails a file over its limit. When the target file is at its limit, the fix also names the line it replaces or deletes.
 
 End with one line that names the sessions reviewed and anything skipped.
 

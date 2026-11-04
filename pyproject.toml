@@ -35,4 +35,4 @@ select = ["E", "F", "I", "B", "UP"]
 python-version = "3.11"
 
 [tool.ty.src]
-include = ["skills", "tests", "scripts/check_guidance_links.py", "scripts/check_leaks.py", "scripts/third_party_skills.py", "scripts/link_skills.py", "scripts/link_tools.py", "tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe", "tools/agent-completion-sound", "tools/agent-trace", "config/agent-hooks"]
+include = ["skills", "tests", "scripts/check_guidance_links.py", "scripts/check_leaks.py", "scripts/check_md_budgets.py", "scripts/third_party_skills.py", "scripts/link_skills.py", "scripts/link_tools.py", "tools/dotfiles-pr/bin/dotfiles-pr", "tools/auth-helper/bin/auth-helper", "tools/auth-helper/libexec/monitoring-probe", "tools/agent-completion-sound", "tools/agent-trace", "config/agent-hooks"]

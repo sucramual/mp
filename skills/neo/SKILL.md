@@ -25,7 +25,7 @@ When `/matrix` starts you with a PR brief, the PR brief is your ticket, and thes
 - Change only the files that the PR brief gives you. Report any other file as a contract change.
 - Triage the review gate's findings with the `matrix` skill's triage rule, by the method that its Review gate section names. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
 - Send every decision to `/matrix`, with a default. Never ask Marcus. The one exception is a guarded change from [Hard limits](#hard-limits): park it in this session, with the diff and the failing case, and keep working on items that it does not block. Tell `/matrix` about the park. Marcus approves it in this session, because a permission check refuses an approval that `/matrix` relays.
-- When the PR brief gives Marcus's merge grant for a PR, do not merge that PR. When its ready check passes, park it to `/matrix` with its reviewed SHA. `/matrix` queues it.
+- When the PR brief gives Marcus's merge grant for a PR in a repository whose employer overlay merge rule accepts grants, do not merge that PR. When its ready check passes, park it to `/matrix` with its reviewed SHA. `/matrix` queues it.
 - Follow the PR brief's evidence rules. Compare with the baselines it cites by run ID, and prove each check the way it says.
 - Write to Linear only when the PR brief names a ticket.
 - Put no ticket ID in your branch name or PR title, and write `Part of <ID>` in the PR body. Linear closes a ticket when a merged PR's branch name or title holds its ID, and only `/matrix` closes the ticket.

@@ -19,7 +19,7 @@ Send Marcus one message:
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
 - **Access.** Do the Dependencies, Access, and Merge rules steps of the `neo` intake once here, for every repository and login that the plan needs. Set the `auth-helper` horizon to the whole plan, including the checks after the last merge, not to one PR. Name each missing item. Do not start a worker until Marcus fixes it.
 - **Grants.** Ask once for each authority that the plan needs, so that no PR waits for Marcus later. In one five-PR run (2026-11-03), asking for each merge one PR at a time cost 57 minutes of waiting.
-  - Merges: for each PR that the merge rules reserve for Marcus, ask whether he grants you queue authority in this plan. Write his answer word for word in the plan file. [Granted merges](#granted-merges) says how you use it.
+  - Merges: ask only in a repository whose employer overlay merge rule accepts a written grant. For each PR that the rule reserves for Marcus, ask whether he grants you queue authority in this plan. In every other repository, a reserved-path or High PR parks for Marcus, and no grant changes that. Write his answer word for word in the plan file. [Granted merges](#granted-merges) says how you use it.
   - Sign-offs: name each person outside the run whose agreement a PR needs, and where the link to that agreement goes.
   - Messages: list each message to a person outside the run that the plan needs, with its text. Ask Marcus to send it, to let you send it, or to drop it.
 - **Spike.** When the goal comes from a spike, read the spike's results into the plan file: the baseline runs by run ID, the methods that prove a change, the known traps, the dropped ideas, and the open decisions with their owners. Put each part that the results do not give in this message as a question.
@@ -130,5 +130,5 @@ Then send Marcus one message: each PR with its state and link, each park with it
 - Never write code, and never edit a worker's branch except to rebase it.
 - Every `/neo` hard limit applies to every worker. Guarded changes wait for Marcus, merges are pinned to the reviewed SHA, and Spacelift is read-only.
 - Never merge without the merge rules that the `neo` intake reads.
-- Marcus's grant, word for word in the plan file, is the only override of a tier park or a reserved path. It covers only the PR that it names, at the reviewed SHA.
+- A grant counts only where the employer overlay merge rule accepts it. There, Marcus's grant, word for word in the plan file, is the only override of a reserved path, and it covers only the PR that it names, at the reviewed SHA. In every other repository, a grant never overrides a tier park or a reserved path, such as a merge-rule file or agent settings.
 - Done means every goal check passes on the merged result, not that the PRs merged.

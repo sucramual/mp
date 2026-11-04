@@ -36,3 +36,10 @@ Apply these in order. The first match gives the class.
 5. Otherwise: `fix-forward`. Add it to the PR brief of the next PR in the same chain.
 
 A `decide` finding goes to the decision queue, with `fix-forward` as the default.
+
+## TypeSafe triage
+
+`<skill-dir>` is the folder of the `matrix` skill's `SKILL.md`.
+
+- Write the input file `{"pr_brief": "<PR brief text>", "findings": [{"id": "<id>", "text": "<finding>"}]}`. Send only the PR brief and the finding text, with `file:line` references. Never send secrets, keys, routing-key values, or code.
+- Run `python3 <skill-dir>/scripts/triage.py <input file>`. It needs `TYPESAFE_API_KEY` and prints one class for each finding.

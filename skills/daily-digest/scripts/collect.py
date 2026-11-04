@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Collect a compact JSON summary of one workday from local agent logs.
 
-Sources: Claude Code history and transcripts, and Codex sessions.
-The output goes to stdout and stays under about 40 KB. Secrets are redacted.
+Sources: Claude Code history and transcripts, Codex sessions, and agent-trace runs.
+The output goes to stdout and stays under about 64 KB. Secrets are redacted.
 Use `collect.py concepts add "<name>"` to record a concept that the digest already explained.
 """
 
@@ -21,9 +21,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-MAX_BYTES = 40_000
+MAX_BYTES = 64_000
 MAX_PROMPTS_PER_WORKSTREAM = 8
 MAX_PROMPT_CHARS = 240
+MAX_REPLY_CHARS = 400
+MAX_RUN_ITEMS = 5
+PARK_LOOKBACK_DAYS = 7
 CONCEPT_MEMORY_DAYS = 60
 SELF_MARKER = "[daily-digest]"
 REDACTED = "[redacted]"
@@ -123,9 +126,9 @@ def redact(text: str) -> str:
     return LONG_RUN_RE.sub(lambda m: REDACTED if looks_like_secret_run(m.group(0)) else m.group(0), text)
 
 
-def clean_prompt(text: str) -> str:
+def clean_prompt(text: str, limit: int = MAX_PROMPT_CHARS) -> str:
     flat = redact(" ".join(text.split()))
-    return flat if len(flat) <= MAX_PROMPT_CHARS else flat[: MAX_PROMPT_CHARS - 1] + "…"
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
 def add_unique(items: list[str], value: str) -> None:
@@ -212,6 +215,9 @@ class Session:
     first: datetime | None = None
     last: datetime | None = None
     prompts: list[tuple[datetime, str]] = field(default_factory=list)
+    # The last agent text before the next prompt: the answer, where a correction shows.
+    replies: dict[tuple[datetime, str], str] = field(default_factory=dict)
+    reply_open: bool = False
     prs: list[str] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
 
@@ -221,10 +227,20 @@ class Session:
         if self.last is None or moment > self.last:
             self.last = moment
 
+    def add_prompt(self, moment: datetime, text: str) -> None:
+        self.prompts.append((moment, clean_prompt(text)))
+        self.reply_open = True
+
+    def add_reply(self, text: str) -> None:
+        if self.reply_open and self.prompts and text.strip():
+            self.replies[self.prompts[-1]] = clean_prompt(text, MAX_REPLY_CHARS)
+
     def merge(self, other: Session) -> None:
         """Fold a second copy of the same session into this one."""
         known = set(self.prompts)
         self.prompts.extend(item for item in other.prompts if item not in known)
+        for key, reply in other.replies.items():
+            self.replies.setdefault(key, reply)
         for url in other.prs:
             add_unique(self.prs, url)
         for key in other.issues:
@@ -323,11 +339,18 @@ def read_claude_session(path: Path, window: Window, scheduled_root: Path) -> Ses
             session.branch = rec["gitBranch"]
         session.touch(moment)
         if prompt is not None:
-            session.prompts.append((moment, clean_prompt(prompt)))
+            session.add_prompt(moment, prompt)
             add_links(prompt, session.prs, session.issues)
+        elif kind == "user":
+            # A notification or a subagent hand-back starts a turn that does not answer the prompt.
+            origin = rec.get("origin")
+            if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
+                session.reply_open = False
         elif kind == "assistant":
             message = rec.get("message")
-            add_links(text_of(message.get("content")) if isinstance(message, dict) else "", session.prs, None)
+            text = text_of(message.get("content")) if isinstance(message, dict) else ""
+            add_links(text, session.prs, None)
+            session.add_reply(text)
     if session.last is None:
         return None
     add_branch_issues(session.branch, session.issues)
@@ -357,7 +380,7 @@ def read_claude_history(path: Path, window: Window, scheduled_root: Path, covere
             if not display.strip():
                 continue
             session.touch(moment)
-            session.prompts.append((moment, clean_prompt(display)))
+            session.add_prompt(moment, display)
             add_links(display, session.prs, session.issues)
         if session.prompts:
             sessions.append(session)
@@ -391,6 +414,7 @@ def read_codex_session(path: Path, window: Window, scheduled_root: Path) -> Sess
         moment = parse_ts(rec.get("timestamp"))
         prompt: str | None = None
         other_text = ""
+        reply = ""
         item = payload.get("item")
         if payload.get("type") == "user_message" and isinstance(payload.get("message"), str):
             prompt = payload["message"]
@@ -400,6 +424,8 @@ def read_codex_session(path: Path, window: Window, scheduled_root: Path) -> Sess
                 prompt = text
             else:
                 other_text = text
+                if item.get("type") == "AgentMessage":
+                    reply = text
         prompt = prompt.strip() if prompt else None
         if prompt and not seen_first_prompt:
             seen_first_prompt = True
@@ -409,10 +435,11 @@ def read_codex_session(path: Path, window: Window, scheduled_root: Path) -> Sess
             continue
         if prompt:
             session.touch(moment)
-            session.prompts.append((moment, clean_prompt(prompt)))
+            session.add_prompt(moment, prompt)
             add_links(prompt, session.prs, session.issues)
         elif other_text:
             add_links(other_text, session.prs, None)
+            session.add_reply(reply)
     if session.last is None:
         return None
     add_branch_issues(session.branch, session.issues)
@@ -469,6 +496,97 @@ def run_concepts(argv: list[str]) -> int:
     return 0
 
 
+# --- agent-trace ---------------------------------------------------------------------------------------------------
+
+
+def default_trace_dir() -> Path:
+    if os.environ.get("AGENT_TRACE_DIR"):
+        return Path(os.environ["AGENT_TRACE_DIR"])
+    return Path.home() / ".local" / "state" / "agent-trace"
+
+
+def trace_time(record: dict[str, Any]) -> datetime | None:
+    value = record.get("start") or record.get("time")
+    if not isinstance(value, (int, str)):
+        return None
+    try:
+        return datetime.fromtimestamp(int(value) / 1e9, UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def trace_text(value: Any) -> str:
+    return clean_prompt(value) if isinstance(value, str) else ""
+
+
+def read_agent_runs(trace_dir: Path, window: Window) -> list[dict[str, Any]]:
+    """Summarise unattended agent runs: open parks, and the errors, friction, and PRs in the window."""
+    since = window.until - timedelta(days=PARK_LOOKBACK_DAYS)
+    paths = sorted((trace_dir / "spans").glob("*.jsonl")) + [trace_dir / "fallback.jsonl"]
+    records: list[tuple[datetime, dict[str, Any]]] = []
+    for path in paths:
+        if not path.is_file() or mtime_before(path, since):
+            continue
+        for record in iter_jsonl(path):
+            moment = trace_time(record)
+            attrs = record.get("attrs")
+            if record.get("service") == "agent-trace" and isinstance(attrs, dict) and moment is not None:
+                if since <= moment < window.until:
+                    records.append((moment, attrs))
+    records.sort(key=lambda item: item[0])
+
+    runs: dict[str, dict[str, Any]] = {}
+    latest_end: dict[tuple[str, str], tuple[datetime, dict[str, Any]]] = {}
+    for moment, attrs in records:
+        scope = str(attrs.get("agent_trace.scope") or attrs.get("session.id") or "")
+        if not scope:
+            continue
+        run = runs.setdefault(
+            scope,
+            {
+                "ticket": attrs.get("run.ticket") or None,
+                "scope": scope,
+                "active": False,
+                "parked": [],
+                "errors": [],
+                "friction": [],
+                "prs": [],
+            },
+        )
+        in_window = window.contains(moment)
+        run["active"] = run["active"] or in_window
+        ident = attrs.get("agent_trace.id")
+        if attrs.get("agent_trace.phase") == "end" and isinstance(ident, str):
+            latest_end[(scope, ident)] = (moment, attrs)
+            if in_window and attrs.get("agent_trace.status") == "error":
+                run["errors"].append(
+                    {"name": ident, "note": trace_text(attrs.get("agent_trace.note")), "at": iso(moment)}
+                )
+        elif in_window and attrs.get("agent_trace.note_kind") == "friction":
+            run["friction"].append(
+                {key: trace_text(attrs.get(f"agent_trace.{key}")) for key in ("category", "what", "fix")}
+            )
+        elif in_window and isinstance(attrs.get("agent_trace.pr_url"), str):
+            entry = {"action": str(attrs.get("agent_trace.pr_action") or ""), "url": attrs["agent_trace.pr_url"]}
+            if entry not in run["prs"]:
+                run["prs"].append(entry)
+    for (scope, ident), (moment, attrs) in latest_end.items():
+        if attrs.get("agent_trace.status") == "parked":
+            runs[scope]["parked"].append(
+                {"name": ident, "note": trace_text(attrs.get("agent_trace.note")), "at": iso(moment)}
+            )
+
+    out = []
+    for run in runs.values():
+        if not (run["parked"] or (run.pop("active") and (run["errors"] or run["friction"] or run["prs"]))):
+            continue
+        run.pop("active", None)
+        for key in ("parked", "errors", "friction", "prs"):
+            run[key] = run[key][-MAX_RUN_ITEMS:]
+        out.append(run)
+    return out
+
+
 # --- assembly ------------------------------------------------------------------------------------------------------
 
 
@@ -482,13 +600,17 @@ def build_workstreams(sessions: list[Session]) -> list[dict[str, Any]]:
         prs: list[str] = []
         issues: list[str] = []
         prompts: list[tuple[datetime, str]] = []
+        replies: dict[tuple[datetime, str], str] = {}
         for member in members:
             for url in member.prs:
                 add_unique(prs, url)
             for key in member.issues:
                 add_unique(issues, key)
             prompts.extend(member.prompts)
-        prompts.sort(key=lambda p: p[0])
+            replies.update(member.replies)
+        # A forked session repeats its parent's prompts with the same timestamps.
+        prompts = sorted(dict.fromkeys(prompts), key=lambda p: p[0])
+        shown = prompts[:MAX_PROMPTS_PER_WORKSTREAM]
         workstreams.append(
             {
                 "repo": repo,
@@ -496,7 +618,8 @@ def build_workstreams(sessions: list[Session]) -> list[dict[str, Any]]:
                 "sessions": [m.summary() for m in members],
                 "prs": prs,
                 "issues": issues,
-                "prompts": [text for _, text in prompts[:MAX_PROMPTS_PER_WORKSTREAM]],
+                "prompts": [text for _, text in shown],
+                "replies": [replies.get(item) for item in shown],
                 "prompt_count": len(prompts),
             }
         )
@@ -509,7 +632,7 @@ def render(result: dict[str, Any]) -> str:
 
 
 def fit_to_size(result: dict[str, Any]) -> None:
-    """Cut prompts first, then the smallest workstreams, until the output fits."""
+    """Shorten replies first, then cut prompts, then the smallest workstreams, until the output fits."""
 
     def too_big() -> bool:
         return len(render(result).encode("utf-8")) > MAX_BYTES
@@ -518,9 +641,18 @@ def fit_to_size(result: dict[str, Any]) -> None:
         return
     result["truncated"] = True
     workstreams: list[dict[str, Any]] = result["workstreams"]
+    for limit in (240, 160, 100):
+        for workstream in workstreams:
+            workstream["replies"] = [
+                reply if reply is None or len(reply) <= limit else reply[: limit - 1] + "…"
+                for reply in workstream["replies"]
+            ]
+        if not too_big():
+            return
     for cap in (6, 4, 3, 2, 1, 0):
         for workstream in workstreams:
             workstream["prompts"] = workstream["prompts"][:cap]
+            workstream["replies"] = workstream["replies"][:cap]
         if not too_big():
             return
     omitted = 0
@@ -539,6 +671,9 @@ def run_digest(argv: list[str]) -> int:
     parser.add_argument("--codex-home", default=str(Path.home() / ".codex"))
     parser.add_argument(
         "--state-file", help="Concept memory file (default: $XDG_STATE_HOME/daily-digest/concepts.json)"
+    )
+    parser.add_argument(
+        "--trace-dir", help="agent-trace state (default: $AGENT_TRACE_DIR or ~/.local/state/agent-trace)"
     )
     args = parser.parse_args(argv)
 
@@ -587,6 +722,11 @@ def run_digest(argv: list[str]) -> int:
     else:
         missing.append("codex_sessions")
 
+    trace_dir = Path(args.trace_dir) if args.trace_dir else default_trace_dir()
+    agent_runs = read_agent_runs(trace_dir, window) if trace_dir.is_dir() else []
+    if not trace_dir.is_dir():
+        missing.append("agent_trace")
+
     state_file = Path(args.state_file) if args.state_file else default_state_file()
     result: dict[str, Any] = {
         "window": {
@@ -595,6 +735,7 @@ def run_digest(argv: list[str]) -> int:
             "timezone": "America/Los_Angeles",
         },
         "workstreams": build_workstreams(sessions),
+        "agent_runs": agent_runs,
         "recent_concepts": recent_concepts(state_file, now.astimezone(PACIFIC).date().isoformat()),
         "missing_sources": sorted(missing),
         "truncated": False,

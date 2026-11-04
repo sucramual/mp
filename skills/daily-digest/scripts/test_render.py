@@ -33,6 +33,11 @@ Prune a worktree only after its branch merges.
 **Why it mattered:** Old worktrees filled the disk.
 **Check yourself:** When is it safe to delete a branch?
 
+## What you missed
+- **You thought:** auto-merge tests the merged result. **What is true:** only a merge queue does
+  ([#18377](https://github.com/acme/repo/pull/18377)).
+- **Still open:** [#18388](https://github.com/acme/repo/pull/18388) is ready but not queued.
+
 ## Today
 1. Review [#18390](https://github.com/acme/repo/pull/18390) because Alex asked on Friday.
 2. Finish PAY-415 before Wednesday.
@@ -82,6 +87,9 @@ def test_valid_digest_writes_html_and_text_beside_the_markdown(tmp_path: Path) -
         ("### 3. Worktree pruning", "### 4. Worktree pruning", "exactly three"),
         ("**Check yourself:** Which key does the schema select on?\n", "", "Check yourself"),
         ("2. Finish PAY-415 before Wednesday.\n", "2. a\n3. b\n4. c\n", "1 to 3"),
+        ("## What you missed\n", "## Misses\n", "## What you missed"),
+        ("- **Still open:** [#18388]", "- Open: [#18388]", "'**You thought:**' or '**Still open:**'"),
+        (" **What is true:** only", " Only", "What is true"),
     ],
 )
 def test_structure_errors_are_refused_with_one_specific_message(
@@ -161,7 +169,14 @@ def test_every_section_heading_appears_in_both_outputs(tmp_path: Path) -> None:
     path = write(tmp_path, GOOD)
     assert render.main([str(path)]) == 0
     html, txt = (p.read_text() for p in outputs(path))
-    for heading in ("Yesterday", "Three concepts", "Today", "Webhook retries", "Idempotent handlers"):
+    for heading in (
+        "Yesterday",
+        "Three concepts",
+        "What you missed",
+        "Today",
+        "Webhook retries",
+        "Idempotent handlers",
+    ):
         assert heading.lower() in html.lower()
         assert heading.lower() in txt.lower()
     assert "Check yourself" in html
@@ -202,3 +217,34 @@ def test_bare_urls_in_parentheses_keep_the_closing_parenthesis_outside_the_link(
     assert ">PAY-420</a>)." in html_out
     assert 'href="https://github.com/acme/repo/pull/241"' in html_out
     assert "(acme/repo#241 (https://github.com/acme/repo/pull/241))." in text_out
+
+
+MISSED = "## What you missed\n"
+
+
+def missed_section(text: str, body: str) -> str:
+    start = text.index(MISSED) + len(MISSED)
+    return text[:start] + body + "\n" + text[text.index("## Today") :]
+
+
+def test_nothing_missed_is_a_valid_section(tmp_path: Path) -> None:
+    path = write(tmp_path, missed_section(GOOD, "Nothing missed.\n"))
+    assert render.main([str(path)]) == 0
+    assert "Nothing missed." in outputs(path)[1].read_text()
+
+
+def test_an_empty_missed_section_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert_refused(write(tmp_path, missed_section(GOOD, "")), capsys, "Nothing missed.")
+
+
+@pytest.mark.parametrize("prefix", ["**You thought:** a. **What is true:** b.", "**Still open:** c."])
+def test_more_than_three_items_of_one_kind_are_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], prefix: str
+) -> None:
+    body = "".join(f"- {prefix}\n" for _ in range(4))
+    assert_refused(write(tmp_path, missed_section(GOOD, body)), capsys, "at most 3")
+
+
+def test_three_of_each_kind_are_allowed(tmp_path: Path) -> None:
+    body = "- **You thought:** a. **What is true:** b.\n" * 3 + "- **Still open:** c.\n" * 3
+    assert render.main([str(write(tmp_path, missed_section(GOOD, body)))]) == 0

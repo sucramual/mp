@@ -29,3 +29,6 @@ config/codex/**/cache/
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# Saved /retro reports hold private run evidence
+.retro/

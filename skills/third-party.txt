@@ -10,5 +10,5 @@ QingYunA/answer-me-with-html  answer-me-with-html
 kepano/obsidian-skills  defuddle json-canvas obsidian-bases obsidian-cli obsidian-markdown
 mattpocock/skills  grill-me grilling
 openai/skills  migrate-to-codex
-paulnsorensen/easy-cheese  affinage age briesearch cheese cook culture cure hard-cheese melt mold pasteurize press
+paulnsorensen/easy-cheese  affinage age briesearch cure melt mold
 vercel-labs/skills  find-skills

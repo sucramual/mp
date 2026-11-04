@@ -87,7 +87,7 @@ Delegation buys parallelism, context isolation, or an independent view. It does 
 A repository's own instruction files prevail over this rule when they give their own delegation rule.
 If workers are unavailable, work inline.
 Read the delegated-work guide before dispatching workers. Keep one writer for overlapping files. Workers must not redelegate unless instructed.
-When the user invokes `/briesearch`, run the whole skill in one fresh-context worker by default, so raw sources stay out of the main context. Give the worker the full question. Relay its report. If the harness does not let that worker start its own sub-agents, it gathers inline. This default does not apply to the internal `/cheese` tier-2 call.
+When the user invokes `/briesearch`, run the whole skill in one fresh-context worker by default, so raw sources stay out of the main context. Give the worker the full question. Relay its report. If the harness does not let that worker start its own sub-agents, it gathers inline.
 
 Never commit feature work on `main` or a long-lived bench branch that a work overlay names, or open a feature PR from either.
 Never force-push a stacked head branch onto its base. Push the base by commit SHA.

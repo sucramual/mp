@@ -64,7 +64,7 @@ An explicit destination wins. Otherwise use these defaults:
 | No action is implied | Restore orientation and wait |
 | Work is complete | Record completion only |
 
-Do not route to `/cook` merely because the artifact is a curdled spec. Use an Easy Cheese skill only when explicitly requested or when preserving an active Easy Cheese phase is itself the goal.
+Use an Easy Cheese skill only when explicitly requested or when preserving an active Easy Cheese phase is itself the goal.
 
 ## Note format
 
@@ -152,9 +152,9 @@ Apply these safeguards to every deletion:
 
 ## Easy Cheese compatibility
 
-The generic note does not require `next:` or `/cheese --continue`.
+The generic note does not require `next:` or a resume command.
 
-For an explicitly requested Easy Cheese destination, set `entrypoint: skill:<name>` and put the exact command in `## Resume`. This skill does not write `/cheese --continue` checkpoints, because that flow needs the retired `/wheypoint` skill.
+For an explicitly requested Easy Cheese destination, set `entrypoint: skill:<name>` and put the exact command in `## Resume`. This skill does not write `/cheese --continue` checkpoints, because `/cheese` and `/wheypoint` are retired.
 
 ## Compression and redaction
 

@@ -130,12 +130,18 @@ def save(source: Path, store: Path) -> Path:
     report = parse_report(text)
     slug = re.sub(r"[^a-z0-9]+", "-", report["topic"].lower()).strip("-")
     store.mkdir(parents=True, exist_ok=True)
-    target = store / f"{report['created']}-{slug}.md"
-    number = 2
-    while target.exists():
-        target = store / f"{report['created']}-{slug}-{number}.md"
-        number += 1
-    target.write_text(text, encoding="utf-8")
+    number = 1
+    while True:
+        suffix = "" if number == 1 else f"-{number}"
+        target = store / f"{report['created']}-{slug}{suffix}.md"
+        try:
+            # Exclusive create reserves the name, so two concurrent saves cannot share a path.
+            with target.open("x", encoding="utf-8") as handle:
+                handle.write(text)
+        except FileExistsError:
+            number += 1
+            continue
+        break
     return target
 
 

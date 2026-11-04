@@ -139,6 +139,21 @@ class SaveTests(unittest.TestCase):
             self.assertEqual(out.strip(), str(store / "2026-11-03-matrix-preview-demo-2.md"))
             self.assertEqual((store / "2026-11-03-matrix-preview-demo.md").read_text(encoding="utf-8"), report())
 
+    def test_save_never_overwrites_when_the_existence_check_is_stale(self):
+        with TemporaryDirectory() as tmp:
+            store = Path(tmp, "store")
+            first, second = Path(tmp, "a.md"), Path(tmp, "b.md")
+            first.write_text(report(), encoding="utf-8")
+            second.write_text(report(findings=finding("guide:shell", "failure")), encoding="utf-8")
+
+            # A concurrent save can pass an exists() check that is already out of date.
+            with patch.object(Path, "exists", return_value=False):
+                one = reports.save(first, store)
+                two = reports.save(second, store)
+
+            self.assertNotEqual(one, two)
+            self.assertEqual(one.read_text(encoding="utf-8"), report())
+
     def test_invalid_report_is_not_saved(self):
         with TemporaryDirectory() as tmp:
             source = Path(tmp, "draft.md")

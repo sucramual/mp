@@ -32,7 +32,13 @@ When `/matrix` starts you with a PR brief, the PR brief is your ticket, and thes
 
 ## Loop
 
-Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. Before you publish with `open-pr`, have a reviewer with fresh context read the diff. Take each PR to ready with `review-pr`.
+Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. Before you publish with `open-pr`, have a reviewer with fresh context read the diff. Fit that review to what already checks the diff:
+
+- When an existing executable check fails on each defect class that the diff could add, such as a conformance test, a schema check, a guard test, or a typecheck, run no reviewer. Name that check in the PR body.
+- When the diff adds or changes a check, a test helper that other tests use, or other code that verifies code, first write the invariants as failing tests. Then have one reviewer read the diff with an open brief, not a rubric.
+- Never skip or suppress the Codex review after the PR opens, because it is the second model family.
+
+Take each PR to ready with `review-pr`.
 
 `review-pr` and Auto-fix (the Claude desktop app's PR monitor) only review and fix. Neo owns the ready check and the merge. Never end the run at an open PR.
 

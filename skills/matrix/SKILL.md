@@ -65,6 +65,8 @@ A worker can end its turn with nothing left to wake it. The router is idle while
 
 Before each PR opens, a fresh read-only reviewer reads the diff and its PR brief. The worker runs the gate. When the worker is a subagent that cannot start a reviewer, it sends you its branch and head SHA, and you run the gate.
 
+The worker fits the gate to the diff as the `neo` skill's Loop section says: no reviewer when an existing executable check covers the diff, and invariant tests then one open review for new check code. For a covered diff, the PR brief names that check.
+
 Triage each finding with the [triage rule](references/triage-rule.md). Both triage methods apply that one rule and give the same four classes.
 
 - **LLM triage** is the default. The reviewer, or you, answers the rule's questions for each finding and applies its classes.

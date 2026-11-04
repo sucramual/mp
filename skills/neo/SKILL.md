@@ -34,6 +34,12 @@ When `/matrix` starts you with a PR brief, the PR brief is your ticket, and thes
 
 Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. Before you publish with `open-pr`, have a reviewer with fresh context read the diff. Take each PR to ready with `review-pr`.
 
+`review-pr` and Auto-fix (the Claude desktop app's PR monitor) only review and fix. Neo owns the ready check and the merge. Never end the run at an open PR.
+
+- When Auto-fix watches the PR, start no `review-pr` agent, because two writers would push to one branch.
+- Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So start one background wait that exits when the required checks finish or the review decision changes.
+- Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below.
+
 Trace the run with `agent-trace` through Bash. Chain each call onto a command that you run anyway, so it costs no extra turn: `agent-trace span start --id impl --name "implement" --kind phase && <command>`.
 
 - Pass `--ticket <ID>` on the first call in each session, the main one and each child. Later calls in that session reuse it.

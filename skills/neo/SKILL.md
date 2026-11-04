@@ -37,8 +37,25 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 `review-pr` and Auto-fix (the Claude desktop app's PR monitor) only review and fix. Neo owns the ready check and the merge. Never end the run at an open PR.
 
 - When Auto-fix watches the PR, start no `review-pr` agent, because two writers would push to one branch.
-- Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So start one background wait that exits when the required checks finish or the review decision changes.
+- Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So for each open PR, keep one background wait running that exits when the required checks finish or the review decision changes.
 - Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below.
+
+### Turn end
+
+Before each `wrap_up`, and before you end any turn, check that one of these holds:
+
+- Each open PR has a running background task that will wake the run, or a park that you sent to Marcus.
+- The ticket is finished: Close is done.
+
+A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready.
+
+### Run state
+
+Context compaction drops rules from the conversation.
+
+- Before the first change, write a run-state file in the session scratch directory, such as `<scratchpad>/neo-run-state.md`. List the standing obligations: the work ID and the open `agent-trace` spans, a wait for each open PR, and each decision rule that intake or `/matrix` gave the run, with its source. Add the next step.
+- Update the file when a PR opens or merges, when a decision rule is added, and when the next step changes.
+- When a turn starts with "continued from a previous conversation", read the run-state file first, before any other action.
 
 Trace the run with `agent-trace` through Bash. Append each call to a command that you run anyway, so it costs no extra turn: `agent-trace span start --id impl --name "implement" --kind phase && <command>`.
 

@@ -53,6 +53,14 @@ Each PR brief has:
 - Put no ticket ID in a worker's branch name or PR title. Only you close the ticket, at [Close](#close). Linear closes a ticket when a merged PR's branch name or title holds its ID: a branch named after its ticket closed the ticket while two goal checks were still open. Instead, the worker writes `Part of <ID>` in the PR body. Linear links the PR but does not close the ticket on merge.
 - Tell each worker to pass `--work` on its first `agent-trace` call: the ticket ID, so its spans join the ticket, or its chain ID when the goal has no ticket. Tell it to send you its close draft instead of posting it.
 
+### Heartbeat
+
+A worker can end its turn with nothing left to wake it. The router is idle while it waits for worker notes, so it cannot see the stall either.
+
+- While any chain is open, keep one heartbeat: a background wake of about 30 minutes, such as `sleep 1800` run as a background command. Start the next one each time it fires.
+- On each wake, check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
+- Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Do not merge or enqueue the PR yourself: the worker owns the ready check and the merge.
+
 ## Review gate
 
 Before each PR opens, a fresh read-only reviewer reads the diff and its PR brief. The worker runs the gate. When the worker is a subagent that cannot start a reviewer, it sends you its branch and head SHA, and you run the gate.

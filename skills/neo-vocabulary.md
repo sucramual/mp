@@ -33,6 +33,7 @@ These terms have one meaning in the `neo`, `matrix`, `retro`, and `review-pr` sk
 | **pinned merge** | A merge of the reviewed SHA only: `--match-head-commit <SHA>`, or `expectedHeadOid` with a merge queue. |
 | **park** | Leave one guarded or High-tier PR for Marcus to merge, with its pinned merge command. The rest of the run continues. |
 | **Auto-fix** | The Claude desktop app's PR monitor. It reviews and fixes, and wakes the run on a failure or a comment, not when the PR turns green. |
+| **PR watcher** | `review-pr`'s `scripts/watch-pr.sh`, run in the background, one for each open PR. It is the only thing that wakes a /neo run for a PR. Auto-fix is not a wake source. |
 | **`review-pr`** | The skill that takes a PR to ready. It reviews and fixes, and never merges. |
 
 ## Words not to use

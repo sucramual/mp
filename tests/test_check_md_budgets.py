@@ -96,3 +96,17 @@ def test_repository_is_within_its_limits() -> None:
     result = subprocess.run([sys.executable, str(SCRIPT)], text=True, capture_output=True, check=False)
 
     assert result.returncode == 0, result.stderr
+
+
+def test_only_the_listed_skills_are_capped(tmp_path: Path) -> None:
+    """Experimental skills grow freely; the agent-run skills listed in md_budgets.json stay capped."""
+    budgets = json.loads((REPO_ROOT / "scripts" / "md_budgets.json").read_text())
+    files = {path: 1 for path in budgets["files"]}
+    files |= {"skills/experiment/SKILL.md": 400, "skills/neo/SKILL.md": 121}
+    root = tmp_path / "repo"
+    limits = make_repo(root, files, budgets)
+
+    result = run(root, limits)
+
+    assert result.returncode == 1
+    assert [line.split(":")[0] for line in result.stderr.splitlines()] == ["skills/neo/SKILL.md"]

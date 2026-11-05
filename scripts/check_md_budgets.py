@@ -7,6 +7,8 @@ below its limit a file can grow, and at its limit each added line must replace o
 - `files` gives a fixed limit for one file. It holds the files that load in every session,
   frozen at their size, and the files that were over their default limit when the check started.
 - `defaults` gives the limit for every other file: the first glob that matches the path wins.
+  A `null` limit means no cap. Skills use it, so only the skills listed in `files` are capped:
+  the agent-run skills that load every run. Experimental skills can grow freely.
   A glob `*` matches inside one path segment only, so `skills/*/SKILL.md` does not match references.
 
 The check reads files from `git ls-files`, so untracked and ignored files are not checked.

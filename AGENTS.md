@@ -11,6 +11,7 @@ Before editing, run `~/dotfiles/tools/dotfiles-pr/bin/dotfiles-pr start <slug>` 
 After checks pass, publish with the `open-pr` skill from that worktree. Do not run `dotfiles-pr ship` alone, because only `open-pr` starts the background `review-pr` follow-up.
 In dotfiles, `open-pr` runs `dotfiles-pr ship`, which commits, pushes, and opens the PR. Never merge it or push to `main`. The one exception: the main agent may merge after an all-edges review round as [PR review](agents/guides/pr-review.md) describes, unless the PR changes a file that [PR review](agents/guides/pr-review.md#merge-rule-files) lists. Marcus merges such a PR. The same exception covers the private work overlay `sucramual/mp-private`, only for a PR whose files are all on the [overlay merge allowlist](agents/guides/pr-review.md#overlay-merge-allowlist).
 After a dotfiles PR merges, a launchd job (macOS) or the `dotfiles-sync` tmux loop (devbox) runs `dotfiles-pr sync` within 15 minutes. Run it yourself to make the change live at once.
+Branch protection on `main` keeps "Require branches to be up to date" off (`strict: false`) by Marcus's choice, because each update re-runs CI and the Codex review on every open PR. When two PRs break `main` together, fix it in a PR. Do not turn `strict` on.
 
 ## Review guidelines
 

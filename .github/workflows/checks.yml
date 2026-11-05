@@ -97,7 +97,7 @@ jobs:
   # group job above passed, so the protection rule needs no change. always() makes it report on a failure too.
   checks:
     name: checks
-    needs: [lint, links, md-budgets, tests]
+    needs: [lint, links, md-budgets, tests, leaks]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

@@ -39,22 +39,19 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 - When the diff adds or changes a check, a test helper that other tests use, or other code that verifies code, first write the invariants as failing tests. Then have one reviewer read the diff with an open brief, not a rubric.
 - Never skip or suppress the Codex review after the PR opens, because it is the second model family.
 
-Take each PR to ready with `review-pr`.
+Publish with `open-pr --no-review`. You take each PR to ready yourself, inline, with `review-pr` as the procedure. Start no background `review-pr` agent, because two writers would push to one branch. Never end the run at an open PR.
 
-`review-pr` and Auto-fix (the Claude desktop app's PR monitor) only review and fix. Neo owns the ready check and the merge. Never end the run at an open PR.
-
-- When Auto-fix watches the PR, start no `review-pr` agent, because two writers would push to one branch.
-- Auto-fix wakes the run on a failure or a comment, not when the PR turns green. So for each open PR, keep one background wait running that exits when the required checks finish or the review decision changes.
+- The PR watcher is the only wake source for an open PR. Run `bash <review-pr skill dir>/scripts/watch-pr.sh <owner>/<repo> <pr>` with `run_in_background: true`, one for each open PR, and end the turn. It costs nothing while it waits. It exits when a required check finishes, the review decision changes, a comment, review, or reaction arrives, the head moves, a conflict appears, the PR becomes ready, or it merges or closes. It prints one `event:` line for each. It ignores bot status comments.
+- When it exits, handle each event inline with `review-pr` steps 2 to 6, then start the watcher again. When it exits 1, read the PR again and stop on the failure if the read fails again. Never use another wait script.
+- Auto-fix (the Claude desktop app's PR monitor) is not a wake source. After `open-pr` opens a PR, turn Auto-fix off with the app's `set_monitor` tool. If the tool is missing or fails, leave Auto-fix on and ignore its wakes.
 - Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below, or park it to `/matrix` when the PR brief gives a merge grant for it.
-- A throwaway PR is one that you open only to test, never to merge. It gets no ready check, and it needs no wait at [Turn end](#turn-end).
-- When the app turns Auto-fix on for a throwaway PR, turn it off with the `set_monitor` tool. Otherwise each CI result wakes the run with nothing to do.
-- When its test ends, close the throwaway PR. Delete its branch and any environment it made.
+- A throwaway PR is one that you open only to test, never to merge. It gets no ready check and no watcher. When its test ends, close it. Delete its branch and any environment it made.
 
 ### Turn end
 
 Before each `wrap_up`, and before you end any turn, check that one of these holds:
 
-- Each open PR has a running background task that will wake the run, or a park that you sent to Marcus or to `/matrix`.
+- Each open PR has a running PR watcher, also a parked PR, whose watcher wakes the run when Marcus merges it.
 - The ticket is finished: Close is done.
 
 A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready.
@@ -94,5 +91,5 @@ Make reversible choices yourself and continue. Write to the ticket only at the s
 - A merge grant never changes a park, except where an employer overlay merge rule accepts grants. There, `/matrix` queues the PR, not you.
 - Spacelift is read-only for the agent. Never confirm, apply, or discard a Spacelift run.
 - Merge only the reviewed commit: `gh pr merge <pr> --squash --match-head-commit <reviewed SHA>`, or `expectedHeadOid` set to the reviewed SHA with a merge queue. Never pass `--admin`. Never use `gh stack merge`; merge stack layers one at a time, bottom first.
-- At the end, send Marcus one message with every park and its pinned merge command. Give only the call that the merge rules allow for that repository, such as `enqueuePullRequest` with `expectedHeadOid` where an overlay rule forbids `gh pr merge`. Wait in the background and end the turn. After he merges, run `verify`: a "merged" message is not proof.
+- At the end, send Marcus one message with every park and its pinned merge command. Give only the call that the merge rules allow for that repository, such as `enqueuePullRequest` with `expectedHeadOid` where an overlay rule forbids `gh pr merge`. Keep each parked PR's watcher running and end the turn. After he merges, run `verify`: a "merged" message is not proof.
 - Done means every ticket check passes on the merged result, not that the PR merged.

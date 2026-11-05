@@ -20,6 +20,12 @@ Use this method when the metric is the time of a CI workflow, a job, or a step. 
 - For each run, record the arm, the exit code, the time, and the test file and test counts. Upload the logs as a run artifact.
 - Use a matrix of at least 2 identical jobs, so each job is one more runner.
 
+## Proof rule
+
+- **Same conditions.** Both arms run in the same job on the same runner.
+- **Runs.** At least 6 runs for each arm, on at least 2 runners.
+- **Noise limit.** The spread of arm A, which the clear-effect rule in the skill already uses.
+
 ## Pitfalls seen in the spike
 
 - A job that runs many tasks in parallel on one runner has noisy task times. Compare a task inside a same-runner A/B, not across jobs.

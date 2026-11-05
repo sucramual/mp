@@ -1,6 +1,6 @@
 ---
 name: neo
-description: Takes one written ticket, usually Linear, or a /matrix PR brief, to a merged and verified result that passes the ticket's checks, without Marcus watching. One intake message fixes a pass/fail check for each requirement and tests every tool the run needs, then the run loops change, verify, keep or fix. Use for "/neo", "neo this ticket", or "run this ticket end to end without me". Not for a plain request to open or publish a PR (open-pr), or for "/rogue" and "go rogue" (rogue). Sets the hard limits - guarded changes wait for Marcus, merges are pinned to the reviewed SHA, Spacelift is read-only.
+description: Takes one written ticket, usually Linear, or a /matrix PR brief, to a merged and verified result that passes the ticket's checks, without Marcus watching. One intake message fixes a pass/fail check for each requirement and tests every tool the run needs, then the run loops change, verify, keep or fix. Use for "/neo", "neo this ticket", or "run this ticket end to end without me". Not for a plain request to open or publish a PR (open-pr), for a spike or experiment that ends in a decision and merges nothing (perf), or for "/rogue" and "go rogue" (rogue). Sets the hard limits - guarded changes wait for Marcus, merges are pinned to the reviewed SHA, Spacelift is read-only.
 ---
 
 # neo

@@ -25,6 +25,7 @@ class Env:
         self.codex = root / "codex"
         self.state = root / "state" / "concepts.json"
         self.repos = root / "repos"
+        self.trace = root / "agent-trace"
 
     def args(self, *extra: str) -> list[str]:
         return [
@@ -34,12 +35,21 @@ class Env:
             str(self.codex),
             "--state-file",
             str(self.state),
+            "--trace-dir",
+            str(self.trace),
             "--since",
             SINCE,
             "--until",
             UNTIL,
             *extra,
         ]
+
+    def trace_records(self, records: list[dict[str, Any]], *, fallback: bool = False) -> None:
+        path = self.trace / "fallback.jsonl" if fallback else self.trace / "spans" / "2026-10-27.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as handle:
+            for record in records:
+                handle.write(json.dumps(record) + "\n")
 
     def repo(self, name: str) -> Path:
         path = self.repos / name
@@ -384,7 +394,7 @@ def test_output_stays_under_the_size_limit_and_says_when_it_truncated(
     capsys.readouterr()
     collect.main(env.args())
     out = capsys.readouterr().out
-    assert len(out.encode()) < 41_000
+    assert len(out.encode()) < collect.MAX_BYTES + 1_000
     result = json.loads(out)
     assert result["truncated"] is True
     assert result["workstreams"]
@@ -429,3 +439,287 @@ def test_concepts_honour_xdg_state_home(tmp_path: Path, monkeypatch: pytest.Monk
     collect.main(["concepts", "add", "Backpressure"])
     stored = json.loads((tmp_path / "xdg" / "daily-digest" / "concepts.json").read_text())
     assert [c["name"] for c in stored] == ["Backpressure"]
+
+
+# --- agent replies -------------------------------------------------------------------------------------------------
+
+
+def test_each_prompt_carries_the_last_agent_reply_of_its_turn(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    # The last text of a turn holds the answer. A missing reply hides the corrections the digest teaches from.
+    repo = env.repo("alpha")
+    env.claude_session(
+        "s1",
+        repo,
+        [
+            user("is a merge queue the same as auto-merge?"),
+            assistant("Let me check the settings."),
+            assistant("No. A merge queue tests the merged result; auto-merge only waits for checks."),
+            user("thanks, ship it"),
+        ],
+    )
+    ws = run(env, capsys=capsys)["workstreams"][0]
+    assert ws["prompts"] == ["is a merge queue the same as auto-merge?", "thanks, ship it"]
+    assert ws["replies"] == ["No. A merge queue tests the merged result; auto-merge only waits for checks.", None]
+
+
+def test_codex_prompts_carry_the_agent_reply(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = env.repo("beta")
+    day = env.codex / "sessions" / "2026" / "10" / "27"
+    day.mkdir(parents=True)
+
+    def item(kind: str, text: str) -> dict[str, Any]:
+        content = [{"type": "text", "text": text}]
+        return {
+            "timestamp": IN_WINDOW,
+            "type": "event_msg",
+            "payload": {"type": "item_completed", "item": {"type": kind, "content": content}},
+        }
+
+    rows = [
+        {"timestamp": IN_WINDOW, "type": "session_meta", "payload": {"id": "cx1", "cwd": str(repo)}},
+        item("UserMessage", "does ty read pyproject?"),
+        item("Reasoning", "thinking about it"),
+        item("AgentMessage", "Yes, under [tool.ty]."),
+    ]
+    path = day / "rollout-cx1.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    stamp = datetime.fromisoformat(IN_WINDOW.replace("Z", "+00:00")).timestamp()
+    os.utime(path, (stamp, stamp))
+    ws = run(env, capsys=capsys)["workstreams"][0]
+    assert ws["prompts"] == ["does ty read pyproject?"]
+    assert ws["replies"] == ["Yes, under [tool.ty]."]
+
+
+def test_replies_are_redacted_and_truncated(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = env.repo("alpha")
+    token = "ghp_" + "a" * 36
+    env.claude_session("s1", repo, [user("which token?"), assistant(f"The token {token} " + "word " * 200)])
+    reply = run(env, capsys=capsys)["workstreams"][0]["replies"][0]
+    assert reply.startswith("The token [redacted] word")
+    assert token not in reply
+    assert len(reply) <= collect.MAX_REPLY_CHARS
+
+
+def test_size_cuts_keep_replies_aligned_with_prompts(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    for n in range(40):
+        repo = env.repo(f"repo{n}")
+        records: list[dict[str, Any]] = []
+        for i in range(8):
+            records += [user(f"prompt {i} " + "x" * 300), assistant("reply " + "y" * 600)]
+        env.claude_session(f"s{n}", repo, records)
+    result = run(env, capsys=capsys)
+    assert result["truncated"] is True
+    assert result["workstreams"]
+    for ws in result["workstreams"]:
+        assert len(ws["replies"]) == len(ws["prompts"])
+
+
+# --- agent-trace runs ----------------------------------------------------------------------------------------------
+
+
+def ns(ts: str) -> int:
+    return int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()) * 1_000_000_000
+
+
+def trace_span(
+    scope: str, ident: str, phase: str, ts: str = IN_WINDOW, *, status: str | None = None, note: str | None = None
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {"agent_trace.scope": scope, "agent_trace.phase": phase, "agent_trace.id": ident}
+    if scope[0].isupper():
+        attrs["run.ticket"] = scope
+    if status:
+        attrs["agent_trace.status"] = status
+    if note:
+        attrs["agent_trace.note"] = note
+    name = ident.replace("-", " ") if phase == "start" else ident
+    return {"type": "span", "service": "agent-trace", "name": name, "start": ns(ts), "end": ns(ts), "attrs": attrs}
+
+
+def trace_friction(scope: str, what: str, ts: str = IN_WINDOW) -> dict[str, Any]:
+    attrs = {
+        "agent_trace.scope": scope,
+        "run.ticket": scope,
+        "agent_trace.note_kind": "friction",
+        "agent_trace.category": "permission",
+        "agent_trace.what": what,
+        "agent_trace.fix": "grant it at intake",
+    }
+    return {"type": "span", "service": "agent-trace", "name": "agent_trace.note", "start": ns(ts), "attrs": attrs}
+
+
+def trace_pr(scope: str, url: str, action: str = "create", ts: str = IN_WINDOW) -> dict[str, Any]:
+    attrs = {
+        "agent_trace.scope": scope,
+        "run.ticket": scope,
+        "agent_trace.pr_action": action,
+        "agent_trace.pr_url": url,
+    }
+    return {"type": "span", "service": "agent-trace", "name": "agent_trace.pr", "start": ns(ts), "attrs": attrs}
+
+
+def runs_by_ticket(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {run["ticket"]: run for run in result["agent_runs"]}
+
+
+def test_parked_and_failed_runs_are_listed_with_their_notes(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    # A parked run waits for Marcus. If the digest misses it, the run stalls unseen.
+    env.trace_records(
+        [
+            trace_span("ABC-1", "migration", "start"),
+            trace_span("ABC-1", "migration", "end", status="parked", note="migration needs Marcus"),
+            trace_span("ABC-2", "verify", "start"),
+            trace_span("ABC-2", "verify", "end", status="error", note="staging check failed"),
+            trace_friction("ABC-2", "gcloud asked for a login"),
+            trace_pr("ABC-2", "https://github.com/o/r/pull/7", "merge"),
+        ]
+    )
+    runs = runs_by_ticket(run(env, capsys=capsys))
+    assert runs["ABC-1"]["parked"] == [
+        {"name": "migration", "note": "migration needs Marcus", "at": runs["ABC-1"]["parked"][0]["at"]}
+    ]
+    assert runs["ABC-1"]["errors"] == []
+    assert [e["note"] for e in runs["ABC-2"]["errors"]] == ["staging check failed"]
+    assert runs["ABC-2"]["friction"] == [
+        {"category": "permission", "what": "gcloud asked for a login", "fix": "grant it at intake"}
+    ]
+    assert runs["ABC-2"]["prs"] == [{"action": "merge", "url": "https://github.com/o/r/pull/7"}]
+
+
+def test_a_park_that_was_resumed_and_finished_is_not_listed(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    env.trace_records(
+        [
+            trace_span("ABC-3", "deploy", "start"),
+            trace_span("ABC-3", "deploy", "end", "2026-10-27T16:00:00.000Z", status="parked", note="wait"),
+            trace_span("ABC-3", "deploy", "end", "2026-10-27T18:00:00.000Z", status="ok"),
+            trace_pr("ABC-3", "https://github.com/o/r/pull/8"),
+        ]
+    )
+    runs = runs_by_ticket(run(env, capsys=capsys))
+    assert "ABC-3" in runs
+    assert runs["ABC-3"]["parked"] == []
+
+
+def test_a_recent_park_before_the_window_stays_listed_but_old_activity_does_not(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    env.trace_records(
+        [
+            trace_span("ABC-4", "review", "end", "2026-10-24T17:00:00.000Z", status="parked", note="needs a decision"),
+            trace_span("ABC-5", "build", "end", "2026-10-24T17:00:00.000Z", status="error", note="old failure"),
+            trace_span("ABC-6", "build", "end", "2026-10-10T17:00:00.000Z", status="parked", note="stale park"),
+            trace_span("ABC-7", "build", "end", AFTER_WINDOW, status="parked", note="tomorrow"),
+        ]
+    )
+    runs = runs_by_ticket(run(env, capsys=capsys))
+    assert set(runs) == {"ABC-4"}
+    assert runs["ABC-4"]["parked"][0]["note"] == "needs a decision"
+
+
+def test_fallback_records_are_read_and_other_services_are_ignored(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    other = trace_span("ABC-9", "x", "end", status="parked", note="not ours")
+    other["service"] = "claude-code"
+    env.trace_records([other])
+    env.trace_records([trace_span("ABC-8", "x", "end", status="parked", note="from fallback")], fallback=True)
+    runs = runs_by_ticket(run(env, capsys=capsys))
+    assert set(runs) == {"ABC-8"}
+
+
+def test_missing_agent_trace_is_named_as_a_missing_source(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    result = run(env, capsys=capsys)
+    assert "agent_trace" in result["missing_sources"]
+    assert result["agent_runs"] == []
+
+
+def test_size_cuts_shorten_replies_before_they_drop_prompts(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    # Full replies alone can push the output over the limit. Prompts are the record of the day, so they go last.
+    for n in range(85):
+        repo = env.repo(f"repo{n}")
+        env.claude_session(f"s{n}", repo, [user(f"prompt {n} " + "x" * 200), assistant("reply " + "y" * 600)])
+    result = run(env, capsys=capsys)
+    assert result["truncated"] is True
+    assert len(result["workstreams"]) == 85
+    for ws in result["workstreams"]:
+        assert len(ws["prompts"]) == 1
+        assert ws["replies"][0].startswith("reply y")
+        assert len(ws["replies"][0]) < collect.MAX_REPLY_CHARS
+
+
+def test_a_notification_turn_does_not_replace_the_answer(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    # A background task wakes the agent for a new turn. Its status text is not the answer to the human prompt.
+    repo = env.repo("alpha")
+    notification = {
+        "type": "user",
+        "timestamp": IN_WINDOW,
+        "origin": {"kind": "task-notification"},
+        "message": {"role": "user", "content": "<task-notification>done</task-notification>"},
+    }
+    skill_text = {
+        "type": "user",
+        "timestamp": IN_WINDOW,
+        "isMeta": True,
+        "message": {"role": "user", "content": "Base directory for this skill"},
+    }
+    env.claude_session(
+        "s1",
+        repo,
+        [
+            user("what does ratchet mean?"),
+            assistant("A ratchet is a limit that can only tighten."),
+            notification,
+            assistant("Area 7 has started."),
+            user("/neo ABC-1"),
+            skill_text,
+            assistant("Intake: three checks."),
+        ],
+    )
+    ws = run(env, capsys=capsys)["workstreams"][0]
+    assert ws["prompts"] == ["what does ratchet mean?", "/neo ABC-1"]
+    assert ws["replies"] == ["A ratchet is a limit that can only tighten.", "Intake: three checks."]
+
+
+def test_a_forked_session_does_not_repeat_the_parent_prompts(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    # A fork copies the parent history with the same timestamps. Repeats waste the size budget.
+    repo = env.repo("alpha")
+    history = [user("what does ratchet mean?"), assistant("A limit that only tightens.")]
+    env.claude_session("parent", repo, history)
+    env.claude_session("fork", repo, [*history, user("and in CI?", AFTER_WINDOW)])
+    ws = run(env, capsys=capsys)["workstreams"][0]
+    assert ws["prompts"] == ["what does ratchet mean?"]
+    assert ws["replies"] == ["A limit that only tightens."]
+    assert ws["prompt_count"] == 1
+    assert len(ws["sessions"]) == 2
+
+
+def big_runs(count: int, *, parked: bool = False) -> list[dict[str, Any]]:
+    friction = {"category": "permission", "what": "w " * 120, "fix": "f " * 120}
+    park = [{"name": "step", "note": "n " * 100, "at": IN_WINDOW}] if parked else []
+    return [
+        {"ticket": f"ABC-{i}", "scope": f"ABC-{i}", "parked": park, "errors": [], "prs": [], "friction": [friction] * 5}
+        for i in range(count)
+    ]
+
+
+def test_size_cuts_shorten_agent_run_friction_before_they_drop_workstreams() -> None:
+    # Busy agent runs once filled the budget, so the cut dropped every workstream and still ran over.
+    result: dict[str, Any] = {
+        "workstreams": [{"prompts": ["work"], "replies": ["answer"]}],
+        "agent_runs": big_runs(30),
+        "truncated": False,
+    }
+    collect.fit_to_size(result)
+    assert len(collect.render(result).encode("utf-8")) <= collect.MAX_BYTES
+    assert result["workstreams"] == [{"prompts": ["work"], "replies": ["answer"]}]
+    assert len(result["agent_runs"]) == 30
+    assert result["truncated"] is True
+
+
+def test_size_cuts_always_end_under_the_limit_and_keep_parks_longest() -> None:
+    result: dict[str, Any] = {
+        "workstreams": [{"prompts": ["work"], "replies": ["answer"]}],
+        "agent_runs": big_runs(400, parked=True) + big_runs(400),
+        "truncated": False,
+    }
+    collect.fit_to_size(result)
+    assert len(collect.render(result).encode("utf-8")) <= collect.MAX_BYTES
+    assert result["agent_runs"]
+    assert all(run["parked"] for run in result["agent_runs"])

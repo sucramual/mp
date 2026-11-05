@@ -552,6 +552,13 @@ def install_agent_hooks(repo: Path) -> None:
     run_link_script(repo, "config/agent-hooks/install_hooks.py", "agent hooks", targets)
 
 
+def add_allow_rules(repo: Path) -> None:
+    """Add the tracked allow rules of config/claude/settings.allow.json to ~/.claude/settings.json."""
+    rules = str(repo / "config" / "claude" / "settings.allow.json")
+    target = str(Path.home() / ".claude" / "settings.json")
+    run_link_script(repo, "config/claude/add_allow_rules.py", "allow rules", (rules, target))
+
+
 # The folders under config/ that held reviewers.json before config/review-pr. Sync replaces a link to any of them.
 OLD_REVIEWERS_FOLDERS = ("siula", "rogue-one", "ro")
 
@@ -683,8 +690,8 @@ def sync_work_overlay() -> str | None:
 def sync_live_checkout(repo: Path) -> SyncResult:
     """Convert a legacy Codex config link, sync the main checkout, merge the Codex config, then link and install.
 
-    After the merge it links skills, tools, the review-pr reviewers file, and the global guidance, and registers the
-    agent hooks.
+    After the merge it links skills, tools, the review-pr reviewers file, and the global guidance, registers the
+    agent hooks, and adds the tracked Claude Code allow rules.
 
     Every path that moves the main checkout goes through here, so a legacy link is never left
     resolving to a stripped file. A failed conversion or a refused sync raises Failure before the
@@ -698,6 +705,7 @@ def sync_live_checkout(repo: Path) -> SyncResult:
     link_review_pr_reviewers(repo)
     link_global_guidance(repo)
     install_agent_hooks(repo)
+    add_allow_rules(repo)
     return result
 
 

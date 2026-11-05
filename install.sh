@@ -101,6 +101,10 @@ if [ ! -f ~/.claude/settings.json ]; then
 else
   echo "  ~/.claude/settings.json already exists (left untouched)"
 fi
+# Add the tracked allow rules on every run, because the seed above never reaches an existing settings.json.
+# A failure only means a missing rule, so install.sh warns and continues.
+python3 "$DOTFILES_DIR/config/claude/add_allow_rules.py" "$DOTFILES_DIR/config/claude/settings.allow.json" \
+  ~/.claude/settings.json || echo "  WARNING: allow rules not added to ~/.claude/settings.json"
 
 # The guard_irreversible PreToolUse hook blocks unpinned PR merges and Spacelift writes in Claude Code and Codex.
 # It merges one hook entry and keeps every other key. It is a safety guard, so a failure stops install.sh.

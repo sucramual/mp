@@ -1624,6 +1624,28 @@ def test_sync_registers_the_guard_hook(world: World) -> None:
     assert "main is at" in result.stdout, f"sync should still print its summary\n{result.stdout}"
 
 
+# Protects: a merged allow rule goes live through the sync loop, without a new install.sh run.
+# Bug caught: sync skips add_allow_rules.py, so a tracked rule never reaches a machine that is already set up.
+def test_sync_adds_tracked_allow_rules(world: World) -> None:
+    world.new_case("allow")
+    settings_path = world.iso.home / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps({"model": "opus", "permissions": {"allow": ["Bash"]}}))
+    seed = world.root / "allow-seed"
+    (seed / "config" / "claude").mkdir(parents=True, exist_ok=True)
+    for name in ("add_allow_rules.py", "settings.allow.json"):
+        shutil.copy(REPO_ROOT / "config" / "claude" / name, seed / "config" / "claude" / name)
+    world.git(seed, "add", "config")
+    world.git(seed, "commit", "-qm", "feat: allow rules")
+    world.git(seed, "push", "-q", "origin", "main")
+    result = world.run_sync("allow")
+    assert result.returncode == 0, f"sync should succeed\n{result.stderr}"
+    tracked = json.loads((REPO_ROOT / "config" / "claude" / "settings.allow.json").read_text())["permissions"]["allow"]
+    settings = json.loads(settings_path.read_text())
+    assert settings["permissions"]["allow"] == ["Bash", *tracked], "sync should add the rules and keep local ones"
+    assert settings["model"] == "opus"
+
+
 # --- sync: ro -----------------------------------------------------------------------------
 
 RO_REVIEWERS = '{"reviewers": []}\n'

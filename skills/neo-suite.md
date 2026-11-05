@@ -4,45 +4,50 @@ The neo suite takes written work to a merged and verified result while you are a
 The [vocabulary](neo-vocabulary.md) defines the terms, such as chain, PR brief, and work ID.
 
 ```mermaid
+---
+config:
+  flowchart:
+    wrappingWidth: 400
+---
 flowchart TD
-    you([You: a ticket or a goal])
-    perf["perf<br/>runs a spike: experiments that end<br/>in a decision; it merges nothing"]
-    decision["Decision record<br/>the ticket, with no ship run"]
-    matrix["matrix<br/>splits the goal into small PRs,<br/>one PR brief for each PR;<br/>asks for every grant once"]
-    intake["neo intake<br/>a pass/fail check for each requirement;<br/>auth-helper tests each login"]
-    loop["neo loop<br/>change, verify, keep or fix"]
-    review["pre-PR review, fitted to the diff<br/>none when an existing check covers it;<br/>one open review for new check code"]
-    openpr["open-pr --no-review<br/>publishes the PR"]
-    ready["neo takes the PR to ready inline,<br/>with review-pr as the procedure"]
-    watcher(["PR watcher, one for each open PR<br/>the only wake source"])
-    tier{"Low or Medium tier,<br/>and no guarded change?"}
-    merge["Merge the reviewed commit<br/>/matrix queues it under a merge grant"]
-    park["Park it for you<br/>its watcher keeps running"]
-    verify["verify<br/>proves each ticket check<br/>where the change runs"]
-    trace[("agent-trace<br/>spans and friction notes")]
-    close["Close<br/>run log and verdict on the ticket;<br/>one message to you"]
-    retro["retro<br/>saves a report, finds patterns<br/>across runs, suggests fixes"]
+    you([You: ticket or goal])
+    perf["perf<br/>runs a spike"]
+    decision["Decision record<br/>no ship run"]
+    matrix["matrix<br/>splits into PR briefs"]
+    intake["neo intake<br/>a check per requirement"]
+    loop["neo loop<br/>change, verify, keep"]
+    review["pre-PR review<br/>fitted to the diff"]
+    openpr["open-pr<br/>publishes the PR"]
+    ready["ready check<br/>inline review-pr"]
+    watcher(["PR watcher<br/>only wake source"])
+    tier{"risk tier"}
+    merge["pinned merge"]
+    park["park for you"]
+    verify["verify<br/>proves each check"]
+    trace[("agent-trace<br/>spans and notes")]
+    close["Close<br/>run log and verdict"]
+    retro["retro<br/>suggests fixes"]
 
     you -->|one ticket| intake
-    you -->|goal too big for one worker| matrix
-    you -->|speed goal or spike| perf
-    perf -->|one proven change, after you confirm;<br/>the ticket carries the hand-off| intake
-    perf -->|several proven changes, after you confirm;<br/>the ticket carries the hand-off| matrix
+    you -->|big goal| matrix
+    you -->|speed or spike| perf
+    perf -->|proven change| intake
+    perf -->|proven changes| matrix
     perf -->|no proven change| decision
-    matrix -->|one neo for each chain| intake
+    matrix -->|one neo per chain| intake
     intake --> loop --> review --> openpr --> ready
-    ready -.->|waits on| watcher
-    watcher -.->|wakes the run| ready
+    ready -.-> watcher
+    watcher -.->|wakes| ready
     ready --> tier
-    tier -->|yes| merge --> verify
-    tier -->|no| park
-    park -->|you merge; the watcher wakes the run| verify
-    verify -->|a check fails: follow-up PR| loop
-    verify -->|every check passes| close
-    loop -.->|records the run| trace
-    trace -.-> close
-    close --> retro
+    tier -->|Low or Medium| merge --> verify
+    tier -->|High or guarded| park
+    park -->|you merge| verify
+    verify -->|check fails| loop
+    verify -->|all pass| close --> retro
+    loop -.-> trace -.-> close
 ```
+
+`perf` hands a proven change on only after you confirm, and its ticket carries the hand-off. The pre-PR review runs no reviewer when an existing check covers the diff, and one open review for new check code. `neo` publishes with `open-pr --no-review`. The PR watcher is `review-pr`'s `scripts/watch-pr.sh`, one for each open PR, and a parked PR keeps its watcher. Under a merge grant, `/matrix` queues the pinned merge.
 
 | Part | Kind | Its job in a run |
 | --- | --- | --- |

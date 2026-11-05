@@ -67,8 +67,7 @@ When TypeScript matters, explain important concepts and syntax, especially their
 - Use rendered visuals when they help explain a concept. A text diagram alone does not satisfy this preference.
 - Prefer interaction when changing inputs, tracing a sequence, revealing detail, or comparing scenarios improves understanding. Do not wait for the user to request it.
 - Use a suitable visualization skill when available. Otherwise, produce a rendered diagram or a browser-readable visual with working interactions.
-- Never put Mermaid in a Claude desktop chat reply, because that app does not render it. Use a visualization tool, a rendered file, or a table there.
-- Use Mermaid where it renders: ChatGPT and Codex chat, GitHub Markdown, Notion, and Obsidian. Use ASCII only when plain text is required or rendered output cannot be delivered.
+- Use Mermaid where it renders: ChatGPT and Codex chat, GitHub Markdown, Notion, and Obsidian. Never put it in a Claude desktop chat reply, which does not render it: use a visualization tool, a rendered file, or a table there. Use ASCII only when plain text is required or rendered output cannot be delivered.
 
 ## Proportional delivery and testing
 
@@ -111,6 +110,7 @@ Read each guide before the action in its trigger. Guide links are relative to th
 | Authenticated app, Notion, Slack, or automation work | [Connectors](guides/connectors.md) |
 | Git, PR, review-thread, or worktree work | [Git and worktrees](guides/git-and-worktrees.md) |
 | Shell commands or terminal diagrams | [Shell and tools](guides/shell-and-tools.md) |
+| Writing a Mermaid diagram | [Mermaid diagrams](guides/mermaid.md) |
 | Writing or editing Obsidian notes | [Obsidian](guides/obsidian.md) |
 | Reviewing a PR to this dotfiles repository | [Dotfiles review policy](guides/dotfiles-review.md) |
 | Claude Code Agent Teams, `/review`, or vault writes | [Claude Code notes](guides/claude-code.md) |

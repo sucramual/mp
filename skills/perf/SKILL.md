@@ -72,7 +72,7 @@ For each claim, start a fresh read-only reviewer with the claim, the raw numbers
   - **Open decisions.** Each decision with its owner, and where the link to the owner's agreement goes.
 - Post the results as one dated comment: baseline, each hypothesis with its verdict, numbers, n, and links to the runs. Refuted ideas go under Non-goals in the description, not in the comment.
 - Write the long report as a Notion page and link it from the ticket.
-- Delete each experiment branch, and each PR and environment that it made, such as a preview sandbox. If a delete is refused, give Marcus the command.
+- Close each PR that an experiment opened, with `gh pr close <pr> --delete-branch`. Delete each other experiment branch and each environment that it made, such as a preview sandbox. If a delete is refused, give Marcus the command.
 
 ## 7. Hand-off
 

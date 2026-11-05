@@ -63,6 +63,13 @@ The hard limits apply at every step:
 - Spacelift is read-only.
 - Done means every ticket check passes on the merged result, not that the PR merged.
 
+## Release notes
+
+When a version changes a neo suite part, its release notes get a change map, placed after the first paragraph.
+Use the format of `open-pr`'s [change map reference](open-pr/references/change-map.md): base the map on the diagram above, colour each part as new, changed, or unchanged since the last version, and check it with `open-pr`'s `scripts/check-mermaid.sh`.
+GitHub release pages do not render Mermaid. Render the map to a PNG with `npx -p @mermaid-js/mermaid-cli mmdc -i <file>.mmd -o change-map.png -s 2 -b white`, upload it with `gh release upload <tag> change-map.png`, and embed it as an image from `https://github.com/sucramual/mp/releases/download/<tag>/change-map.png`.
+The map goes in the release notes, not in this file, because its colours describe one version only.
+
 ## neo and rogue
 
 `neo` is a slim version of `rogue`, kept beside it so the two can be compared on real tickets.

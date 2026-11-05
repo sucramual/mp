@@ -68,6 +68,8 @@ These files decide when an agent may merge, what blocks a merge or a push, or wh
 - `config/claude/settings.template.json`
 - `config/codex/config.toml`
 - `config/claude/merge_cloud_settings.py`
+- `config/claude/settings.allow.json`
+- `config/claude/add_allow_rules.py`
 - `config/codex/merge_config.py`
 - `scripts/check_leaks.py`
 - `config/git-hooks/pre-push`

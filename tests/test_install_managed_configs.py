@@ -573,6 +573,23 @@ def test_install_neither_installs_nor_runs_ro(
     assert (isolated_env.home / ".config/review-pr/reviewers.json").is_symlink(), "the reviewers link should stay"
 
 
+# Protects: install.sh adds the tracked allow rules to a settings.json that already exists.
+# Bug caught: install.sh runs add_allow_rules.py only at the first seed, or not at all, so an existing machine
+# never gets a tracked rule.
+def test_install_adds_tracked_allow_rules(isolated_env: IsolatedEnv, fake_exe: Callable[..., Path], run_tool: RunTool):
+    seed_settings(isolated_env.home)
+    fake_exe("bun", "exit 0\n")
+    fake_exe("npx", "exit 0\n")
+    fake_exe("uname", "echo Linux\n")
+
+    checkout, _ = run_copied_installer(isolated_env, run_tool, isolated_env.env["PATH"])
+
+    tracked = json.loads((checkout / "config/claude/settings.allow.json").read_text())["permissions"]["allow"]
+    settings = json.loads((isolated_env.home / ".claude/settings.json").read_text())
+    assert settings["permissions"]["allow"] == tracked, "install.sh should add the tracked allow rules"
+    assert settings["model"] == "opus", "install.sh should keep the owner's keys"
+
+
 # ---- guard_irreversible hook ----------------------------------------------------------------------
 
 GUARD_NAME = "guard_irreversible.py"

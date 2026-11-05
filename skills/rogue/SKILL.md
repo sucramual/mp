@@ -48,9 +48,7 @@ Each time you hit friction that you want fixed, run `agent-trace note friction -
 3. **Fresh-context review.** Run `/age` in a new read-only worker with the diff, the goal, and the done-checks, not the chat. A removed or skipped test is important. Fix every important finding, and record the reviewed head SHA. After a clean rebase whose `git range-diff` shows every commit unchanged, rerun the tests and reuse this review.
 4. **PR and review.** Run `open-pr --no-review`. The PR body links the contract comment and has a `## Proof` section. Then run `review-pr`. If it stops on a design batch, a decision, or its round limit, park the PR.
 5. **Risk tier**, from the diff, as [Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md) defines it. High tier or a reserved path: do not merge; park the PR. The one exception is a [Spacelift PR](#spacelift). In an employer repository with an overlay rule, follow the Employer repository rules section of Risk tiers instead of the tiers.
-6. **Merge.** Run [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md). Merge only on `ready`. Park `ready with gaps` and `not ready`, and report the gaps.
-   Exception, for a low-tier PR only: a gap that is only a missing reviewer or missing reviewer configuration does not park it. Record the gap in the proof bundle (the PR body's `## Proof` section and the closing comment). Classify the tier (step 5) before you decide to park on this gap. A missing CI check on the head parks the PR at every tier.
-   If the head differs from the step 3 SHA, run step 3 again on the current head, then step 4.
+6. **Merge.** Run [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md). Merge only on `ready`. Park `ready with gaps` and `not ready`, and report the gaps. Exception, for a low-tier PR only: a gap that is only a missing reviewer or missing reviewer configuration does not park it. Record the gap in the proof bundle (the PR body's `## Proof` section and the closing comment). Classify the tier (step 5) before you decide to park on this gap. A missing CI check on the head parks the PR at every tier. If the head differs from the step 3 SHA, run step 3 again on the current head, then step 4.
    - Without a merge queue: `gh pr merge <pr> --repo <owner/repo> --squash --match-head-commit <reviewed SHA>`. Where GraphQL is blocked: `gh api -X PUT repos/<owner>/<repo>/pulls/<pr>/merge -f sha=<reviewed SHA> -f merge_method=squash`.
    - With a merge queue: GraphQL `enqueuePullRequest` with `expectedHeadOid` set to the reviewed SHA. If it fails, do not merge another way.
    - Never pass `--admin` or `--auto`. Never resolve review threads yourself to unblock a merge. If a safety check blocks the merge, stop loud.
@@ -87,6 +85,8 @@ Also reserved, at every tier:
   - `config/claude/settings.template.json`
   - `config/codex/config.toml`
   - `config/claude/merge_cloud_settings.py`
+  - `config/claude/settings.allow.json`
+  - `config/claude/add_allow_rules.py`
   - `config/codex/merge_config.py`
   - `scripts/check_leaks.py`
   - `config/git-hooks/pre-push`

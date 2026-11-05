@@ -13,7 +13,7 @@ flowchart TD
     you([You: ticket or goal])
     perf["perf<br/>runs a spike"]
     decision["Decision record<br/>no ship run"]
-    matrix["matrix<br/>splits into PR briefs"]
+    matrix["matrix<br/>splits into chains"]
     intake["neo intake<br/>a check per requirement"]
     loop["neo loop<br/>change, verify, keep"]
     review["pre-PR review<br/>fitted to the diff"]
@@ -47,7 +47,7 @@ flowchart TD
     loop -.-> trace -.-> close
 ```
 
-`perf` hands a proven change on only after you confirm, and its ticket carries the hand-off. The pre-PR review runs no reviewer when an existing check covers the diff, and one open review for new check code. `neo` publishes with `open-pr --no-review`. The PR watcher is `review-pr`'s `scripts/watch-pr.sh`, one for each open PR, and a parked PR keeps its watcher. Under a merge grant, `/matrix` queues the pinned merge.
+`matrix` writes one PR brief for each PR in a chain. `perf` hands a proven change on only after you confirm, and its ticket carries the hand-off. The pre-PR review runs no reviewer when an existing check covers the diff, and one open review for new check code. `neo` publishes with `open-pr --no-review`. The PR watcher is `review-pr`'s `scripts/watch-pr.sh`, one for each open PR, and a parked PR keeps its watcher. Under a merge grant, `/matrix` queues the pinned merge.
 
 | Part | Kind | Its job in a run |
 | --- | --- | --- |

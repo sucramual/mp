@@ -41,8 +41,8 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 
 Publish with `open-pr --no-review`. You take each PR to ready yourself, inline, with `review-pr` as the procedure. Start no background `review-pr` agent, because two writers would push to one branch. Never end the run at an open PR.
 
-- The PR watcher is the only wake source for an open PR. Run `bash <review-pr skill dir>/scripts/watch-pr.sh <owner>/<repo> <pr>` with `run_in_background: true`, one for each open PR, and end the turn. It costs nothing while it waits. It exits when a required check finishes, the review decision changes, a comment, review, or reaction arrives, the head moves, a conflict appears, the PR becomes ready, or it merges or closes. It prints one `event:` line for each. It ignores bot status comments.
-- When it exits, handle each event inline with `review-pr` steps 2 to 6, then start the watcher again. When it exits 1, read the PR again and stop on the failure if the read fails again. Never use another wait script.
+- In local Claude Code, the PR watcher is the only wake source for an open PR. Run `bash <review-pr skill dir>/scripts/watch-pr.sh <owner>/<repo> <pr>` with `run_in_background: true`, one for each open PR, and end the turn. Add `--timeout 900` while the reviewer has not covered the head, so `event: timeout` sends you to `review-pr` step 2 and its re-trigger. It exits when a required check finishes, the review decision changes, a comment, review, or reaction arrives, the head moves, a conflict appears, the PR becomes ready, or it merges or closes. It prints one `event:` line for each. It ignores bot status comments and your own posts.
+- When it exits, handle each event inline with `review-pr` steps 2 to 6, then start the watcher again. When it exits 1, read the PR again and stop on the failure if the read fails again. Never use another wait script. In a cloud session, which blocks the GraphQL reads of the watcher, wait as `review-pr` step 1 says for a cloud session.
 - Auto-fix (the Claude desktop app's PR monitor) is not a wake source. After `open-pr` opens a PR, turn Auto-fix off with the app's `set_monitor` tool. If the tool is missing or fails, leave Auto-fix on and ignore its wakes.
 - Each time the run wakes, read the current head from GitHub and run the ready check: [Ready to merge](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/ready-to-merge.md), or the overlay rule in an employer repository. When every condition holds, merge under the hard limits below, or park it to `/matrix` when the PR brief gives a merge grant for it.
 - A throwaway PR is one that you open only to test, never to merge. It gets no ready check and no watcher. When its test ends, close it. Delete its branch and any environment it made.
@@ -51,7 +51,7 @@ Publish with `open-pr --no-review`. You take each PR to ready yourself, inline, 
 
 Before each `wrap_up`, and before you end any turn, check that one of these holds:
 
-- Each open PR has a running PR watcher, also a parked PR, whose watcher wakes the run when Marcus merges it.
+- Each open PR has a running PR watcher, or a PR-activity subscription in a cloud session. A parked PR keeps its watcher too, so the run wakes when Marcus merges it.
 - The ticket is finished: Close is done.
 
 A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready.

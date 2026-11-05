@@ -84,6 +84,7 @@ def pr(
 
 BASE: dict[str, object] = {
     "graphql": pr(),
+    "user": {"login": "agent"},
     "repos_o_r_issues_7_comments": [
         {"id": 1, "updated_at": "2026-11-02T10:00:00Z", "user": {"login": "chatgpt-codex-connector[bot]"}},
         {"id": 2, "updated_at": "2026-11-02T10:00:00Z", "user": {"login": "nx-cloud[bot]"}},
@@ -230,14 +231,14 @@ def test_bot_status_comments_and_review_start_marks_do_not_end_the_wait(tmp_path
         {"id": 2, "updated_at": "2026-11-02T10:09:00Z", "user": {"login": "nx-cloud[bot]"}},
         {"id": 3, "updated_at": "2026-11-02T10:09:00Z", "user": {"login": "github-actions[bot]"}},
     ]
-    eyes = [{"id": 5, "content": "eyes"}]
+    eyes = [{"id": 5, "content": "eyes", "user": {"login": "codex"}}]
     after = {"repos_o_r_issues_7_comments": comments, "repos_o_r_issues_7_reactions": eyes}
     result, polls = _run(tmp_path, after, change_at=2, timeout=1)
     assert _events(result) == ["event: timeout"]
     assert polls >= 2, "the wait should have seen the bot comments before it timed out"
 
     # The same kind of change from a reviewer still ends the wait.
-    thumbs = [{"id": 6, "content": "+1"}]
+    thumbs = [{"id": 6, "content": "+1", "user": {"login": "codex"}}]
     result, _ = _run(tmp_path / "second", {"repos_o_r_issues_7_reactions": thumbs}, change_at=2)
     assert _events(result) == ["event: reaction"]
 
@@ -264,4 +265,31 @@ def test_a_state_that_the_last_run_saw_does_not_end_the_next_run(tmp_path: Path)
     assert "event: ready" in _events(result)
 
     result, _ = _run(tmp_path / "second", {}, change_at=999, base=ready, state_dir=state, timeout=1)
+    assert _events(result) == ["event: timeout"]
+
+
+def test_a_comment_between_two_runs_ends_the_next_run_at_once(tmp_path: Path) -> None:
+    # Bug: a watcher that takes its comment baseline at start hides a review that arrived while the worker
+    # was fixing the last round, so nothing wakes the worker for it.
+    state = tmp_path / "state"
+    result, _ = _run(tmp_path / "first", {"graphql": pr(state="MERGED")}, change_at=2, state_dir=state)
+    assert _events(result) == ["event: merged"]
+
+    review = [{"id": 9, "state": "CHANGES_REQUESTED", "user": {"login": "someone"}}]
+    base = {"graphql": pr(state="MERGED"), "repos_o_r_pulls_7_reviews": review}
+    result, polls = _run(tmp_path / "second", {}, change_at=999, base=base, state_dir=state)
+    assert _events(result) == ["event: review"]
+    assert polls == 1, "the run should end on its first read"
+
+
+def test_the_agents_own_posts_do_not_end_the_wait(tmp_path: Path) -> None:
+    # Bug: once comments carry over between runs, the worker's own thread replies would wake it each round.
+    state = tmp_path / "state"
+    result, _ = _run(tmp_path / "first", {"graphql": pr(state="MERGED")}, change_at=2, state_dir=state)
+    assert _events(result) == ["event: merged"]
+
+    reply = [{"id": 8, "updated_at": "2026-11-02T10:10:00Z", "user": {"login": "agent"}}]
+    thumbs = [{"id": 6, "content": "+1", "user": {"login": "agent"}}]
+    base = {"graphql": pr(state="MERGED"), "repos_o_r_pulls_7_comments": reply, "repos_o_r_issues_7_reactions": thumbs}
+    result, _ = _run(tmp_path / "second", {}, change_at=999, base=base, state_dir=state, timeout=1)
     assert _events(result) == ["event: timeout"]

@@ -11,15 +11,15 @@
 #   timeout                           --timeout SECONDS passed with no change
 # "ready" means open, approved or no review required, every required check passed, and mergeable.
 #
-# It ignores comments from the bots in IGNORED_AUTHORS, whose status comments never need action, and the
-# "eyes" reaction that a reviewer adds when it starts. Edits count, because the Codex reviewer reports
-# "done" by editing its summary comment.
+# It ignores comments from the bots in IGNORED_AUTHORS, whose status comments never need action, the
+# agent's own comments, reviews, and reactions (the `gh` login), and the "eyes" reaction that a reviewer
+# adds when it starts. Edits count, because the Codex reviewer reports "done" by editing its summary comment.
 #
 # It records the last PR state that it read in WATCH_PR_STATE_DIR. The next run compares with that record,
-# so a check that finished or an approval that arrived between two runs ends the next run at once, and a
-# state that the last run already reported, such as a parked ready PR, does not. Comments, reviews,
-# reactions, and the head compare with the start of each run, so the agent's own push or reply does not
-# wake it. With no record, the first read reports what it finds.
+# so a check, approval, comment, or review that arrived between two runs ends the next run at once, and a
+# state that the last run already reported, such as a parked ready PR, does not. The head compares with
+# the start of each run, so the agent's own push does not wake it. With no record, the first read reports
+# the PR conditions that it finds, and takes the current comments, reviews, and reactions as seen.
 #
 # A failed read exits 1, so the agent reads again and stops on the failure. The script lives in a file
 # because Claude Code's worktree guard refuses an inline loop in a worktree-isolated agent.
@@ -78,14 +78,14 @@ conditions() {
 }
 
 activity() {
-  local people="select(.user.login | IN($IGNORED_AUTHORS) | not)"
+  local people="select(.user.login | IN($IGNORED_AUTHORS, \"$me\") | not)"
   gh api --paginate "repos/$repo/issues/$pr/comments?per_page=100" \
     --jq ".[] | $people | \"comment \(.id) \(.updated_at)\"" &&
     gh api --paginate "repos/$repo/pulls/$pr/comments?per_page=100" \
       --jq ".[] | $people | \"comment \(.id) \(.updated_at)\"" &&
-    gh api --paginate "repos/$repo/pulls/$pr/reviews?per_page=100" --jq '.[] | "review \(.id) \(.state)"' &&
+    gh api --paginate "repos/$repo/pulls/$pr/reviews?per_page=100" --jq ".[] | $people | \"review \(.id) \(.state)\"" &&
     gh api --paginate "repos/$repo/issues/$pr/reactions?per_page=100" \
-      --jq '.[] | select(.content != "eyes") | "reaction \(.id)"'
+      --jq ".[] | $people | select(.content != \"eyes\") | \"reaction \(.id)\""
 }
 
 field() { printf '%s\n' "$1" | sed -n "s/^$2 //p" | head -n 1; }
@@ -131,12 +131,19 @@ read_failed() {
   exit 1
 }
 
+me=$(gh api user --jq .login) || read_failed
 now=$(conditions) || read_failed
-start_activity=$(activity) || read_failed
+activity_now=$(activity) || read_failed
 start_head=$(field "$now" head)
 before=$(cat "$state_file" 2>/dev/null || true)
-events=$(condition_events "$before" "$now")
-record "$now" || { echo "state write failed" >&2; exit 1; }
+activity_before=$(printf '%s\n' "$before" | grep -E '^(comment|review|reaction) ' || true)
+[ -z "$before" ] && activity_before=$activity_now
+events=$(
+  condition_events "$before" "$now"
+  activity_events "$activity_before" "$activity_now"
+)
+record "$now
+$activity_now" || { echo "state write failed" >&2; exit 1; }
 if [ -n "$events" ]; then
   printf '%s\n' "$events"
   exit 0
@@ -146,15 +153,17 @@ deadline=""
 [ -n "$timeout" ] && deadline=$(($(date +%s) + timeout))
 while sleep "${WATCH_PR_POLL_SECONDS:-30}"; do
   before=$now
+  activity_before=$activity_now
   now=$(conditions) || read_failed
-  current_activity=$(activity) || read_failed
+  activity_now=$(activity) || read_failed
   events=$(
     condition_events "$before" "$now"
-    activity_events "$start_activity" "$current_activity"
+    activity_events "$activity_before" "$activity_now"
     head=$(field "$now" head)
     [ "$head" != "$start_head" ] && echo "event: head $head"
   )
-  record "$now" || { echo "state write failed" >&2; exit 1; }
+  record "$now
+$activity_now" || { echo "state write failed" >&2; exit 1; }
   if [ -n "$events" ]; then
     printf '%s\n' "$events"
     exit 0

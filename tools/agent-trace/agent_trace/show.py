@@ -349,7 +349,14 @@ class Selection:
         return [r for group in (*self.claude.values(), *self.codex.values()) for r in group]
 
 
-def select(records: list[dict[str, Any]], ticket: str | None, wanted: list[str]) -> Selection:
+def select(
+    records: list[dict[str, Any]], ticket: str | None, wanted: list[str], bound: list[str] | None = None
+) -> Selection:
+    """Pick the records of one run. `wanted` sessions are explicit and give all their agent records.
+
+    A `bound` session is only discovered: it gives its transcript and native spans, but its agent records
+    count only when they name this ticket, because one session can serve several work IDs in turn.
+    """
     wanted_set = set(wanted)
 
     def agent_match(record: dict[str, Any]) -> bool:
@@ -360,7 +367,7 @@ def select(records: list[dict[str, Any]], ticket: str | None, wanted: list[str])
         return session_of(record) in wanted_set
 
     agent = [r for r in records if agent_match(r)]
-    sessions = list(dict.fromkeys([*wanted, *[s for s in map(session_of, agent) if s]]))
+    sessions = list(dict.fromkeys([*wanted, *(bound or []), *[s for s in map(session_of, agent) if s]]))
     session_set = set(sessions)
     claude: dict[str, list[dict[str, Any]]] = {}
     for record in records:
@@ -704,9 +711,8 @@ def run(args: argparse.Namespace) -> int:
     base = Path(args.dir).expanduser() if args.dir else store.state_dir()
     width = max(10, int(args.width))
     wanted = list(args.session)
-    if args.ticket:
-        wanted += [s for s in store.sessions_bound_to(base, args.ticket) if s not in wanted]
-    selection = select(dedupe(store.read_all(base)), args.ticket, wanted)
+    bound = [s for s in store.sessions_bound_to(base, args.ticket) if s not in wanted] if args.ticket else []
+    selection = select(dedupe(store.read_all(base)), args.ticket, wanted, bound)
     if not selection.agent and not selection.native:
         what = f"work ID {args.ticket}" if args.ticket else "session " + ", ".join(args.session)
         print(f"agent-trace: no spans for {what}", file=sys.stderr)

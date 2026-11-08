@@ -496,6 +496,23 @@ def test_wall_time_comes_from_the_transcripts_of_every_bound_session(env: dict[s
     ]
 
 
+def test_a_session_bound_to_a_later_work_id_does_not_leak_earlier_agent_spans(env: dict[str, str]) -> None:
+    # Bug: bound sessions were passed as explicit selectors, so one session that served RUN-1 and then RUN-2
+    # put the spans of both work IDs into the RUN-2 timeline.
+    records = [
+        agent("old", "start", at(9, 0), ticket="RUN-1", name="Old work", **{"agent_trace.kind": "phase"}),
+        agent("old", "end", at(9, 10), ticket="RUN-1", **{"agent_trace.status": "ok"}),
+        agent("new", "start", at(9, 20), ticket="RUN-2", name="New work", **{"agent_trace.kind": "phase"}),
+        agent("new", "end", at(9, 30), ticket="RUN-2", **{"agent_trace.status": "ok"}),
+    ]
+    write_store(state_of(env), records)
+    (state_of(env) / "sessions").mkdir(parents=True)
+    (state_of(env) / "sessions" / f"{S1}.ticket").write_text("RUN-2\n")
+    code, out, err = show(env, "--work", "RUN-2", "--offline")
+    assert code == 0, err
+    assert [r["name"] for r in rows(out)] == ["run RUN-2", "  New work"]
+
+
 def test_wall_time_is_unknown_without_transcripts(env: dict[str, str]) -> None:
     # Bug a careless fix makes: falling back to the span window would print it as the wall time again.
     write_store(state_of(env), scenario())

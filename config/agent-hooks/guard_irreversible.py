@@ -114,7 +114,7 @@ def strip_heredocs(command: str) -> str:
             body = UNQUOTE.sub("", "\n".join(lines[start:index]))
             if GUARDED_WORD.search(body):
                 return command
-            if SPACECTL_WORD.search(body) and (not quoted or SHELL_RECEIVER.search(head)):
+            if SPACECTL_WORD.search(body) and (not quoted or SHELL_RECEIVER.search(UNQUOTE.sub("", head))):
                 return command
             index += 1
     return "\n".join(kept)

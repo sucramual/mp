@@ -236,6 +236,8 @@ SPACECTL_WRITES_BLOCKED = [
     ("cat > notes.md <<EOF\n$(spacectl stack deploy --id x)\nEOF", SPACELIFT_REASON),
     ("ssh devbox <<'EOF'\nspacectl stack preview --id x\nEOF", SPACELIFT_REASON),
     ("cat <<'EOF' | \\\nbash\nspacectl stack deploy --id x\nEOF", SPACELIFT_REASON),
+    ("\"/bin/bash\" <<'EOF'\nspacectl stack confirm --id prod --run r1\nEOF", SPACELIFT_REASON),
+    ("'bash' <<'EOF'\nspacectl stack confirm --id prod --run r1\nEOF", SPACELIFT_REASON),
     ("bash <<'EOF'\necho it's\nspacectl stack preview --id x\nEOF", "could not split"),
 ]
 

@@ -18,6 +18,7 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
 - Work in a clean worktree on the PR branch. Stop when it cannot fast-forward to the remote head.
 - Read with REST (`gh api repos/...`). Cloud sessions block GraphQL, which `gh pr view` uses.
 - When the repository's reviewer entry sets `threadRepliesOnly: true`, follow [Thread replies only](#thread-replies-only). It overrides every PR post in the loop.
+- When a `/matrix` run contract governs the PR (a PR brief or the `/neo` run-state file names it), read it before step 1. It takes precedence over this skill and over `reviewers.json`. Its reply grammar turns on [Thread replies only](#thread-replies-only). [Run contract](https://raw.githubusercontent.com/sucramual/mp/main/skills/matrix/references/run-contract.md) defines its fields.
 
 ## Loop
 

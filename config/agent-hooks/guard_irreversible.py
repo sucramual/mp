@@ -11,8 +11,10 @@ It reads the hook JSON on stdin and checks each simple command in a Bash tool ca
   - `spacectl` may run only read commands (READ_ONLY_SPACECTL).
 
 Allow: exit 0 with no output. Block: exit 2 with the reason on stderr; both agents read this as a block.
-A heredoc body is input, so its quoting is not checked, unless a body names gh, spacectl, graphql, or a merge mutation.
-Then the whole call is checked as written, and bad quoting fails closed.
+A heredoc body is input, so its quoting is not checked, unless a body names gh, graphql, or a merge mutation.
+Then the whole call is checked as written, and bad quoting fails closed. A body that names spacectl is kept
+the same way only when a shell may run or expand it: its line names a shell, or its delimiter is unquoted.
+`command -v` and `command -V` only look a name up, so the guard does not check the name as a command.
 It fails closed: bad input or any error blocks the call.
 It is a guardrail against mistakes, not a security boundary: shell tricks such as eval or variables get past it.
 Standard library only.
@@ -40,7 +42,11 @@ HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
 # Shell quoting that joins a word, as in g\h or g''h, so the match runs on the body without it.
 UNQUOTE = re.compile(r"[\\'\"]")
 # A heredoc body with one of these words may hold a command, so the guard keeps the whole call.
-GUARDED_WORD = re.compile(r"\b(gh|spacectl|graphql|mergePullRequest|enqueuePullRequest|enablePullRequestAutoMerge)\b")
+GUARDED_WORD = re.compile(r"\b(gh|graphql|mergePullRequest|enqueuePullRequest|enablePullRequestAutoMerge)\b")
+# A body that names spacectl is data unless a shell may run it or expand $(...) in it.
+SPACECTL_WORD = re.compile(r"\bspacectl\b")
+# A command word on the heredoc line that runs its input as shell commands.
+SHELL_RECEIVER = re.compile(r"(?:^|[\s;&|(`])(?:\S*/)?(?:bash|sh|zsh|dash|ksh|ssh|eval|source|xargs)(?=$|[\s;&|)`])")
 MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge/?")
 # gh api flags that take a value. Every other flag is a switch.
 GH_API_VALUE_FLAGS = {
@@ -54,7 +60,8 @@ GH_API_VALUE_FLAGS = {
 READ_ONLY_SPACECTL = (
     ("version",), ("whoami",), ("profile",), ("completion",),
     ("stack", "list"), ("stack", "show"), ("stack", "logs"), ("stack", "outputs"), ("stack", "changes"),
-    ("stack", "open"), ("stack", "run", "list"), ("stack", "environment", "list"), ("stack", "task", "list"),
+    ("stack", "open"), ("stack", "run", "list"), ("stack", "run", "show"), ("stack", "run", "changes"),
+    ("stack", "run", "logs"), ("stack", "environment", "list"), ("stack", "task", "list"),
     ("stack", "resources", "list"), ("stack", "state", "pull"),
 )  # fmt: skip
 
@@ -86,12 +93,23 @@ def strip_heredocs(command: str) -> str:
         line = lines[index]
         kept.append(line)
         index += 1
+        # The heredoc line with the lines that it continues, where a shell that reads the body is named.
+        head = line
+        for earlier in reversed(kept[:-1]):
+            if not earlier.endswith("\\"):
+                break
+            head = earlier + "\n" + head
         for match in HEREDOC.finditer(line):
-            strip_tabs, delimiter = match.group(1) == "-", match.group(3)
+            strip_tabs, quoted, delimiter = match.group(1) == "-", bool(match.group(2)), match.group(3)
             start = index
             while index < len(lines) and (lines[index].lstrip("\t") if strip_tabs else lines[index]) != delimiter:
                 index += 1
-            if index == len(lines) or GUARDED_WORD.search(UNQUOTE.sub("", "\n".join(lines[start:index]))):
+            if index == len(lines):
+                return command
+            body = UNQUOTE.sub("", "\n".join(lines[start:index]))
+            if GUARDED_WORD.search(body):
+                return command
+            if SPACECTL_WORD.search(body) and (not quoted or SHELL_RECEIVER.search(head)):
                 return command
             index += 1
     return "\n".join(kept)
@@ -118,6 +136,10 @@ def strip_wrappers(words: list[str]) -> list[str]:
     while words:
         if ASSIGNMENT.match(words[0]) or words[0] in RESERVED_WORDS:
             words = words[1:]
+        elif os.path.basename(words[0]) == "command" and any(
+            word.startswith("-") and ("v" in word or "V" in word) for word in words[1:2]
+        ):
+            return []  # command -v NAME looks NAME up and runs nothing.
         elif os.path.basename(words[0]) in WRAPPERS:
             words = words[1:]
             while words and words[0].startswith("-"):

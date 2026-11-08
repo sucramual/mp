@@ -197,6 +197,59 @@ def test_checks_commands_around_and_inside_shell_heredocs(command: str, reason: 
     assert reason in result.stderr
 
 
+SPACECTL_READS_ALLOWED = [
+    "spacectl stack run list --id x",
+    "spacectl stack run show --id x --run y",
+    "spacectl stack run changes --id x --run y",
+    "spacectl stack run logs --id x --run y",
+    "spacectl whoami",
+    "command -v spacectl >/dev/null && spacectl whoami",
+    "command -V spacectl",
+    "grep -rn 'spacectl stack deploy' docs/",
+    "cat runbook.md | grep spacectl",
+    'echo "next: spacectl stack confirm --id x"',
+    "cat > notes.md <<'EOF'\nMarcus runs spacectl stack confirm --id x, then it's live.\nEOF",
+    "git commit -m \"$(cat <<'EOF'\nfix: don't run spacectl stack preview from an agent\nEOF\n)\"",
+]
+
+
+# Protects: an agent can read Spacelift runs and write text that names spacectl without a block.
+# Bug caught (/matrix run retro, 2026-11-05, finding 11): the guard blocked `spacectl stack run changes` and
+# `command -v spacectl` as writes ("spacectl /dev/null can change infrastructure"), and a quoted heredoc
+# body that named spacectl kept the whole call, so an apostrophe in it blocked with "could not split".
+@pytest.mark.parametrize("command", SPACECTL_READS_ALLOWED)
+def test_allows_spacectl_reads_and_text_that_names_spacectl(command: str, tmp_path: Path):
+    result = run_guard(bash(command, tmp_path), tmp_path)
+    assert result.returncode == 0, f"should allow: {command}\n{result.stderr}"
+    assert result.stderr == ""
+    assert result.stdout == ""
+
+
+SPACECTL_WRITES_BLOCKED = [
+    ("spacectl stack preview --id x", SPACELIFT_REASON),
+    ("spacectl stack confirm --id x --run y", SPACELIFT_REASON),
+    ("spacectl stack deploy --id x", SPACELIFT_REASON),
+    ("command spacectl stack confirm --id x --run y", SPACELIFT_REASON),
+    ("spacectl stack run trigger --id x", SPACELIFT_REASON),
+    ("bash <<'EOF'\nspacectl stack confirm --id x --run y\nEOF", SPACELIFT_REASON),
+    ("cat <<'EOF' | bash\nspacectl stack deploy --id x\nEOF", SPACELIFT_REASON),
+    ("cat > notes.md <<EOF\n$(spacectl stack deploy --id x)\nEOF", SPACELIFT_REASON),
+    ("ssh devbox <<'EOF'\nspacectl stack preview --id x\nEOF", SPACELIFT_REASON),
+    ("bash <<'EOF'\necho it's\nspacectl stack preview --id x\nEOF", "could not split"),
+]
+
+
+# Protects: the read allowances and the heredoc change open no write path to Spacelift.
+# Bug caught: a fix that allows `stack run *`, skips `command` without -v, or strips a heredoc body that a
+# shell runs or expands (an unquoted delimiter runs $(...) in the body).
+@pytest.mark.parametrize(("command", "reason"), SPACECTL_WRITES_BLOCKED)
+def test_still_blocks_spacectl_writes(command: str, reason: str, tmp_path: Path):
+    result = run_guard(bash(command, tmp_path), tmp_path)
+    assert result.returncode == 2, f"should block: {command}\n{result.stderr}"
+    assert reason in result.stderr
+    assert result.stdout == ""
+
+
 def test_allows_other_tools(tmp_path: Path):
     stdin = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": "x", "new_string": "gh pr merge 1"}})
     result = run_guard(stdin, tmp_path)

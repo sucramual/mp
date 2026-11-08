@@ -6,9 +6,9 @@ The `matrix` router reads this file at intake, before it starts any worker. The 
 
 A login that expires during the run stops the run while Marcus is away. In one run, the intake check showed an expired gcloud login, the run went on, and the after-apply checks stopped on it 17 hours later.
 
-- At intake, run `auth-helper check --require <logins> --horizon <whole plan> --json`. Stop on each login that is not `ok`, including `expiring`. Do not start a worker until it is `ok`.
+- At intake, run `auth-helper check --require <logins> --horizon <whole plan> --json`. Stop on each login that is not `ok`, including `expiring`. Do not start a worker until it is `ok`. The exception is `okta` on the laptop: `auth-helper` always reports it as `manual`. Confirm that Okta session in Chrome, and accept `manual` for it once you have.
 - Write each login's `expires_at` in the plan file.
-- For each login that is not `ok`, run its `fix` command (usually `auth-helper refresh <provider>`) in a Terminal tab with `run_in_terminal`, so Marcus completes the browser step there. Then run `auth-helper check` again. Never call a fix done until the check says `ok`.
+- For each login that is not `ok`, run its `fix` command (usually `auth-helper refresh <provider>`) in a Terminal tab with `run_in_terminal`, so Marcus completes the browser step there. Then run `auth-helper check` again. Never call a fix done until the check says `ok`, or `manual` for `okta` after the Chrome confirmation.
 - On each heartbeat, and before each step that needs a login, run `auth-helper check --require <logins> --horizon 1h`. When a login is not `ok`, open its fix in a Terminal tab and ask Marcus to renew it, together with any open decision.
 
 ## Allow rules

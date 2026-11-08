@@ -99,6 +99,11 @@ def strip_heredocs(command: str) -> str:
             if not earlier.endswith("\\"):
                 break
             head = earlier + "\n" + head
+        # A receiver on a later continuation line, such as `cat <<'EOF' | \\` then `bash`, also reads the body.
+        ahead = index
+        while ahead < len(lines) and lines[ahead - 1].endswith("\\"):
+            head += "\n" + lines[ahead]
+            ahead += 1
         for match in HEREDOC.finditer(line):
             strip_tabs, quoted, delimiter = match.group(1) == "-", bool(match.group(2)), match.group(3)
             start = index

@@ -1,6 +1,16 @@
 # Grants and guarded changes
 
-The `matrix` router reads this file before it queues a granted PR, and when a worker parks a guarded change. The intake questions for grants are in `SKILL.md`.
+The `matrix` router reads this file before it queues a granted PR, and when a worker parks a guarded change. It also reads [Intake grants](#intake-grants) before it asks the intake grant questions in `SKILL.md`.
+
+## Intake grants
+
+In one run, two grants could never be used, because their PRs touched paths that the merge rule always hands off, and the Spacelift PRs were left out of the grant question. Each gap cost a question to Marcus later.
+
+1. Map each planned PR's files to the overlay's reserved paths and to the merge rule's conditions on paths, replies, and comments (conditions 3 to 5 of the employer merge policy).
+2. Ask once for each PR that a grant can cover, Spacelift PRs included. The Spacelift confirm stays with Marcus.
+3. Ask also for a standing grant on fix PRs inside a granted chain, which the plan cannot name yet.
+4. In each question, say which conditions still hand the PR off to Marcus, so he does not grant what the rule cannot use.
+5. Name the reply and comment conditions in each PR brief that carries a grant.
 
 ## Granted merges
 

@@ -269,7 +269,8 @@ def test_notes_are_zero_length_spans_with_one_event(isolated_env: IsolatedEnv, t
             env,
         )
         # Transcript items too: `tx-<session 8>-<kind>-<HHMMSS>`, with a `-N` suffix for a repeat, and `-unread`.
-        refs = [ref, "gap-fedcba9876543210", "tx-dddddddd-fail-080006-2", "tx-dddddddd-unread"]
+        # A session name with `-` in its first 8 characters (`AGENT_TRACE_SESSION=my-sess-1`) gives `tx-my-sess--`.
+        refs = [ref, "gap-fedcba9876543210", "tx-dddddddd-fail-080006-2", "tx-dddddddd-unread", "tx-my-sess--unread"]
         none = run(["note", "none", *[f"--ref={r}" for r in refs], "--work", "RUN-1"], env)
     assert friction.returncode == none.returncode == 0
     first, second = server.spans()

@@ -25,7 +25,7 @@ from agent_trace import otlp, store
 TICKET = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]+$")
 IDENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # A native span id (`gap-` for an idle gap), or a transcript item: `tx-<session 8>-<kind>-<HHMMSS>[-N]`.
-REF = re.compile(r"^(?:(?:gap-)?[0-9a-f]{16}|tx-[A-Za-z0-9._]{1,8}-(?:unread|[a-z]+-\d{6}(?:-\d+)?))$")
+REF = re.compile(r"^(?:(?:gap-)?[0-9a-f]{16}|tx-[A-Za-z0-9._-]{1,8}-(?:unread|[a-z]+-\d{6}(?:-\d+)?))$")
 KINDS = ("phase", "pr", "wait", "infra", "check")
 STATUSES = ("ok", "error", "parked")
 CATEGORIES = ("permission", "doc", "flaky", "workaround", "missing-tool")

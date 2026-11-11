@@ -193,6 +193,8 @@ def local_events(lines: list[str], sessions: list[str]) -> list[Event]:
             body["origin"] = origin  # who wrote a user message: human, host_synthetic, peer, task_notification
         if obj.get("isMeta") is True:
             body["meta"] = True  # text that the harness added, such as a loaded skill
+        if obj.get("isCompactSummary") is True:
+            body["meta"] = True  # the summary that the harness wrote after a compaction
         if obj.get("isApiErrorMessage") is True:
             body["api_error"] = True  # an assistant record that the harness wrote for a failed API call
         events.append(Event(time, obj["type"], body, key))
@@ -478,11 +480,17 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
             # A record that Marcus wrote can also hold a notice that the harness queued, which makes it look like
             # another kind of event; `turnOrigin` decides.
             command = prompt_command(typed) if origin == "human" or (origin is None and not ended_by(event)) else None
-            human = origin == "human" if origin else ended_by(event) == "user" and not event.body.get("meta")
-            if command or (human and ended_by(event) == "user"):
+            own = NOTICE_RE.sub("", typed).strip()  # his words, without a notice that the harness queued with them
+            if event.body.get("meta"):
+                message = False
+            elif origin:
+                message = origin == "human" and bool(own)
+            else:
+                message = ended_by(event) == "user"
+            if command or message:
                 item: dict[str, Any] = {"time": iso(event.time), "uuid": pointer(event)}
                 item["kind"] = "command" if command else "message"
-                item.update(command or {"text": short(typed)})
+                item.update(command or {"text": short(own)})
                 item["asked"] = short(said) if said else ""
                 item["wait_seconds"] = (event.time - previous.time).total_seconds() if previous else 0
                 item["before"] = before()

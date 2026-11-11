@@ -541,6 +541,31 @@ def test_interventions_are_typed_messages_and_prompt_commands_with_their_ask_and
             "u-merge2",
             origin="human",
         ),
+        # The summary that starts a session again after compaction is marked human too, but the harness wrote it.
+        json.dumps(
+            {
+                "type": "user",
+                "timestamp": "2026-10-29T11:02:00Z",
+                "uuid": "u-compact",
+                "turnOrigin": "human",
+                "isCompactSummary": True,
+                "message": {"role": "user", "content": "This session is being continued from a previous conversation."},
+            }
+        ),
+        # A reply that Marcus typed, queued behind a notice in the same record.
+        uuid_line(
+            "user",
+            "2026-10-29T11:05:00Z",
+            [
+                {
+                    "type": "text",
+                    "text": '<system-reminder>The session "x" you started finished a turn.</system-reminder>',
+                },
+                {"type": "text", "text": "also keep the flag"},
+            ],
+            "u-queued",
+            origin="human",
+        ),
     ]
     path.write_text("\n".join(lines) + "\n")
     data = report(path)
@@ -550,8 +575,10 @@ def test_interventions_are_typed_messages_and_prompt_commands_with_their_ask_and
         ("command", "u-merge"),
         ("message", "u-yes"),
         ("command", "u-merge2"),
+        ("message", "u-queued"),
     ]
-    _, command, reply, queued = data["interventions"]
+    _, command, reply, queued, queued_reply = data["interventions"]
+    assert queued_reply["text"] == "also keep the flag"
     assert (queued["program"], queued["pr"]) == ("gh pr merge", "https://github.com/o/r/pull/72")
     assert command["program"] == "gh pr merge"
     assert command["pr"] == "https://github.com/o/r/pull/71"

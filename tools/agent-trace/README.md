@@ -23,7 +23,7 @@ A work ID given once (flag or `AGENT_TRACE_WORK`) is bound to the session, so la
 
 ## Run digest (`show --json`)
 
-`show --json` prints one compact JSON object, so `/retro` reads a run without its transcripts. It holds facts only. A run of 3 sessions, 15 PRs, and 86 events gives about 5,300 tokens.
+`show --json` prints one compact JSON object, so `/retro` reads a run without its transcripts. It holds facts only. A run of 3 sessions, 15 PRs, and 92 events gives about 6,000 tokens.
 
 | Key | Content |
 | --- | --- |

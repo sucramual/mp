@@ -67,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("--jaeger", help="also POST the joined trace to this OTLP base URL")
     show.add_argument("--offline", action="store_true", help="do not ask GitHub about PRs")
     show.add_argument("--dir", help="state directory (default: $AGENT_TRACE_DIR)")
+    view = show.add_mutually_exclusive_group()
+    view.add_argument("--gantt", action="store_true", help="print the bar chart of spans instead of the gaps view")
+    view.add_argument("--timeline", action="store_true", help="print the transcript timeline of each session instead")
     return parser
 
 

@@ -1,7 +1,8 @@
 """Black-box tests for `agent-trace show`, the joined timeline of a ticket or sessions.
 
 Each test writes stored records (the flat shape that collect and the fallback file use) to a temporary
-AGENT_TRACE_DIR, runs the real tool with TZ=UTC, and parses its text output.
+AGENT_TRACE_DIR, runs the real tool with TZ=UTC, and parses its text output. The default output is the gaps
+view; the bar-chart tests run `show --gantt`, which prints the old chart.
 
 The main scenario, all on 2026-10-30 (UTC), ticket RUN-1, Claude session S1:
   09:00-09:20  interaction 1; 09:05 a Bash `false` tool fails; 09:06 the same tool runs again (a retry)
@@ -220,6 +221,10 @@ def rows(output: str) -> list[dict[str, str]]:
     return out
 
 
+def gantt(env: dict[str, str], *args: str) -> tuple[int, str, str]:
+    return show(env, *args, "--gantt")
+
+
 def reconcile(output: str) -> list[list[str]]:
     lines = output.splitlines()
     start = lines.index("Reconcile:")
@@ -244,7 +249,7 @@ def state_of(env: dict[str, str]) -> Path:
 
 def test_rows_tree_statuses_and_summary(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    code, out, err = show(env, "--work", "RUN-1", "--offline")
+    code, out, err = gantt(env, "--work", "RUN-1", "--offline")
     assert code == 0, err
     got = [(r["name"], r["dur"], r["status"]) for r in rows(out)]
     assert got == [
@@ -262,7 +267,7 @@ def test_rows_tree_statuses_and_summary(env: dict[str, str]) -> None:
 
 def test_idle_gap_is_one_column_in_every_row_and_labelled(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--work", "RUN-1", "--offline")
+    _, out, _ = gantt(env, "--work", "RUN-1", "--offline")
     bars = [r["bar"] for r in rows(out)]
     columns = {i for bar in bars for i, ch in enumerate(bar) if ch == "┆"}
     assert len(columns) == 1
@@ -275,7 +280,7 @@ def test_idle_gap_is_one_column_in_every_row_and_labelled(env: dict[str, str]) -
 
 def test_error_retry_and_wait_markers(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--work", "RUN-1", "--offline")
+    _, out, _ = gantt(env, "--work", "RUN-1", "--offline")
     by_name = {}
     for r in rows(out):
         by_name.setdefault(r["name"].strip(), []).append(r["bar"])
@@ -295,46 +300,52 @@ def test_reconcile_lists_each_unanswered_anomaly(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     entries = reconcile(out)
+    # Native Bash spans name the program only, so the 09:06 `false` cannot prove that it recovered the 09:05 fail.
+    # Retries are not a gap kind.
     assert [(e[0], e[1], e[2]) for e in entries] == [
-        ("a000000000000003", "09:05", "error"),
-        ("a000000000000004", "09:06", "retry"),
-        ("gap-a000000000000010", "09:20", "gap"),
-        ("a000000000000011", "11:41", "retry"),
-        ("a000000000000012", "11:45", "block"),
+        ("a000000000000003", "09:05Z", "fail"),
+        ("gap-a000000000000010", "09:20Z", "idle"),
+        ("a000000000000012", "11:45Z", "block"),
     ]
     assert entries[0][3] == "Bash false ShellError"
+    assert entries[2][3] == "Bash git decision=reject"
     assert "agent-trace note friction" in out
     assert "agent-trace note none --ref" in out
 
 
 def test_note_none_answers_its_ref(env: dict[str, str]) -> None:
-    write_store(state_of(env), scenario(), fallback=[note("none", at(12, 30), ["a000000000000003"])])
+    refs = ["a000000000000003", "a000000000000012"]
+    write_store(state_of(env), scenario(), fallback=[note("none", at(12, 30), refs)])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     refs = [e[0] for e in reconcile(out)]
-    assert "a000000000000003" not in refs
-    assert refs == ["a000000000000004", "gap-a000000000000010", "a000000000000011", "a000000000000012"]
+    assert refs == ["gap-a000000000000010"]
+    # A gap that `note none` answers is no gap: it leaves GAPS too.
+    assert not any(line.startswith("  block") for line in section(out, "GAPS (cost = wait time)"))
 
 
 def test_nearby_friction_note_answers_anomalies_in_its_window(env: dict[str, str]) -> None:
     friction = note(
         "friction",
-        at(9, 7),
+        at(11, 52),  # inside the window of the 11:45-11:50 block, after the window of the idle gap
         [],
-        **{"agent_trace.category": "flaky", "agent_trace.what": "false failed", "agent_trace.fix": "retry it"},
+        **{"agent_trace.category": "permission", "agent_trace.what": "git was rejected", "agent_trace.fix": "allow it"},
     )
     write_store(state_of(env), [*scenario(), friction])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     refs = [e[0] for e in reconcile(out)]
-    assert refs == ["gap-a000000000000010", "a000000000000011", "a000000000000012"]
-    assert "flaky: false failed (fix: retry it)" in out
+    assert refs == ["a000000000000003", "gap-a000000000000010"]
+    # The friction takes the block that it answers: its count and its 5-minute wait.
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "friction 1×  5m  permission: git was rejected → allow it" in gaps
+    assert not any(line.startswith("block") for line in gaps)
 
 
 def test_all_answered_prints_reconcile_none(env: dict[str, str]) -> None:
-    refs = ["a000000000000003", "a000000000000004", "gap-a000000000000010", "a000000000000011", "a000000000000012"]
+    refs = ["a000000000000003", "gap-a000000000000010", "a000000000000012"]
     write_store(state_of(env), [*scenario(), note("none", at(12, 1), refs)])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     assert "Reconcile: none" in out.splitlines()
-    assert "run RUN-1" in out
+    assert fence(out)[0].startswith("RUN-1  ")
 
 
 def test_parks_and_identity_never_printed(env: dict[str, str]) -> None:
@@ -343,7 +354,7 @@ def test_parks_and_identity_never_printed(env: dict[str, str]) -> None:
     assert "  wait-ci  waiting on CI" in out.splitlines()
     for secret in IDENTITY.values():
         assert secret not in out
-    assert "run RUN-1" in out
+    assert fence(out)[0].startswith("RUN-1  ")
 
 
 def test_prs_with_github_state_and_head_moved(env: dict[str, str], isolated_env: IsolatedEnv, fake_exe: Any) -> None:
@@ -356,6 +367,7 @@ printf '%s' '{{"state":"MERGED","headRefOid":"{MOVED}","mergeCommit":{{"oid":"{M
     write_store(state_of(env), [*scenario(), pr("create", at(9, 30)), pr("merge", at(11, 58))])
     _, out, _ = show(env, "--work", "RUN-1")
     [line] = [line for line in out.splitlines() if PR_URL in line]
+    assert fence(out)[0].endswith("PRs 1 (merged 1)")
     assert "create, merge" in line
     assert "head 0123456" in line
     assert "merge abcdef0" in line
@@ -413,17 +425,22 @@ def test_codex_session_row_and_tool_failure(env: dict[str, str]) -> None:
         },
     ]
     write_store(state_of(env), records)
-    code, out, err = show(env, "--session", S2, "--offline")
+    code, out, err = gantt(env, "--session", S2, "--offline")
     assert code == 0, err
     got = [(r["name"], r["dur"]) for r in rows(out)]
     assert got == [("run bbbbbbbb", "10m"), ("  codex bbbbbbbb", "10m")]
     assert "✗" in rows(out)[1]["bar"]
     assert "errors 1" in out
-    assert [e[:3] for e in reconcile(out)] == [["b000000000000003", "09:05", "error"]]
+    code, out, err = show(env, "--session", S2, "--offline")
+    assert code == 0, err
+    assert [e[:3] for e in reconcile(out)] == [["b000000000000003", "09:05Z", "fail"]]
     assert "user@example.com" not in out
 
 
-def test_missing_native_spans_warns_and_falls_back_to_the_transcript(env: dict[str, str], tmp_path: Path) -> None:
+# Protects: the per-session transcript view moved behind --timeline, and the default output no longer dumps it.
+# Bug caught: the default output prints the transcript timeline (TURN rows and full error text) again, or
+# --timeline loses it.
+def test_timeline_flag_prints_the_transcript_view_and_the_default_does_not(env: dict[str, str], tmp_path: Path) -> None:
     session = "cccccccc-0000-4000-8000-000000000003"
     records = [
         agent(
@@ -442,23 +459,41 @@ def test_missing_native_spans_warns_and_falls_back_to_the_transcript(env: dict[s
     (projects / "-Users-x-repo").mkdir(parents=True)
     transcript = (REPO_ROOT / "tests" / "fixtures" / "retro" / "local_session.jsonl").read_text()
     (projects / "-Users-x-repo" / f"{session}.jsonl").write_text(transcript.replace("local-session-7", session))
-    code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-2", "--offline")
+    penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
+    code, out, err = show(penv, "--work", "RUN-2", "--offline", "--timeline")
     assert code == 0, err
     lines = out.splitlines()
-    warning = f"warning: session {session} has no native spans (collect was down or telemetry was off)"
-    assert warning in lines
     assert f"Transcript timeline for {session}:" in lines
     assert any(line.startswith(f"session {session}") for line in lines)
+    assert any("  TURN  " in line for line in lines)
+    code, out, err = show(penv, "--work", "RUN-2", "--offline")
+    assert code == 0, err
+    lines = out.splitlines()
+    assert fence(out)[0].startswith("RUN-2  ")
+    assert f"Transcript timeline for {session}:" not in lines
+    assert not any("  TURN  " in line or line.startswith(f"session {session}") for line in lines)
+    code, out, err = gantt(penv, "--work", "RUN-2", "--offline")
+    assert code == 0, err
     assert [(r["name"], r["status"]) for r in rows(out)] == [("run RUN-2", ""), ("  Implement", "ok")]
 
 
 FB = "dddddddd-0000-4000-8000-000000000004"
 FB_REFS = [
     "tx-dddddddd-fail-080006",
-    "tx-dddddddd-fail-080021",
+    "tx-dddddddd-block-080021",
     "tx-dddddddd-gap-080021",
-    "tx-dddddddd-retry-084540",
+    "tx-dddddddd-idle-084540",
+    "tx-dddddddd-block-084611",
+    "tx-dddddddd-block-084614",
 ]
+AGENT_TRACE_BLOCK = (
+    "PreToolUse:Bash hook error: [python3 /Users/x/dotfiles/tools/agent-trace/bin/agent-trace gate]: "
+    "agent-trace gate: this /neo session has no work ID."
+)
+GUARD = (
+    "PreToolUse:Bash hook error: [python3 /Users/x/dotfiles/config/agent-hooks/guard_irreversible.py]: "
+    "Blocked by the guard_irreversible hook: spacectl stack confirm is irreversible."
+)
 
 
 def fallback_transcript(projects: Path) -> None:
@@ -467,7 +502,9 @@ def fallback_transcript(projects: Path) -> None:
     08:00:06 and 08:00:10: one cause fails twice (one repeated group). 08:00:13: a soft fail (an error line in the
     output of a read that succeeded). 08:00:16: a failed agent-trace call. 08:00:21: a permission denial. Then 30
     minutes with no event (idle). 08:30:25 to 08:45:30: one tool call runs 15 minutes (activity, not idle).
-    08:45:40 to 08:45:50: the same call three times in a row (a retry).
+    08:45:40 to 08:45:50: the same call three times in a row (polling, an idle gap). 08:46:01: a failed read. 08:46:04:
+    a fail that the next call of the same program recovers (08:46:07). 08:46:11: a hook block. 08:46:14: a hook
+    block of an agent-trace call (a block, although failed agent-trace calls are not gaps).
     """
 
     def use(ident: str, when: str, command: str, text: str = "") -> dict[str, Any]:
@@ -511,7 +548,17 @@ def fallback_transcript(projects: Path) -> None:
         result("t8", "2026-10-29T08:45:46Z", "in_progress", False),
         use("t9", "2026-10-29T08:45:50Z", "gh run view 1"),
         result("t9", "2026-10-29T08:45:51Z", "completed", False),
-        said("assistant", "2026-10-29T08:45:55Z", "done"),
+        use("t10", "2026-10-29T08:46:00Z", "cat missing.md"),
+        result("t10", "2026-10-29T08:46:01Z", "Exit code 1\ncat: missing.md: No such file or directory", True),
+        use("t11", "2026-10-29T08:46:03Z", "python3 -m pytest"),
+        result("t11", "2026-10-29T08:46:04Z", "Exit code 1\nFAILED tests/x.py", True),
+        use("t12", "2026-10-29T08:46:06Z", "python3 -m pytest"),
+        result("t12", "2026-10-29T08:46:07Z", "1 passed", False),
+        use("t13", "2026-10-29T08:46:10Z", "spacectl stack confirm"),
+        result("t13", "2026-10-29T08:46:11Z", GUARD, True),
+        use("t14", "2026-10-29T08:46:13Z", "agent-trace note none --ref x"),
+        result("t14", "2026-10-29T08:46:14Z", AGENT_TRACE_BLOCK, True),
+        said("assistant", "2026-10-29T08:46:20Z", "done"),
     ]
     folder = projects / "-Users-x-repo"
     folder.mkdir(parents=True, exist_ok=True)
@@ -540,13 +587,26 @@ def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_
     assert "Reconcile: none" not in out.splitlines()
     entries = reconcile(out)
     assert [e[0] for e in entries] == FB_REFS
-    assert [e[1:3] for e in entries] == [["08:00", "fail"], ["08:00", "fail"], ["08:00", "gap"], ["08:45", "retry"]]
-    # The tool and the program only: no more command text, as for native spans.
-    assert [e[3] for e in entries[:2]] == ["Bash gh x2", "Bash kubectl"]
-    assert entries[3][3] == "Bash gh x3"
+    assert [e[1:3] for e in entries] == [
+        ["08:00Z", "fail"],
+        ["08:00Z", "block"],
+        ["08:00Z", "idle"],
+        ["08:45Z", "idle"],
+        ["08:46Z", "block"],
+        ["08:46Z", "block"],
+    ]
+    # The tool and the program only, plus what blocked the call: no more command text, as for native spans.
+    assert [e[3] for e in entries] == [
+        "Bash gh x2",
+        "Bash kubectl (auto mode)",
+        "30m idle",
+        "Bash gh x3 (polling)",
+        "Bash spacectl (hook guard_irreversible)",
+        "Bash agent-trace (hook agent-trace gate)",
+    ]
     # The 15-minute tool call (08:30:25 to 08:45:30) is activity, so it is not an idle gap.
-    # The soft fail and the failed agent-trace call are not anomalies.
-    assert not any("cat" in e[3] or "agent-trace" in e[3] for e in entries)
+    # The soft fail, the failed read, the failed agent-trace call, and the recovered fail are not anomalies.
+    assert not any(word in e[3] for e in entries if e[2] == "fail" for word in ("cat", "agent-trace", "python3"))
 
 
 def test_fallback_anomalies_need_answers_before_reconcile_none(env: dict[str, str], tmp_path: Path) -> None:
@@ -570,7 +630,7 @@ def test_fallback_gap_inside_a_wait_span_is_not_an_anomaly(env: dict[str, str], 
     wait_end = agent("ci", "end", day_before + 29 * M, ticket="RUN-3", session=FB, **{"agent_trace.status": "ok"})
     fallback_store(env, wait_start, wait_end)
     _, out, _ = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-3", "--offline")
-    assert [e[0] for e in reconcile(out)] == [FB_REFS[0], FB_REFS[1], FB_REFS[3]]
+    assert [e[0] for e in reconcile(out)] == [FB_REFS[0], FB_REFS[1], *FB_REFS[3:]]  # The idle gap is a wait.
 
 
 def claude_transcript(projects: Path, session: str, *stamps: str) -> None:
@@ -583,6 +643,7 @@ def claude_transcript(projects: Path, session: str, *stamps: str) -> None:
 
 
 def section(output: str, title: str) -> list[str]:
+    """The lines under a title line, stripped, up to the first line that is not indented."""
     lines = output.splitlines()
     start = lines.index(title)
     out = []
@@ -609,12 +670,15 @@ def test_wall_time_comes_from_the_transcripts_of_every_bound_session(env: dict[s
 
     summary = fence(out)
     # S1 spans run 09:00-12:00 (3h00m) of the 24h20m wall time: 180 / 1460 minutes is 12%.
-    assert "wall 24h20m (10-30 08:50 → 10-31 09:10) · span coverage 3h00m (12%)" in summary
-    assert any(line.startswith("spans 3h00m · active 32m") for line in summary)
-    assert section(out, "Sessions:") == [
-        "claude aaaaaaaa  transcript 10-30 08:50 → 10-31 09:10 (24h20m)  spans 10-30 09:00 → 10-30 12:00 (3h00m)",
-        "claude bbbbbbbb  transcript 10-30 10:00 → 10-30 10:30 (30m)  no spans",
+    assert "wall 24h20m (10-30 08:50Z → 10-31 09:10Z) · span coverage 3h00m (12%)" in summary
+    assert summary[0].startswith("RUN-1  10-30 08:50Z → 10-31 09:10Z (24h20m)  sessions 2")
+    assert section(out, "SESSIONS") == [
+        "claude aaaaaaaa  transcript 10-30 08:50Z → 10-31 09:10Z (24h20m)  spans 10-30 09:00Z → 10-30 12:00Z (3h00m)",
+        "claude bbbbbbbb  transcript 10-30 10:00Z → 10-30 10:30Z (30m)  no spans",
     ]
+    _, chart, _ = gantt({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-1", "--offline")
+    assert "wall 24h20m (10-30 08:50Z → 10-31 09:10Z) · span coverage 3h00m (12%)" in fence(chart)
+    assert any(line.startswith("spans 3h00m · active 32m") for line in fence(chart))
 
 
 def test_a_session_bound_to_a_later_work_id_does_not_leak_earlier_agent_spans(env: dict[str, str]) -> None:
@@ -629,7 +693,7 @@ def test_a_session_bound_to_a_later_work_id_does_not_leak_earlier_agent_spans(en
     write_store(state_of(env), records)
     (state_of(env) / "sessions").mkdir(parents=True)
     (state_of(env) / "sessions" / f"{S1}.ticket").write_text("RUN-2\n")
-    code, out, err = show(env, "--work", "RUN-2", "--offline")
+    code, out, err = gantt(env, "--work", "RUN-2", "--offline")
     assert code == 0, err
     assert [r["name"] for r in rows(out)] == ["run RUN-2", "  New work"]
 
@@ -640,7 +704,7 @@ def test_wall_time_is_unknown_without_transcripts(env: dict[str, str]) -> None:
     code, out, err = show(env, "--work", "RUN-1", "--offline")
     assert code == 0, err
     assert "wall unknown (no transcript found for 1 of 1 sessions)" in fence(out)
-    assert section(out, "Sessions:") == ["claude aaaaaaaa  no transcript  spans 10-30 09:00 → 10-30 12:00 (3h00m)"]
+    assert section(out, "SESSIONS") == ["claude aaaaaaaa  no transcript  spans 10-30 09:00Z → 10-30 12:00Z (3h00m)"]
 
 
 def test_jaeger_gets_one_joined_trace_without_identity(env: dict[str, str]) -> None:
@@ -677,7 +741,7 @@ def test_work_flag_selects_the_run_and_ticket_is_retired(env: dict[str, str]) ->
     code, by_work, err = show(env, "--work", "RUN-1", "--offline")
     old_code, old_out, old_err = show(env, "--ticket", "RUN-1", "--offline")
     assert code == 0, err
-    assert rows(by_work)[0]["name"] == "run RUN-1"
+    assert fence(by_work)[0].startswith("RUN-1  ")
     assert old_code == 2
     assert "unrecognized arguments: --ticket" in old_err
     assert old_out == ""
@@ -699,7 +763,7 @@ def test_needs_a_ticket_or_session(env: dict[str, str]) -> None:
 
 def test_narrow_width_moves_the_idle_label_to_a_footnote(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
-    _, out, _ = show(env, "--work", "RUN-1", "--offline", "--width", "20")
+    _, out, _ = gantt(env, "--work", "RUN-1", "--offline", "--width", "20")
     assert {len(r["bar"]) for r in rows(out)} == {20}
     assert "┆ = 2h20m idle (09:20–11:40)" in fence(out)
 
@@ -717,9 +781,189 @@ def test_collected_native_spans_join_emitted_agent_spans(env: dict[str, str]) ->
             result = run(args, emit_env)
             assert (result.returncode, result.stderr) == (0, "")
     assert not (state_of(env) / "fallback.jsonl").exists()
-    code, out, err = show(env, "--work", "RUN-5", "--offline")
+    code, out, err = gantt(env, "--work", "RUN-5", "--offline")
     assert code == 0, err
     assert [r["name"] for r in rows(out)] == ["run RUN-5", "  Implement", "  claude aaaaaaaa"]
+    code, out, err = show(env, "--work", "RUN-5", "--offline")
+    assert code == 0, err
     kinds = {(e[0], e[2]) for e in reconcile(out)}
-    assert {("1000000000000005", "error"), ("1000000000000004", "block"), ("1000000000000002", "retry")} <= kinds
+    assert {("1000000000000005", "fail"), ("1000000000000004", "block")} <= kinds
     assert "user@example.com" not in out
+
+
+# Protects G1: the default output is a short gaps view in UTC, with no TURN rows and no transcript dump.
+# Bug caught: one real run printed 580 lines (291 TURN rows, the transcript text of every session without native spans,
+# local clock times beside UTC refs), so the agent used 15 of them. A local TZ must not change any time.
+def test_default_output_is_short_gaps_first_and_utc(env: dict[str, str], tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    fallback_transcript(projects)
+    many = []
+    for n in range(40):
+        kind = {"agent_trace.kind": "phase"}
+        many.append(agent(f"p{n}", "start", at(9, n), ticket="RUN-3", session=FB, name=f"Phase {n}", **kind))
+        many.append(agent(f"p{n}", "end", at(9, n + 1), ticket="RUN-3", session=FB, **{"agent_trace.status": "ok"}))
+    for n in range(30):
+        text = {"agent_trace.category": "doc", "agent_trace.what": f"thing {n}", "agent_trace.fix": f"fix {n}"}
+        record = note("friction", at(10, n), [], **text)
+        record["attrs"].update({"run.ticket": "RUN-3", "agent_trace.scope": "RUN-3", "session.id": FB})
+        many.append(record)
+    fallback_store(env, *many)
+    sessions = state_of(env) / "sessions"
+    sessions.mkdir(parents=True)
+    for n in range(12):
+        (sessions / f"eeeeeeee-0000-4000-8000-{n:012d}.ticket").write_text("RUN-3\n")
+    local = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects), "TZ": "America/Los_Angeles"}
+    code, out, err = show(local, "--work", "RUN-3", "--offline")
+    assert code == 0, err
+    lines = out.splitlines()
+    assert lines.index("Reconcile:") <= 60, "\n".join(lines[:80])
+    assert fence(out)[0].startswith("RUN-3  10-29 08:00Z → ")
+    assert "GAPS (cost = wait time)" in lines
+    assert any(line.startswith("  … ") and "more" in line for line in fence(out))
+    assert not any("TURN" in line or "Transcript timeline" in line or line.startswith("session ") for line in lines)
+    times = re.findall(r"\b\d\d:\d\d\b(?!Z)", "\n".join(lines))
+    assert times == [], times
+    assert [e[1] for e in reconcile(out)][:1] == ["08:00Z"]
+
+
+def g2_records() -> list[dict[str, Any]]:
+    """Native spans of one interaction (09:00-09:30) with six failing Bash calls and two that succeed."""
+    records = [native("c000000000000001", "claude_code.interaction", at(9, 0), at(9, 30), None)]
+    calls = [
+        ("agent-trace", False),  # a failed agent-trace call: never an error
+        ("cat", False),  # a failed read: never a gap
+        ("python3", False),  # a native Bash span names no subcommand, so a later python3 call proves nothing
+        ("python3", True),
+        ("make", False),  # never recovered
+        ("gh", False),  # gh fails twice with a success between: the same program failing twice is a gap
+        ("gh", True),
+        ("gh", False),
+    ]
+    for n, (argv0, ok) in enumerate(calls, start=1):
+        tool, execution = f"c0000000000001{n:02d}", f"c0000000000002{n:02d}"
+        bash = {"tool_name": "Bash", "bash_argv0": argv0}
+        records.append(native(tool, "claude_code.tool", at(9, n), at(9, n, 5), "c000000000000001", **bash))
+        status = {"code": 0, "message": ""} if ok else {"code": 2, "message": "ShellError"}
+        records.append(
+            native(execution, "claude_code.tool.execution", at(9, n), at(9, n, 5), tool, success=ok, status=status)
+        )
+    records += [
+        agent("impl", "start", at(9, 0), name="Implement", **{"agent_trace.kind": "phase"}),
+        agent("impl", "end", at(9, 30), **{"agent_trace.status": "ok"}),
+    ]
+    return records
+
+
+# Protects G2 for native spans: failed agent-trace calls and failed reads never count as errors, and a native
+# Bash fail is always a gap, because its span names the program but not the subcommand.
+# Bug caught: every native tool error became a Reconcile item, including the agent-trace calls of the agent.
+def test_native_soft_fails_are_not_errors_and_recovered_fails_are_not_gaps(env: dict[str, str]) -> None:
+    write_store(state_of(env), g2_records())
+    code, out, err = show(env, "--work", "RUN-1", "--offline")
+    assert code == 0, err
+    entries = reconcile(out)
+    assert [(e[0], e[2], e[3]) for e in entries] == [
+        ("c000000000000203", "fail", "Bash python3 ShellError"),
+        ("c000000000000205", "fail", "Bash make ShellError"),
+        ("c000000000000206", "fail", "Bash gh ShellError"),
+        ("c000000000000208", "fail", "Bash gh ShellError"),
+    ]
+    assert "autonomy  blocks 0  fails 4  unexplained idle 0s  friction 0" in fence(out)
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "fail     2×  –  Bash gh ShellError" in gaps
+    assert "fail     1×  –  Bash make ShellError" in gaps
+    _, chart, _ = gantt(env, "--work", "RUN-1", "--offline")
+    # The chart marks the python3, make, and gh fails, but never the agent-trace call or the read.
+    assert any(line.startswith("spans 30m") and "errors 4" in line for line in fence(chart))
+
+
+# Protects the GAPS costs: idle gaps of parallel sessions count once, and a friction note takes only the gaps of
+# its own session.
+# Bug caught: one real run showed 26h33m of unexplained idle in a 17h48m run, because the idle time of three sessions
+# was added up; and a note of one session hid an idle gap of another session from GAPS but not from Reconcile.
+def test_gap_costs_count_parallel_idle_once_and_notes_take_only_their_own_session(
+    env: dict[str, str], tmp_path: Path
+) -> None:
+    projects = tmp_path / "projects"
+    fallback_transcript(projects)
+    twin = "ffffffff-0000-4000-8000-000000000006"
+    folder = projects / "-Users-x-repo"
+    (folder / f"{twin}.jsonl").write_text((folder / f"{FB}.jsonl").read_text().replace(FB, twin))
+    fallback_store(env)
+    (state_of(env) / "sessions").mkdir(parents=True)
+    (state_of(env) / "sessions" / f"{twin}.ticket").write_text("RUN-3\n")
+    penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
+    _, out, _ = show(penv, "--work", "RUN-3", "--offline")
+    assert "autonomy  blocks 6  fails 4  unexplained idle 30m  friction 0" in fence(out)
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "idle     2×  30m  unexplained" in gaps
+    assert "idle     2×  10s  Bash gh (polling)" in gaps
+
+    text = {"agent_trace.category": "doc", "agent_trace.what": "slow", "agent_trace.fix": "go faster"}
+    friction = note("friction", at(9, 0) - 25 * 60 * M + 2 * M, [], **text)  # 2026-10-29T08:02Z, in session FB
+    friction["attrs"].update({"run.ticket": "RUN-3", "agent_trace.scope": "RUN-3", "session.id": FB})
+    fallback_store(env, friction)
+    _, out, _ = show(penv, "--work", "RUN-3", "--offline")
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "friction 1×  30m  doc: slow → go faster" in gaps
+    assert "idle     1×  30m  unexplained" in gaps
+    assert "tx-ffffffff-gap-080021" in [e[0] for e in reconcile(out)]
+
+
+def native_tool(n: int, interaction: str, name: str, when: int, result: str) -> list[dict[str, Any]]:
+    """One native tool call: result is "ok", "fail", or "rejected" (a permission prompt, then no execution)."""
+    tool = f"d0000000000001{n:02d}"
+    out = [native(tool, "claude_code.tool", when, when + 30 * S, interaction, tool_name=name)]
+    if result == "rejected":
+        out.append(
+            native(
+                f"d0000000000003{n:02d}",
+                "claude_code.tool.blocked_on_user",
+                when,
+                when + 20 * S,
+                tool,
+                decision="reject",
+            )
+        )
+        return out
+    status = {"code": 0, "message": ""} if result == "ok" else {"code": 2, "message": "ToolError"}
+    execution = native(
+        f"d0000000000002{n:02d}",
+        "claude_code.tool.execution",
+        when,
+        when + 30 * S,
+        tool,
+        success=result == "ok",
+        status=status,
+    )
+    return [*out, execution]
+
+
+# Protects native recovery: only a later call of the same tool that ran and succeeded recovers a fail, and a tool
+# that failed twice in the session is a gap even when each fail was recovered.
+# Bugs caught: a rejected call counted as a success and hid the fail before it; the failed-twice count looked at
+# one turn only, so the same fail in every turn never reached Reconcile.
+def test_native_recovery_needs_a_real_success_and_two_fails_are_a_gap(env: dict[str, str]) -> None:
+    one, two = "d000000000000001", "d000000000000002"
+    records = [
+        native(one, "claude_code.interaction", at(9, 0), at(9, 20), None),
+        native(two, "claude_code.interaction", at(9, 25), at(9, 40), None),
+        *native_tool(1, one, "Edit", at(9, 1), "fail"),
+        *native_tool(2, one, "Edit", at(9, 2), "ok"),
+        *native_tool(3, one, "Write", at(9, 3), "fail"),
+        *native_tool(4, one, "Write", at(9, 4), "rejected"),
+        *native_tool(5, one, "NotebookEdit", at(9, 5), "fail"),
+        *native_tool(6, one, "NotebookEdit", at(9, 6), "ok"),
+        *native_tool(7, two, "Edit", at(9, 26), "fail"),
+        *native_tool(8, two, "Edit", at(9, 27), "ok"),
+        agent("impl", "start", at(9, 0), name="Implement", **{"agent_trace.kind": "phase"}),
+    ]
+    write_store(state_of(env), records)
+    code, out, err = show(env, "--work", "RUN-1", "--offline")
+    assert code == 0, err
+    assert [(e[0], e[2]) for e in reconcile(out)] == [
+        ("d000000000000201", "fail"),
+        ("d000000000000203", "fail"),
+        ("d000000000000304", "block"),
+        ("d000000000000207", "fail"),
+    ]

@@ -372,3 +372,95 @@ def test_local_end_turn_ends_the_turn_and_counts_a_noop(tmp_path: Path) -> None:
     assert "No action is needed" in data["noops"][0]["quote"]
     assert len(data["gaps"]) == 1, data["gaps"]
     assert data["gaps"][0]["in_turn"] is False
+
+
+def _call(second: int, command: str, output: str, error: bool) -> list[dict[str, Any]]:
+    stamp = "2026-10-29T08:00:{:02d}.000Z"
+    return [
+        {
+            "type": "assistant",
+            "timestamp": stamp.format(second),
+            "uuid": f"a{second}",
+            "sessionId": "s",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": f"t{second}", "name": "Bash", "input": {"command": command}}],
+            },
+        },
+        {
+            "type": "user",
+            "timestamp": stamp.format(second + 1),
+            "uuid": f"u{second}",
+            "sessionId": "s",
+            "message": {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": f"t{second}", "is_error": error, "content": output}],
+            },
+        },
+    ]
+
+
+HOOK_BLOCK = (
+    "PreToolUse:Bash hook error: [python3 /Users/x/dotfiles/config/agent-hooks/guard_irreversible.py]: "
+    "Blocked by the guard_irreversible hook: spacectl stack confirm is irreversible."
+)
+DENIED = (
+    "Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Shared Cluster "
+    "Mutation]. If you have other tasks that don't depend on this action, continue with those."
+)
+
+
+def test_fails_say_whether_a_later_call_recovered_and_what_blocked_them(tmp_path: Path) -> None:
+    """Protects the `recovered` and `block` fields that `agent-trace show` reads to tell real fails from noise.
+
+    Bugs caught: a fail that the next call of the same program fixed counts as a gap; a fail with no later
+    success counts as recovered; a hook block or an auto-mode denial looks like a plain fail; and a file that only
+    quotes a hook message (a soft fail) is taken for a block.
+    """
+    path = tmp_path / "session.jsonl"
+    path.write_text(
+        _local_text(
+            _call(1, "python3 -m pytest", "Exit code 1\nFAILED tests/x.py", True)
+            + _call(3, "python3 -m pytest", "1 passed", False)
+            + _call(5, "make build", "Exit code 2\nmake: *** [build] Error 2", True)
+            + _call(7, "ls", "a b", False)
+            + _call(9, "spacectl stack confirm", HOOK_BLOCK, True)
+            + _call(11, "kubectl create job x", DENIED, True)
+            + _call(13, "cat notes.md", HOOK_BLOCK + "\nerror: quoted in a file", False)
+            + _call(15, "git push origin main", "Exit code 1\n! [rejected] main (non-fast-forward)", True)
+            + _call(17, "git status", "clean", False)
+            + _call(19, "python3 -m json.tool a.json", "{}", False)
+        )
+    )
+
+    fails = {fail["label"]: fail for fail in report(path)["fails"]}
+
+    labels = {"Bash(python3 -m)", "Bash(make build)", "Bash(spacectl stack)", "Bash(kubectl create)"}
+    assert set(fails) == labels | {"Bash(cat notes.md)", "Bash(git push)"}
+    # A later success of another subcommand, or of another call with the same label, does not recover the fail.
+    assert fails["Bash(git push)"]["recovered"] is False
+    assert fails["Bash(python3 -m)"]["recovered"] is True
+    assert fails["Bash(make build)"]["recovered"] is False
+    assert fails["Bash(python3 -m)"]["block"] is None
+    assert fails["Bash(spacectl stack)"]["block"] == {"by": "hook", "name": "guard_irreversible"}
+    assert fails["Bash(kubectl create)"]["block"] == {"by": "auto mode", "name": "Shared Cluster Mutation"}
+    assert fails["Bash(cat notes.md)"]["soft"] is True
+    assert fails["Bash(cat notes.md)"]["block"] is None
+
+
+def test_a_call_with_the_same_label_but_other_input_does_not_recover_a_fail(tmp_path: Path) -> None:
+    """Bug caught (Codex review of PR 71): a failed `python3 -m pytest` and a later successful `python3 -m json.tool`
+    share the label `Bash(python3 -m)`, so the unrelated success hid the test failure from Reconcile.
+    """
+    path = tmp_path / "session.jsonl"
+    path.write_text(
+        _local_text(
+            _call(1, "python3 -m pytest", "Exit code 1\nFAILED tests/x.py", True)
+            + _call(3, "python3 -m json.tool a.json", "{}", False)
+        )
+    )
+
+    [fail] = report(path)["fails"]
+
+    assert fail["label"] == "Bash(python3 -m)"
+    assert fail["recovered"] is False

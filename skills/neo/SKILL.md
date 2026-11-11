@@ -81,7 +81,7 @@ Make reversible choices yourself and continue. Write to the ticket only at the s
 
 1. Run `agent-trace show --work <ID>`. Add `--session <id>` for each session of the run that made no `agent-trace` call.
 2. Answer each item in its `Reconcile` list: `agent-trace note friction ... --ref <ref>`, or `agent-trace note none --ref <ref>` when the item was no friction. Run `show` again until it prints `Reconcile: none`.
-3. Post the run log comment: the `text` fence from `show`, each PR with its reviewed SHA and merge SHA, each CI or deploy run as a link, and each park.
+3. Post the run log comment: the `text` fence from `show`, which is the gaps view (run totals, GAPS ranked by cost, run shape), not the `--gantt` chart, each PR with its reviewed SHA and merge SHA, each CI or deploy run as a link, and each park.
 4. Then post the closing comment: the verdict; for each "Done when" check, its evidence marked `live` or `unit only`; the decisions and their evidence as text and links; the open items; and a link to the run log comment.
 
 ## Hard limits

@@ -44,6 +44,11 @@ BASH_SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
 # an HTTP 403 and an HTTP 500 are two causes.
 HTTP_STATUS_OR_NUMBER_RE = re.compile(r"(?<!HTTP )\b\d+")
 ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# A fail is recovered when one of this many next tool calls runs the same tool and program and succeeds.
+RECOVER_WINDOW = 3
+DENIED_RE = re.compile(r"^Permission for this action was denied by the (?:Claude Code |server-side )?auto mode")
+DENIED_REASON_RE = re.compile(r"Reason: \[([^\]]+)\]")
+HOOK_RE = re.compile(r"^(?:\w+:\w+ )?hook error: (?:\[([^\]]*)\]|([^:\n]+)):")
 
 
 class InputError(Exception):
@@ -278,9 +283,43 @@ def tool_label(name: str, tool_input: Any) -> str:
     return name
 
 
+def program_of(name: str, tool_input: Any) -> str:
+    """The tool and its program: `Bash gh` for a Bash call, else the tool name."""
+    if name == "Bash" and isinstance(tool_input, dict):
+        words = bash_words(str(tool_input.get("command", "")))[:1]
+        return " ".join(["Bash", *words])
+    return name
+
+
+def block_of(output: str) -> dict[str, str] | None:
+    """What blocked a failed call: an auto-mode denial (with its reason) or a hook (with its name), or None.
+
+    Only the first line that is not an `Exit code` line counts, so output that quotes a block message later
+    does not look like one.
+    """
+    lines = [line.strip() for line in output.splitlines() if line.strip() and not EXIT_CODE_RE.match(line.strip())]
+    first = lines[0] if lines else ""
+    if DENIED_RE.match(first):
+        reason = DENIED_REASON_RE.search(output)
+        return {"by": "auto mode", "name": reason.group(1) if reason else ""}
+    hook = HOOK_RE.match(first)
+    if hook is None:
+        return None
+    if hook.group(2):
+        return {"by": "hook", "name": hook.group(2).strip()}
+    words = (hook.group(1) or "").split()
+    at = next((i for i, word in enumerate(words) if "/" in word), None)
+    if at is None:
+        return {"by": "hook", "name": " ".join(words)}
+    script = words[at].rsplit("/", 1)[-1].removesuffix(".py")
+    return {"by": "hook", "name": " ".join([script, *words[at + 1 :]])}
+
+
 def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     report = Report(session=session, start=iso(events[0].time), end=iso(events[-1].time))
     tool_uses: dict[str, tuple[str, Any]] = {}
+    calls: list[str] = []  # tool_use ids in call order
+    errored: dict[str, bool] = {}  # tool_use id -> its result was an error
     # The current run of identical consecutive tool calls in this turn: (name, canonical input, times).
     run: list[Any] = [None, None, []]
 
@@ -337,6 +376,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                 if block.get("type") != "tool_result":
                     continue
                 output = result_text(block.get("content"))
+                errored[str(block.get("tool_use_id"))] = block.get("is_error") is True
                 soft = block.get("is_error") is not True
                 if soft:
                     error = matching_error_line(output)
@@ -354,6 +394,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                         "input": short(json.dumps(tool_input, sort_keys=True)) if tool_input is not None else "",
                         "error": error,
                         "soft": soft,
+                        "block": None if soft else block_of(output),
                     }
                 )
         elif event.kind == "assistant":
@@ -362,6 +403,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                     name = str(block.get("name", "?"))
                     tool_input = block.get("input")
                     tool_uses[str(block.get("id"))] = (name, tool_input)
+                    calls.append(str(block.get("id")))
                     canonical = json.dumps(tool_input, sort_keys=True)
                     if (run[0], run[1]) != (name, canonical):
                         flush_run()
@@ -407,6 +449,15 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
         previous = event
 
     flush_run()
+    order = {ident: index for index, ident in enumerate(calls)}
+    for fail in report.fails:
+        ident = str(fail["tool_use_id"])
+        program = program_of(*tool_uses.get(ident, ("?", None)))
+        later = calls[order[ident] + 1 :] if ident in order else []
+        fail["recovered"] = any(
+            program_of(*tool_uses[other]) == program and other in errored and not errored[other]
+            for other in later[:RECOVER_WINDOW]
+        )
     report.fail_groups = group_fails(report.fails)
     report.loops.sort(key=lambda loop: (-loop["count"], loop["first"]))
     return report

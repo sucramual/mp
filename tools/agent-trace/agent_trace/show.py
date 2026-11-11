@@ -1,27 +1,22 @@
-"""`agent-trace show`: one joined text timeline of a work ID's run, from stored agent and native spans.
+"""`agent-trace show`: the gaps view of a work ID's run, from stored agent and native spans and from transcripts.
 
 Selection. Every spans/*.jsonl file and fallback.jsonl is read. The agent records are the `agent-trace` records
 with `run.ticket` == --work, plus the `agent-trace` records whose `session.id` is a --session. The sessions are
-the --session values plus the session ids of those agent records. Native records are the Claude Code spans of
-those sessions, and the Codex spans and logs whose `thread.id` or `conversation.id` is one of them, plus any Codex
-record that shares a trace id with such a record.
+the --session values, the sessions bound to the work ID in sessions/<id>.ticket, and the session ids of those agent
+records. Native records are the Claude Code spans of those sessions, and the Codex spans and logs whose `thread.id`
+or `conversation.id` is one of them, plus any Codex record that shares a trace id with such a record.
 
-Model. One root row for the run. One row per agent span: `span start` and `span end` merge by (scope, id); a span
-is a child of the agent span that its --parent names, else of the root; a start with no end is `open`. One row per
-session that has native spans, drawn from its interaction spans (Codex: turns). Native children only mark the
-session row: `✗` error, `↻` retry, `▒` waiting on Marcus. Notes and PR records are listed after the timeline.
+Gaps. A session with native spans gives its gaps from them: a `block` for each permission prompt that was not
+accepted, and a `fail` for each failed tool call. A session with none gives its gaps from its transcript
+(`transcript_anomalies`). In both, failed reads, failed agent-trace calls, and soft fails are not gaps, and a fail
+that the next calls of the same tool and program recovered is not a gap unless that tool and program failed twice.
+Every idle gap longer than GAP_ANOMALY that no wait span covers is `idle`.
 
-Time. Gaps in activity longer than 30 minutes shrink to one `┆` column each. Clock times are local (set TZ).
-The summary gives the wall time of the run, from the first to the last transcript event of every session, and the
-span coverage: how much of that wall time falls inside some session's span window. A session's span window runs from
-its first to its last span. With --work, the sessions also include each session bound to the work ID in
-sessions/<id>.ticket, so a session with no spans still counts. The Sessions section lists each session's transcript
-and span windows, and marks a session that has no spans. "spans" in the summary is the time the chart covers.
-
-Sections after the timeline: PRs (with GitHub state unless --offline), Parks, Notes, and Reconcile (anomalies that
-no note answers). A session with no native spans gets its anomalies from its transcript (`transcript_anomalies`),
-so Reconcile never prints `none` while such a session has unanswered failures or idle gaps. Prompts, command text,
-and identity attributes are never printed.
+Output. One `text` fence: the run window and totals, the wall time and span coverage, GAPS (grouped by kind and
+key, most costly first), RUN SHAPE (agent spans), and SESSIONS. Then Reconcile (gaps that no note answers), PRs
+(with GitHub state unless --offline), and Parks. Every time is UTC. `--gantt` prints the bar chart of spans
+instead, and `--timeline` the transcript timeline of each session. Prompts, command text past the program, and
+identity attributes are never printed.
 
 Exit 0 when anything matched, 1 when nothing matched, 2 for a usage error.
 """
@@ -47,6 +42,11 @@ GAP_ANOMALY = 10 * MIN
 NOTE_BEFORE = 2 * MIN
 NOTE_AFTER = 10 * MIN
 NAME_LIMIT = 32
+GAP_ROWS = 15  # rows of the GAPS list before "… N more"
+SHAPE_ROWS = 15  # agent span rows of RUN SHAPE
+SESSION_ROWS = 8
+RECOVER_WINDOW = 3  # a fail is recovered when one of this many next calls of the same tool and program succeeds
+READS = {"cat", "ls", "grep", "rg", "head", "tail"}  # a failed read is a lookup, never a gap
 IDENTITY_ATTRS = {"user.email", "user.id", "user.account_uuid", "user.account_id", "organization.id"}
 SESSION_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 CODEX_TURNS = {"session_task.turn", "run_turn"}
@@ -70,11 +70,16 @@ def fmt_duration(ns: int) -> str:
 
 
 def clock(ns: int) -> str:
-    return datetime.fromtimestamp(ns / 1e9).strftime("%H:%M")
+    """UTC hours and minutes, for the chart axis, which has room for 5 characters only."""
+    return datetime.fromtimestamp(ns / 1e9, UTC).strftime("%H:%M")
+
+
+def utc(ns: int) -> str:
+    return datetime.fromtimestamp(ns / 1e9, UTC).strftime("%H:%MZ")
 
 
 def stamp(ns: int) -> str:
-    return datetime.fromtimestamp(ns / 1e9).strftime("%m-%d %H:%M")
+    return datetime.fromtimestamp(ns / 1e9, UTC).strftime("%m-%d %H:%MZ")
 
 
 def window(start: int, end: int) -> str:
@@ -185,12 +190,26 @@ class AgentSpan:
 
 @dataclass
 class Anomaly:
+    """One event that may be a gap: kind is block, fail, idle, retry (chart only), or transcript (unread)."""
+
     ref: str
     kind: str
     start: int
     end: int
     session: str | None
     detail: str
+    count: int = 1  # the fails that one transcript anomaly groups
+    recovered: bool = False  # a later call of the same tool and program succeeded: on the chart, not a gap
+
+    @property
+    def cost(self) -> int:
+        """The time this gap lost: the wait of a block, the length of an idle gap, else 0."""
+        return self.end - self.start if self.kind in ("block", "idle") else 0
+
+    @property
+    def key(self) -> str:
+        """What groups anomalies within one run: the detail without its repeat count, or one key for idle."""
+        return "unexplained" if self.kind == "idle" else re.sub(r" x\d+$", "", self.detail)
 
 
 @dataclass
@@ -274,6 +293,7 @@ def claude_session(sid: str, spans: list[dict[str, Any]]) -> SessionData:
     data = SessionData(sid, "claude")
     by_id = {span.get("spanId"): span for span in spans}
     tool_errored: dict[str, bool] = {}
+    pending: list[tuple[str, Anomaly]] = []  # (tool span id, error) until recovery is known
     for span in spans:
         name, attrs = span.get("name"), attrs_of(span)
         start, end = int(span.get("start") or 0), int(span.get("end") or 0)
@@ -288,7 +308,8 @@ def claude_session(sid: str, spans: list[dict[str, Any]]) -> SessionData:
                 error_class = attrs.get("error_class") or (span.get("status") or {}).get("message")
                 if error_class:
                     detail += f" {error_class}"
-                data.errors.append(Anomaly(str(span.get("spanId")), "error", start, end, sid, detail))
+                anomaly = Anomaly(str(span.get("spanId")), "fail", start, end, sid, detail)
+                pending.append((str(span.get("parentSpanId")), anomaly))
         elif name == "claude_code.tool.blocked_on_user":
             data.waits.append((start, end))
             if attrs.get("decision") != "accept":
@@ -318,6 +339,26 @@ def claude_session(sid: str, spans: list[dict[str, Any]]) -> SessionData:
             if earlier and tool_errored.get(str(earlier[-1].get("spanId"))):
                 start, end = int(span.get("start") or 0), int(span.get("end") or 0)
                 data.retries.append(Anomaly(str(span.get("spanId")), "retry", start, end, sid, label))
+
+    def recovered(tool: dict[str, Any]) -> bool:
+        """The next calls recovered this fail, and its tool and program did not fail twice in this turn."""
+        group = siblings.get(str(tool.get("parentSpanId")), [])
+        label = tool_label(attrs_of(tool))
+        same = [other for other in group if tool_label(attrs_of(other)) == label]
+        if sum(1 for other in same if tool_errored.get(str(other.get("spanId")))) > 1:
+            return False
+        later = group[group.index(tool) + 1 :][:RECOVER_WINDOW] if tool in group else []
+        return any(
+            tool_label(attrs_of(other)) == label and not tool_errored.get(str(other.get("spanId"))) for other in later
+        )
+
+    for tool_id, anomaly in pending:
+        tool = by_id.get(tool_id) or {}
+        argv0 = str(attrs_of(tool).get("bash_argv0") or "")
+        if argv0 == "agent-trace" or argv0 in READS:
+            continue  # The agent's own trace calls and failed lookups are never errors.
+        anomaly.recovered = bool(tool) and recovered(tool)
+        data.errors.append(anomaly)
     return data
 
 
@@ -332,7 +373,7 @@ def codex_session(sid: str, records: list[dict[str, Any]]) -> SessionData:
         elif attrs.get("event.name") == "codex.tool_result" and falsy(attrs.get("success")):
             when = time_of(record)
             detail = str(attrs.get("tool_name") or "tool")
-            data.errors.append(Anomaly(str(record.get("spanId")), "error", when, when, sid, detail))
+            data.errors.append(Anomaly(str(record.get("spanId")), "fail", when, when, sid, detail))
     return data
 
 
@@ -530,7 +571,9 @@ def gh_view(url: str) -> str:
     return json.dumps(data)
 
 
-def pr_lines(records: list[dict[str, Any]], offline: bool) -> list[str]:
+def pr_lines(records: list[dict[str, Any]], offline: bool) -> tuple[list[str], list[str]]:
+    """One line per PR, and the GitHub state of each PR that GitHub answered for."""
+    states: list[str] = []
     groups: dict[str, list[dict[str, Any]]] = {}
     for record in sorted(records, key=time_of):
         attrs = attrs_of(record)
@@ -553,6 +596,7 @@ def pr_lines(records: list[dict[str, Any]], offline: bool) -> list[str]:
             if answer.startswith("{"):
                 data = json.loads(answer)
                 state = str(data.get("state") or "unknown").lower()
+                states.append(state)
                 commit = data.get("mergeCommit") if isinstance(data.get("mergeCommit"), dict) else None
                 oid = str((commit or {}).get("oid") or "")
                 parts.append(f"{state}, merge {oid[:7]}" if oid else f"{state}, merge sha unknown (not merged)")
@@ -562,7 +606,7 @@ def pr_lines(records: list[dict[str, Any]], offline: bool) -> list[str]:
             else:
                 parts.append(answer)
         lines.append("  " + "  ".join(parts))
-    return lines
+    return lines, states
 
 
 def run_timeline(sid: str, *extra: str) -> tuple[str | None, str]:
@@ -598,12 +642,14 @@ def transcript_fallback(sid: str) -> list[str]:
 def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) -> list[Anomaly]:
     """The anomalies of a session that has no native spans, from its transcript, for the Reconcile list.
 
-    One anomaly for each cause of failure (fails grouped by error text with digit runs replaced, as the timeline
-    groups them), one for each run of a repeated call (a retry), and one for each idle gap longer than GAP_ANOMALY
-    that no wait span covers. A gap that is one long tool call is activity, not idle. Soft fails (an error line in
-    the output of a call that succeeded) and failed agent-trace calls are left out. When the
-    transcript is missing or cannot be read, one `unread` anomaly stands for it, so Reconcile never passes on
-    missing evidence. Refs are `tx-<session8>-<kind>-<HHMMSS UTC>`, stable across runs of `show`.
+    One `block` for each call that a hook or the auto-mode classifier blocked, with the hook name or the denial
+    reason. One `fail` for each cause of failure (fails grouped by error text with digit runs replaced, as the
+    timeline groups them), and one `idle` for each gap longer than GAP_ANOMALY that no wait span covers. A gap that
+    is one long tool call is activity, not idle. Left out: soft fails (an error line in the output of a call that
+    succeeded), failed agent-trace calls, failed reads, and a fail that the next calls of the same tool and program
+    recovered, unless that tool and program failed twice. When the transcript is missing or cannot be read, one
+    `transcript` anomaly stands for it, so Reconcile never passes on missing evidence. Refs are
+    `tx-<session8>-<kind>-<HHMMSS UTC>` (`gap` for idle), stable across runs of `show`.
     """
     if not SESSION_NAME.match(sid):
         return []
@@ -628,9 +674,30 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
         return " ".join([tool, *inner.rstrip(")").split()[:1]])
 
     found: list[Anomaly] = []
+    hard = [
+        fail
+        for fail in report.get("fails") or []
+        if not fail.get("soft") and program(str(fail.get("label") or "?")) != "Bash agent-trace"
+    ]
+    plain: list[dict[str, Any]] = []
+    for fail in hard:
+        block = fail.get("block") if isinstance(fail.get("block"), dict) else None
+        label = program(str(fail.get("label") or "?"))
+        if block is None:
+            if label.split()[-1] not in READS:
+                plain.append(fail)
+            continue
+        when = iso_ns(fail.get("time")) or fallback_time
+        name = str(block.get("name") or "")
+        by = str(block.get("by") or "")
+        why = f"hook {name}".strip() if by == "hook" else name or by
+        found.append(Anomaly(f"{prefix}-block-{hms(when)}", "block", when, when, sid, f"{label} ({why})"))
+    labels: dict[str, int] = {}
+    for fail in plain:
+        labels[str(fail.get("label"))] = labels.get(str(fail.get("label")), 0) + 1
     groups: dict[str, list[dict[str, Any]]] = {}
-    for fail in report.get("fails") or []:
-        if fail.get("soft") or program(str(fail.get("label") or "?")) == "Bash agent-trace":
+    for fail in plain:
+        if fail.get("recovered") is True and labels[str(fail.get("label"))] < 2:
             continue
         key = re.sub(r"(?<!HTTP )\b\d+", "N", str(fail.get("error") or ""))
         groups.setdefault(key, []).append(fail)
@@ -639,12 +706,7 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
         start = iso_ns(items[0].get("time")) or fallback_time
         label = program(str(items[0].get("label") or "?"))
         detail = f"{label} x{len(items)}" if len(items) > 1 else label
-        found.append(Anomaly(f"{prefix}-fail-{hms(start)}", "fail", start, start, sid, detail))
-    for loop in report.get("loops") or []:
-        # The same call repeated, the transcript form of a native retry.
-        start = iso_ns(loop.get("first")) or fallback_time
-        detail = f"{program(str(loop.get('label') or '?'))} x{loop.get('count')}"
-        found.append(Anomaly(f"{prefix}-retry-{hms(start)}", "retry", start, start, sid, detail))
+        found.append(Anomaly(f"{prefix}-fail-{hms(start)}", "fail", start, start, sid, detail, count=len(items)))
     for gap in report.get("gaps") or []:
         start, end = iso_ns(gap.get("start")), iso_ns(gap.get("end"))
         if not start or not end:
@@ -657,7 +719,7 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
         detail = f"{fmt_duration(end - start)} idle" + (
             " (permission wait)" if gap.get("cause") == "permission" else ""
         )
-        found.append(Anomaly(f"{prefix}-gap-{hms(start)}", "gap", start, end, sid, detail))
+        found.append(Anomaly(f"{prefix}-gap-{hms(start)}", "idle", start, end, sid, detail))
     seen: dict[str, int] = {}
     for anomaly in found:
         seen[anomaly.ref] = seen.get(anomaly.ref, 0) + 1
@@ -785,57 +847,27 @@ def dedupe(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def run(args: argparse.Namespace) -> int:
-    if not args.ticket and not args.session:
-        print("agent-trace: show needs --work or --session", file=sys.stderr)
-        return 2
-    base = Path(args.dir).expanduser() if args.dir else store.state_dir()
-    width = max(10, int(args.width))
-    wanted = list(args.session)
-    bound = [s for s in store.sessions_bound_to(base, args.ticket) if s not in wanted] if args.ticket else []
-    selection = select(dedupe(store.read_all(base)), args.ticket, wanted, bound)
-    if not selection.agent and not selection.native:
-        what = f"work ID {args.ticket}" if args.ticket else "session " + ", ".join(args.session)
-        print(f"agent-trace: no spans for {what}", file=sys.stderr)
-        return 1
-
-    agent_spans_all = [r for r in selection.agent if r.get("type") == "span"]
-    notes = [r for r in agent_spans_all if r.get("name") == "agent_trace.note"]
-    prs = [r for r in agent_spans_all if r.get("name") == "agent_trace.pr"]
-    spans = merge_agent_spans(agent_spans_all)
-    sessions: list[SessionData] = []
-    for sid in selection.sessions:
-        if selection.claude.get(sid):
-            sessions.append(claude_session(sid, selection.claude[sid]))
-        elif selection.codex.get(sid):
-            sessions.append(codex_session(sid, selection.codex[sid]))
-    sessions.sort(key=lambda data: min((s for s, _ in data.active), default=0))
-
-    times: list[int] = []
-    for record in selection.native:
-        if record.get("type") == "span":
-            times += [int(record.get("start") or 0), int(record.get("end") or 0)]
-    for span in spans:
-        times += [span.start] + ([span.end] if span.end is not None else [])
-    times = [t for t in times if t > 0] or [otlp.now_ns()]
-    t0, t1 = min(times), max(times)
+def gantt_lines(
+    label: str,
+    spans: list[AgentSpan],
+    sessions: list[SessionData],
+    t0: int,
+    t1: int,
+    activity: list[Interval],
+    waits_all: list[Interval],
+    width: int,
+) -> list[str]:
+    """The bar chart of `--gantt`: one row per agent span and per session with native spans, then the axis."""
+    layout = build_layout(t0, t1, activity, width)
 
     def span_interval(span: AgentSpan) -> Interval:
         return span.start, max(span.start, span.end if span.end is not None else t1)
 
-    wait_spans = [span for span in spans if span.kind == "wait"]
-    waits_all = [*[w for data in sessions for w in data.waits], *map(span_interval, wait_spans)]
-    turn_time = [i for data in sessions for i in data.active]
-    activity = [*turn_time, *map(span_interval, wait_spans)]
-    layout = build_layout(t0, t1, activity, width)
-
-    scope = args.ticket or selection.sessions[0] if (args.ticket or selection.sessions) else "run"
-    label = f"run {args.ticket}" if args.ticket else f"run {selection.sessions[0][:8]}"
     rows: list[Row] = []
     by_ident = {(span.scope, span.ident): span for span in spans}
     for span in spans:
         parent = by_ident.get((span.scope, span.parent)) if span.parent else None
-        if parent is not None and parent is not span:
+        if parent is not None and parent is not span and span not in parent.children:
             parent.children.append(span)
     child_ids = {id(child) for span in spans for child in span.children}
     shown: set[int] = set()
@@ -884,17 +916,163 @@ def run(args: argparse.Namespace) -> int:
         duration=t1 - t0,
     )
     rows.insert(0, root)
-
     name_width = min(NAME_LIMIT, max(len(row.name) for row in rows))
-    bar_width = len(layout.columns)
-    out = ["```text"]
+    out = []
     for row in rows:
         name = truncate(row.name, name_width)
         line = f"{name:<{name_width}} |{render_bar(row, layout)}| {fmt_duration(row.duration):>5}"
         out.append(line + (f" {row.status}" if row.status else ""))
-    axis = axis_lines(layout, t0, t1, bar_width)
+    axis = axis_lines(layout, t0, t1, len(layout.columns))
     out.append(" " * (name_width + 2) + axis[0])
-    out += axis[1:]
+    return out + axis[1:]
+
+
+def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: list[dict[str, Any]]) -> list[str]:
+    """The GAPS list: each anomaly and friction note, grouped by kind and key, most costly first.
+
+    An anomaly that `note none` answers is no gap. An anomaly that a friction note answers (by ref, or by time as
+    Reconcile does) moves into that friction's group, which takes its count of notes and the anomaly's cost.
+    A group's cost is the wall time that its anomalies cover, so idle gaps of parallel sessions count once.
+    """
+    by_ref: dict[str, dict[str, Any]] = {}
+    for record in sorted(notes, key=time_of):
+        for ref in attrs_of(record).get("agent_trace.refs") or []:
+            if isinstance(ref, str):
+                by_ref.setdefault(ref, record)
+
+    def friction_key(record: dict[str, Any]) -> str:
+        attrs = attrs_of(record)
+        return f"{attrs.get('agent_trace.category')}: " + " ".join(str(attrs.get("agent_trace.fix")).lower().split())
+
+    groups: dict[tuple[str, str], list[Any]] = {}  # (kind, key) -> [count, cost intervals, text]
+    for record in sorted(friction, key=time_of):
+        attrs = attrs_of(record)
+        text = f"{attrs.get('agent_trace.category')}: {attrs.get('agent_trace.what')} → {attrs.get('agent_trace.fix')}"
+        group = groups.setdefault(("friction", friction_key(record)), [0, [], text])
+        group[0] += 1
+    for anomaly in anomalies:
+        record = by_ref.get(anomaly.ref) or next(
+            (
+                r
+                for r in friction
+                if session_of(r) == anomaly.session
+                and anomaly.start - NOTE_BEFORE <= time_of(r) <= anomaly.end + NOTE_AFTER
+            ),
+            None,
+        )
+        cost = [(anomaly.start, anomaly.end)] if anomaly.cost else []
+        if record is not None and attrs_of(record).get("agent_trace.note_kind") != "friction":
+            continue  # `note none`: no gap.
+        if record is not None:
+            groups[("friction", friction_key(record))][1].extend(cost)
+            continue
+        text = "unexplained" if anomaly.kind == "idle" else anomaly.key
+        group = groups.setdefault((anomaly.kind, anomaly.key), [0, [], text])
+        group[0] += anomaly.count
+        group[1].extend(cost)
+    for group in groups.values():
+        group[1] = measure(group[1])
+    ranked = sorted(groups.items(), key=lambda item: (-item[1][1], -item[1][0], item[0][0], item[1][2]))
+    out = [
+        f"  {kind:<8} {count}×  {fmt_duration(cost) if cost else '–'}  {text}"
+        for (kind, _), (count, cost, text) in ranked[:GAP_ROWS]
+    ]
+    if len(ranked) > GAP_ROWS:
+        out.append(f"  … {len(ranked) - GAP_ROWS} more")
+    return out or ["  none"]
+
+
+def shape_lines(spans: list[AgentSpan], t1: int) -> list[str]:
+    """RUN SHAPE: the agent spans as a tree, one line each, in UTC."""
+    by_ident = {(span.scope, span.ident): span for span in spans}
+    depth_of: dict[int, int] = {}
+
+    def depth(span: AgentSpan, seen: frozenset[int] = frozenset()) -> int:
+        parent = by_ident.get((span.scope, span.parent)) if span.parent else None
+        if parent is None or parent is span or id(parent) in seen:
+            return 0
+        return 1 + depth(parent, seen | {id(span)})
+
+    ordered: list[AgentSpan] = []
+    children: dict[int, list[AgentSpan]] = {}
+    for span in spans:
+        depth_of[id(span)] = depth(span)
+        parent = by_ident.get((span.scope, span.parent)) if span.parent else None
+        if depth_of[id(span)] and parent is not None:
+            children.setdefault(id(parent), []).append(span)
+
+    def walk(span: AgentSpan) -> None:
+        ordered.append(span)
+        for child in children.get(id(span), []):
+            walk(child)
+
+    for span in spans:
+        if not depth_of[id(span)]:
+            walk(span)
+    out = []
+    for span in ordered[:SHAPE_ROWS]:
+        end = span.end if span.end is not None else t1
+        until = utc(span.end) if span.end is not None else "…"
+        name = "  " * depth_of[id(span)] + span.name
+        out.append(f"  {name}  {utc(span.start)}–{until}  {fmt_duration(max(0, end - span.start))}  {span.status}")
+    if len(ordered) > SHAPE_ROWS:
+        out.append(f"  … {len(ordered) - SHAPE_ROWS} more spans (--gantt)")
+    return out or ["  no agent spans"]
+
+
+def run(args: argparse.Namespace) -> int:
+    if not args.ticket and not args.session:
+        print("agent-trace: show needs --work or --session", file=sys.stderr)
+        return 2
+    base = Path(args.dir).expanduser() if args.dir else store.state_dir()
+    width = max(10, int(args.width))
+    wanted = list(args.session)
+    bound = [s for s in store.sessions_bound_to(base, args.ticket) if s not in wanted] if args.ticket else []
+    selection = select(dedupe(store.read_all(base)), args.ticket, wanted, bound)
+    if not selection.agent and not selection.native:
+        what = f"work ID {args.ticket}" if args.ticket else "session " + ", ".join(args.session)
+        print(f"agent-trace: no spans for {what}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "timeline", False):
+        out = []
+        for sid in selection.sessions:
+            out += [*transcript_fallback(sid), ""]
+        print("\n".join(out).rstrip("\n"))
+        return 0
+
+    agent_spans_all = [r for r in selection.agent if r.get("type") == "span"]
+    notes = [r for r in agent_spans_all if r.get("name") == "agent_trace.note"]
+    prs = [r for r in agent_spans_all if r.get("name") == "agent_trace.pr"]
+    spans = merge_agent_spans(agent_spans_all)
+    sessions: list[SessionData] = []
+    for sid in selection.sessions:
+        if selection.claude.get(sid):
+            sessions.append(claude_session(sid, selection.claude[sid]))
+        elif selection.codex.get(sid):
+            sessions.append(codex_session(sid, selection.codex[sid]))
+    sessions.sort(key=lambda data: min((s for s, _ in data.active), default=0))
+
+    times: list[int] = []
+    for record in selection.native:
+        if record.get("type") == "span":
+            times += [int(record.get("start") or 0), int(record.get("end") or 0)]
+    for span in spans:
+        times += [span.start] + ([span.end] if span.end is not None else [])
+    times = [t for t in times if t > 0] or [otlp.now_ns()]
+    t0, t1 = min(times), max(times)
+
+    def span_interval(span: AgentSpan) -> Interval:
+        return span.start, max(span.start, span.end if span.end is not None else t1)
+
+    wait_spans = [span for span in spans if span.kind == "wait"]
+    waits_all = [*[w for data in sessions for w in data.waits], *map(span_interval, wait_spans)]
+    turn_time = [i for data in sessions for i in data.active]
+    activity = [*turn_time, *map(span_interval, wait_spans)]
+
+    scope = args.ticket or selection.sessions[0] if (args.ticket or selection.sessions) else "run"
+    label = f"run {args.ticket}" if args.ticket else f"run {selection.sessions[0][:8]}"
+
     span_windows: dict[str, Interval] = {}
     for sid in selection.sessions:
         own = [
@@ -910,6 +1088,7 @@ def run(args: argparse.Namespace) -> int:
     transcripts = {sid: transcript_window(sid) for sid in selection.sessions}
     found = [found[1] for found in transcripts.values() if found]
     missing = sum(1 for found in transcripts.values() if not found)
+    wall: Interval | None = None
     if found:
         wall = (min(start for start, _ in found), max(end for _, end in found))
         covered = measure(
@@ -920,56 +1099,30 @@ def run(args: argparse.Namespace) -> int:
             ]
         )
         share = round(100 * covered / max(1, wall[1] - wall[0]))
-        line = f"wall {fmt_duration(wall[1] - wall[0])} ({stamp(wall[0])} → {stamp(wall[1])})"
-        line += f" · span coverage {fmt_duration(covered)} ({share}%)"
+        wall_line = f"wall {fmt_duration(wall[1] - wall[0])} ({stamp(wall[0])} → {stamp(wall[1])})"
+        wall_line += f" · span coverage {fmt_duration(covered)} ({share}%)"
         if missing:
-            line += f" · no transcript for {missing} of {len(transcripts)} sessions"
-        out.append(line)
+            wall_line += f" · no transcript for {missing} of {len(transcripts)} sessions"
     else:
-        out.append(f"wall unknown (no transcript found for {missing} of {len(transcripts)} sessions)")
-    errors = sum(len(d.errors) for d in sessions) + sum(1 for s in spans if s.status == "error")
-    retries = sum(len(d.retries) for d in sessions) + sum(1 for s in spans if s.retry)
-    open_spans = sum(1 for s in spans if s.end is None)
-    active = measure(subtract(turn_time, waits_all))
-    out.append(
-        f"spans {fmt_duration(t1 - t0)} · active {fmt_duration(active)}"
-        f" · wait on Marcus {fmt_duration(measure(waits_all))}"
-        f" · errors {errors} · retries {retries} · open spans {open_spans}"
-    )
-    out.append("```")
+        wall_line = f"wall unknown (no transcript found for {missing} of {len(transcripts)} sessions)"
 
-    tools = {data.sid: data.tool for data in sessions}
-    out += ["", "Sessions:"]
+    if getattr(args, "gantt", False):
+        errors = sum(len(d.errors) for d in sessions) + sum(1 for s in spans if s.status == "error")
+        retries = sum(len(d.retries) for d in sessions) + sum(1 for s in spans if s.retry)
+        open_spans = sum(1 for s in spans if s.end is None)
+        active = measure(subtract(turn_time, waits_all))
+        out = ["```text", *gantt_lines(label, spans, sessions, t0, t1, activity, waits_all, width), wall_line]
+        out.append(
+            f"spans {fmt_duration(t1 - t0)} · active {fmt_duration(active)}"
+            f" · wait on Marcus {fmt_duration(measure(waits_all))}"
+            f" · errors {errors} · retries {retries} · open spans {open_spans}"
+        )
+        out.append("```")
+        print("\n".join(out))
+        return post_run(args, scope, label, t0, t1, spans, notes, prs, selection)
 
-    def first_seen(sid: str) -> int:
-        found = transcripts[sid]
-        starts = [found[1][0]] if found else []
-        starts += [span_windows[sid][0]] if sid in span_windows else []
-        return min(starts, default=0)
-
-    for sid in sorted(selection.sessions, key=first_seen):
-        found = transcripts[sid]
-        tool = tools.get(sid) or (found[0] if found else "session")
-        parts = [f"{tool} {sid[:8]}", f"transcript {window(*found[1])}" if found else "no transcript"]
-        parts.append(f"spans {window(*span_windows[sid])}" if sid in span_windows else "no spans")
-        out.append("  " + "  ".join(parts))
-
-    if prs:
-        out += ["", "PRs:", *pr_lines(prs, args.offline)]
-    parks = [span for span in spans if span.status == "parked"]
-    if parks:
-        out += ["", "Parks:", *[f"  {span.ident}  {span.note}".rstrip() for span in parks]]
     friction = [r for r in notes if attrs_of(r).get("agent_trace.note_kind") == "friction"]
-    if friction:
-        out += ["", "Notes:"]
-        for record in sorted(friction, key=time_of):
-            attrs = attrs_of(record)
-            out.append(
-                f"  {clock(time_of(record))}  {attrs.get('agent_trace.category')}: {attrs.get('agent_trace.what')}"
-                f" (fix: {attrs.get('agent_trace.fix')})"
-            )
-
-    anomalies: list[Anomaly] = [a for d in sessions for a in (*d.errors, *d.retries, *d.blocks)]
+    anomalies: list[Anomaly] = [a for d in sessions for a in (*d.errors, *d.blocks) if not a.recovered]
     activity_starts = sorted(
         [(start, ref, data.sid) for data in sessions for start, ref in data.activity_spans]
         + [(span.start, span.span_id, span.session) for span in wait_spans]
@@ -981,7 +1134,7 @@ def run(args: argparse.Namespace) -> int:
         after = next(((s, ref, sid) for s, ref, sid in activity_starts if s >= gap_end), None)
         if after:
             detail = f"{fmt_duration(gap_end - gap_start)} idle"
-            anomalies.append(Anomaly(f"gap-{after[1]}", "gap", gap_start, gap_end, after[2], detail))
+            anomalies.append(Anomaly(f"gap-{after[1]}", "idle", gap_start, gap_end, after[2], detail))
     wait_intervals = [span_interval(span) for span in wait_spans]
     for sid in selection.sessions:
         if not selection.claude.get(sid) and not selection.codex.get(sid):
@@ -999,10 +1152,51 @@ def run(args: argparse.Namespace) -> int:
         )
         if not near:
             unanswered.append(anomaly)
-    out.append("")
+
+    pr_text, states = pr_lines(prs, args.offline) if prs else ([], [])
+    counts = {state: states.count(state) for state in dict.fromkeys(states)}
+    pr_summary = f"PRs {len(pr_text)}" + (
+        " (" + ", ".join(f"{state} {n}" for state, n in counts.items()) + ")" if counts else ""
+    )
+    w0, w1 = wall or (t0, t1)
+    name = args.ticket or selection.sessions[0][:8]
+    header = f"{name}  {stamp(w0)} → {stamp(w1)} ({fmt_duration(w1 - w0)})  sessions {len(selection.sessions)}"
+    blocks = sum(a.count for a in anomalies if a.kind == "block")
+    fails = sum(a.count for a in anomalies if a.kind == "fail")
+    idle = measure([(a.start, a.end) for a in unanswered if a.kind == "idle"])  # parallel sessions count once
+    out = [
+        "```text",
+        f"{header}  {pr_summary}",
+        f"autonomy  blocks {blocks}  fails {fails}  unexplained idle {fmt_duration(idle)}  friction {len(friction)}",
+        wall_line,
+        "GAPS (cost = wait time)",
+        *gap_lines(anomalies, notes, friction),
+        "RUN SHAPE",
+        *shape_lines(spans, t1),
+        "SESSIONS",
+    ]
+    tools = {data.sid: data.tool for data in sessions}
+
+    def first_seen(sid: str) -> int:
+        found = transcripts[sid]
+        starts = [found[1][0]] if found else []
+        starts += [span_windows[sid][0]] if sid in span_windows else []
+        return min(starts, default=0)
+
+    ordered = sorted(selection.sessions, key=first_seen)
+    for sid in ordered[:SESSION_ROWS]:
+        found = transcripts[sid]
+        tool = tools.get(sid) or (found[0] if found else "session")
+        parts = [f"{tool} {sid[:8]}", f"transcript {window(*found[1])}" if found else "no transcript"]
+        parts.append(f"spans {window(*span_windows[sid])}" if sid in span_windows else "no spans")
+        out.append("  " + "  ".join(parts))
+    if len(ordered) > SESSION_ROWS:
+        out.append(f"  … {len(ordered) - SESSION_ROWS} more sessions")
+    out += ["more: --timeline (transcript events of each session) | --gantt (bar chart of spans)", "```", ""]
+
     if unanswered:
         out.append("Reconcile:")
-        out += [f"  {a.ref}  {clock(a.start)}  {a.kind}  {a.detail}" for a in unanswered]
+        out += [f"  {a.ref}  {utc(a.start)}  {a.kind}  {a.detail}" for a in unanswered]
         ticket_flag = f" --work {args.ticket}" if args.ticket else ""
         out += [
             "Answer each with one of:",
@@ -1012,17 +1206,30 @@ def run(args: argparse.Namespace) -> int:
     else:
         out.append("Reconcile: none")
 
-    for sid in selection.sessions:
-        if not selection.claude.get(sid) and not selection.codex.get(sid):
-            out += ["", f"warning: session {sid} has no native spans (collect was down or telemetry was off)"]
-            out += transcript_fallback(sid)
-
+    if pr_text:
+        out += ["", "PRs:", *pr_text]
+    parks = [span for span in spans if span.status == "parked"]
+    if parks:
+        out += ["", "Parks:", *[f"  {span.ident}  {span.note}".rstrip() for span in parks]]
     print("\n".join(out))
+    return post_run(args, scope, label, t0, t1, spans, notes, prs, selection)
 
+
+def post_run(
+    args: argparse.Namespace,
+    scope: str,
+    label: str,
+    t0: int,
+    t1: int,
+    spans: list[AgentSpan],
+    notes: list[dict[str, Any]],
+    prs: list[dict[str, Any]],
+    selection: Selection,
+) -> int:
+    """Post the joined run to Jaeger when --jaeger asks for it. Exit 0: a failed post is only a warning."""
     if args.jaeger:
-        others = [*notes, *prs]
         native = [r for r in selection.native if r.get("type") == "span"]
-        body, count, trace = jaeger_request(str(scope), label, t0, t1, spans, others, native)
+        body, count, trace = jaeger_request(str(scope), label, t0, t1, spans, [*notes, *prs], native)
         try:
             post_jaeger(args.jaeger, body)
             print(f"jaeger: posted {count} spans, trace {trace}")

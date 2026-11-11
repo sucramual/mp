@@ -1535,7 +1535,8 @@ def run(args: argparse.Namespace) -> int:
     for anomaly in sorted(anomalies, key=lambda a: (a.start, a.ref)):
         if anomaly.ref in answered_refs or anomaly.kind == "wait" or anomaly.reserved:
             continue
-        near = any(
+        # An intervention needs a judgment, so only a note that names its ref answers it, never a nearby friction note.
+        near = anomaly.kind != "intervention" and any(
             session_of(r) == anomaly.session and anomaly.start - NOTE_BEFORE <= time_of(r) <= anomaly.end + NOTE_AFTER
             for r in friction
         )

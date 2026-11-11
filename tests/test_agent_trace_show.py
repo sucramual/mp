@@ -1355,6 +1355,14 @@ def test_window_starts_at_the_binding_and_prompt_merges_and_interventions_are_re
     # The gap from the park to the prompt merge is a wait on merge, with the merge time from the prompt record.
     assert section(out, "RESERVED") == ["merge    1×  30m  merge rule"]
 
+    # A friction note near an intervention does not answer it: only a `note intervention` with its ref does.
+    text = {"agent_trace.category": "doc", "agent_trace.what": "w", "agent_trace.fix": "f"}
+    friction = note("friction", ns("2026-10-29T10:56:00Z"), [], **text)
+    friction["attrs"].update({"run.ticket": "RUN-9", "agent_trace.scope": "RUN-9", "session.id": DG})
+    digest_store(env, friction)
+    _, out, _ = show(penv, "--work", "RUN-9", "--session", RT, "--offline")
+    assert "tx-dddddddd-int-105100" in [e[0] for e in reconcile(out)]
+
     # `note intervention` answers an intervention item.
     answer = note(
         "intervention", ns("2026-10-29T11:00:00Z"), ["tx-dddddddd-int-105100"], **{"agent_trace.avoidable": True}

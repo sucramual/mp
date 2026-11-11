@@ -13,6 +13,7 @@ It reads the hook JSON on stdin and checks each simple command in a Bash tool ca
 Allow: exit 0 with no output. Block: exit 2 with the reason on stderr; both agents read this as a block.
 A heredoc body is input, so its quoting is not checked, unless a body names gh, spacectl, graphql, or a merge mutation.
 Then the whole call is checked as written, and bad quoting fails closed.
+`command -v` and `command -V` only look a name up, so the guard does not check the name as a command.
 It fails closed: bad input or any error blocks the call.
 It is a guardrail against mistakes, not a security boundary: shell tricks such as eval or variables get past it.
 Standard library only.
@@ -54,7 +55,8 @@ GH_API_VALUE_FLAGS = {
 READ_ONLY_SPACECTL = (
     ("version",), ("whoami",), ("profile",), ("completion",),
     ("stack", "list"), ("stack", "show"), ("stack", "logs"), ("stack", "outputs"), ("stack", "changes"),
-    ("stack", "open"), ("stack", "run", "list"), ("stack", "environment", "list"), ("stack", "task", "list"),
+    ("stack", "open"), ("stack", "run", "list"), ("stack", "run", "show"), ("stack", "run", "changes"),
+    ("stack", "run", "logs"), ("stack", "environment", "list"), ("stack", "task", "list"),
     ("stack", "resources", "list"), ("stack", "state", "pull"),
 )  # fmt: skip
 
@@ -118,6 +120,10 @@ def strip_wrappers(words: list[str]) -> list[str]:
     while words:
         if ASSIGNMENT.match(words[0]) or words[0] in RESERVED_WORDS:
             words = words[1:]
+        elif os.path.basename(words[0]) == "command" and any(
+            word.startswith("-") and ("v" in word or "V" in word) for word in words[1:2]
+        ):
+            return []  # command -v NAME looks NAME up and runs nothing.
         elif os.path.basename(words[0]) in WRAPPERS:
             words = words[1:]
             while words and words[0].startswith("-"):

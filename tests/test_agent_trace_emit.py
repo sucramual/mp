@@ -39,6 +39,14 @@ def trace_id(scope: str) -> str:
         (["span", "start", "--id", "a", "--name", "n" * 301, "--kind", "phase"], "--name must be at most 300"),
         (["note", "none", "--ref", "xyz"], "--ref must match"),
         (["note", "none", "--ref", "tx-dddddddd-fail-0800"], "--ref must match"),
+        (["span", "start", "--id", "a", "--name", "x", "--kind", "phase", "--ask", "merge"], "--ask needs --kind wait"),
+        (["span", "start", "--id", "a", "--name", "x", "--kind", "wait", "--ask", "later"], "--ask must be one of"),
+        (["note", "intervention", "--ref", "tx-a-int-100000"], "needs --avoidable or --reserved"),
+        (["note", "intervention", "--ref", "tx-a-int-100000", "--avoidable"], "--avoidable needs --fix"),
+        (
+            ["note", "intervention", "--ref", "tx-a-int-100000", "--reserved", "--avoidable", "--fix", "f"],
+            "--reserved, not both",
+        ),
     ],
 )
 def test_invalid_input_exits_2_and_sends_and_writes_nothing(
@@ -325,3 +333,41 @@ def test_fallback_when_endpoint_is_not_collect(isolated_env: IsolatedEnv, tmp_pa
     [record] = read_jsonl(state / "fallback.jsonl")
     assert record["name"] == "agent_trace.note"
     assert record["attrs"]["agent_trace.refs"] == ["0123456789abcdef"]
+
+
+# Protects the ask span: neo marks a wait on Marcus or the router with its class, so `show` names the wait.
+# Bug caught: --ask is accepted but not stored, so the wait stays an unexplained idle gap.
+def test_ask_flag_stores_the_class_of_a_wait_span(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        args = ["span", "start", "--id", "ask-1", "--name", "Merge PR 7", "--kind", "wait", "--ask", "merge"]
+        result = run([*args, "--work", "RUN-1"], base_env(isolated_env.env, state, server.url))
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+    [span] = server.spans()
+    attrs = {a["key"]: a["value"] for a in span["attributes"]}
+    assert attrs["agent_trace.kind"] == {"stringValue": "wait"}
+    assert attrs["agent_trace.ask"] == {"stringValue": "merge"}
+
+
+# Protects G12: `note intervention` answers an intervention in Reconcile and records whether it was avoidable.
+# Bug caught: an avoidable intervention is answered with no fix, so /retro has nothing to act on.
+def test_note_intervention_records_avoidable_with_its_fix_or_reserved(
+    isolated_env: IsolatedEnv, tmp_path: Path
+) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        env = base_env(isolated_env.env, state, server.url)
+        avoidable = ["note", "intervention", "--ref", "tx-a-int-100000", "--avoidable", "--fix", "brief sets it"]
+        reserved = ["note", "intervention", "--ref", "tx-a-int-110000", "--reserved"]
+        assert run([*avoidable, "--work", "RUN-1"], env).returncode == 0
+        assert run([*reserved, "--work", "RUN-1"], env).returncode == 0
+    first, second = server.spans()
+    one = {a["key"]: next(iter(a["value"].values())) for a in first["attributes"]}
+    two = {a["key"]: next(iter(a["value"].values())) for a in second["attributes"]}
+    assert first["events"][0]["name"] == "intervention"
+    assert one["agent_trace.note_kind"] == "intervention"
+    assert one["agent_trace.avoidable"] is True
+    assert one["agent_trace.fix"] == "brief sets it"
+    assert one["agent_trace.refs"] == {"values": [{"stringValue": "tx-a-int-100000"}]}
+    assert two["agent_trace.avoidable"] is False
+    assert "agent_trace.fix" not in two

@@ -50,6 +50,13 @@ RECOVER_WINDOW = 3
 DENIED_RE = re.compile(r"^Permission for this action was denied by the (?:Claude Code |server-side )?auto mode")
 DENIED_REASON_RE = re.compile(r"Reason: \[([^\]]+)\]")
 HOOK_RE = re.compile(r"^(?:\w+:\w+ )?hook error: (?:\[([^\]]*)\]|([^:\n]+)):")
+# One session in a linked-sessions reminder: its name and its state, such as `ch2 = local_ab12 (done, PR #7)`.
+LINKED_RE = re.compile(r"([\w.-]+) = local_[\w-]+ \(([^)]*)\)")
+PEER_RE = re.compile(r'<cross-session-message[^>]*\bfrom-name="([^"]*)"')
+BASH_INPUT_RE = re.compile(r"^<bash-input>(.*?)</bash-input>", re.DOTALL)
+# A notice that the harness queued into the same record as a prompt command, ahead of it.
+NOTICE_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+BEFORE_CALLS = 3  # the tool calls kept before each event, so /retro sees what led to it
 
 
 class InputError(Exception):
@@ -79,6 +86,7 @@ class Report:
     noops: list[dict[str, Any]] = field(default_factory=list)
     logs: list[dict[str, Any]] = field(default_factory=list)
     turns: list[dict[str, Any]] = field(default_factory=list)
+    interventions: list[dict[str, Any]] = field(default_factory=list)  # messages and prompt commands that Marcus typed
 
 
 def parse_time(value: str) -> datetime:
@@ -174,7 +182,15 @@ def local_events(lines: list[str], sessions: list[str]) -> list[Event]:
         key = obj.get("uuid") or f"{obj['timestamp']}|{obj['type']}|{json.dumps(obj, sort_keys=True)}"
         message = obj.get("message") or {}
         time = parse_time(obj["timestamp"])
-        events.append(Event(time, obj["type"], {"message": message}, key))
+        body: dict[str, Any] = {"message": message}
+        origin = obj.get("turnOrigin") or (obj.get("origin") or {}).get("kind")
+        if isinstance(origin, str):
+            body["origin"] = origin  # who wrote a user message: human, host_synthetic, peer, task_notification
+        if obj.get("isMeta") is True:
+            body["meta"] = True  # text that the harness added, such as a loaded skill
+        if obj.get("isApiErrorMessage") is True:
+            body["api_error"] = True  # an assistant record that the harness wrote for a failed API call
+        events.append(Event(time, obj["type"], body, key))
         if obj["type"] == "assistant" and message.get("stop_reason") == "end_turn":
             # A local transcript has no result event. The end of a turn is the message that stops with end_turn.
             text = "\n".join(
@@ -308,6 +324,91 @@ def block_of(output: str) -> dict[str, str] | None:
     return {"by": "hook", "name": " ".join([script, *words[at + 1 :]])}
 
 
+def ended_by(event: Event) -> str | None:
+    """What kind of event ended a gap: a message that a person typed, a peer session, a background task, a status
+    reminder about linked sessions, or the summary after a compaction. None for anything else, such as a tool result.
+    """
+    if event.kind != "user" or any(block.get("type") == "tool_result" for block in content_blocks(event)):
+        return None
+    text = (user_text(event) or "").lstrip()
+    if not text:
+        return None
+    if "<cross-session-message" in text:
+        return "peer"  # A message from another session, alone or after a linked-sessions reminder.
+    if text.startswith("<task-notification>"):
+        return "background"
+    if text.startswith("<system-reminder>") and "Linked sessions now" in text[:200]:
+        return "linked"
+    if text.startswith("This session is being continued"):
+        return "compaction"
+    if text.startswith(("<", "[")):
+        return None  # Other harness text, such as a command or a reminder.
+    return "user"
+
+
+def linked_states(text: str) -> dict[str, str]:
+    """The state of each session in a linked-sessions reminder, by session name; empty for other text."""
+    return dict(LINKED_RE.findall(text)) if "Linked sessions now" in text[:300] else {}
+
+
+def woke_by(event: Event, kind: str | None, linked: dict[str, str]) -> str:
+    """Who the event that ended a gap came from: the peer session's name, or the linked sessions whose state changed
+    since the last reminder (`linked`). Empty when the event does not say."""
+    text = user_text(event) or ""
+    if kind == "peer":
+        peer = PEER_RE.search(text)
+        return peer.group(1) if peer else ""
+    if kind == "linked":
+        now = linked_states(text)
+        return "; ".join(f"{name} ({state})" for name, state in now.items() if linked.get(name) != state)
+    return ""
+
+
+def pointer(event: Event) -> str:
+    """The transcript UUID of an event, or "" when its record has none."""
+    return "" if "|" in event.key else event.key
+
+
+def prompt_command(text: str) -> dict[str, str] | None:
+    """A command that Marcus ran from the prompt (`! cmd`): its program, its PR for `gh pr merge`, and the first
+    output line. Command text past the program is never kept. None for any other text."""
+    found = BASH_INPUT_RE.match(NOTICE_RE.sub("", text).lstrip())
+    if found is None:
+        return None
+    words = bash_words(found.group(1))
+    program = " ".join(words[:3]) if words[:1] == ["gh"] else " ".join(words[:1])
+    command = {"program": program}
+    if program == "gh pr merge":
+        args = [w for w in words[3:] if not w.startswith("-")]
+        repo = next((words[i + 1] for i, w in enumerate(words[:-1]) if w in ("--repo", "-R")), "")
+        target = next((a for a in args if a != repo), "")
+        if target.startswith("https://github.com/"):
+            command["pr"] = target
+        elif target.isdigit() and repo:
+            command["pr"] = f"https://github.com/{repo}/pull/{target}"
+        head = next((words[i + 1] for i, w in enumerate(words[:-1]) if w == "--match-head-commit"), "")
+        if re.fullmatch(r"[0-9a-f]{7,40}", head):
+            command["head"] = head
+    stdout = re.search(r"<bash-stdout>(.*?)</bash-stdout>", text, re.DOTALL)
+    stderr = re.search(r"<bash-stderr>(.*?)</bash-stderr>", text, re.DOTALL)
+    out = stdout.group(1).strip() if stdout else ""
+    err = stderr.group(1).strip() if stderr else ""
+    if out:
+        command["result"] = short(out.splitlines()[0])
+    elif err:
+        command["error"] = short(err.splitlines()[0])  # no output but an error: the command failed
+    return command
+
+
+def assistant_text(event: Event) -> str:
+    """The text of an assistant message, or of a turn's result, without its tool calls."""
+    if event.kind == "result":
+        return str(event.body.get("result") or "")
+    if event.kind != "assistant":
+        return ""
+    return user_text(event) or ""
+
+
 def same_call(one: tuple[str, Any] | None, other: tuple[str, Any] | None) -> bool:
     """The same tool with the same input, such as a test run that is run again after a fix."""
     if one is None or other is None:
@@ -346,8 +447,32 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     open_perms: dict[str, datetime] = {}  # request_id -> time the wait ends
     in_turn = False
     previous: Event | None = None
+    said = ""  # the last assistant text so far: what a message from Marcus after it answers
+    linked: dict[str, str] = {}  # the session states of the last linked-sessions reminder
+
+    def before(ident: str | None = None) -> list[str]:
+        """The labels of the last tool calls before a call (`ident`), or before now."""
+        upto = calls.index(ident) if ident in calls else len(calls)
+        return [tool_label(*tool_uses[c]) for c in calls[max(0, upto - BEFORE_CALLS) : upto]]
 
     for index, event in enumerate(events):
+        if event.kind == "user":
+            typed = user_text(event) or ""
+            origin = event.body.get("origin")
+            # The transcript says who wrote a message (`turnOrigin`); older transcripts do not, so the kind of text
+            # decides there. A brief that another session sent to start this one is not Marcus's.
+            # A record that Marcus wrote can also hold a notice that the harness queued, which makes it look like
+            # another kind of event; `turnOrigin` decides.
+            command = prompt_command(typed) if origin == "human" or (origin is None and not ended_by(event)) else None
+            human = origin == "human" if origin else ended_by(event) == "user" and not event.body.get("meta")
+            if command or (human and ended_by(event) == "user"):
+                item: dict[str, Any] = {"time": iso(event.time), "uuid": pointer(event)}
+                item["kind"] = "command" if command else "message"
+                item.update(command or {"text": short(typed)})
+                item["asked"] = short(said) if said else ""
+                item["wait_seconds"] = (event.time - previous.time).total_seconds() if previous else 0
+                item["before"] = before()
+                report.interventions.append(item)
         if previous is not None:
             seconds = (event.time - previous.time).total_seconds()
             if seconds > gap_minutes * 60:
@@ -363,6 +488,10 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                         "after_tool_use": previous.kind == "assistant"
                         and any(block.get("type") == "tool_use" for block in content_blocks(previous)),
                         "quote": describe(previous),
+                        "ended_by": ended_by(event),
+                        "woke_by": woke_by(event, ended_by(event), linked),
+                        "end_uuid": pointer(event),
+                        "before": before(),
                     }
                 )
 
@@ -388,6 +517,8 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                 report.fails.append(
                     {
                         "time": iso(event.time),
+                        "uuid": pointer(event),
+                        "before": before(str(block.get("tool_use_id"))),
                         "tool": name,
                         "label": tool_label(name, tool_input),
                         "tool_use_id": block.get("tool_use_id"),
@@ -446,6 +577,12 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                     "quote": short(f"{request.get('tool_name')} {json.dumps(request.get('input'), sort_keys=True)}"),
                 }
             )
+        if not event.body.get("api_error"):
+            said = assistant_text(event).strip() or said
+        if ended_by(event) in ("user", "peer"):
+            said = ""  # A reply answered it, so a later message does not answer the same text.
+        if event.kind == "user":
+            linked = linked_states(user_text(event) or "") or linked
         previous = event
 
     flush_run()
@@ -523,6 +660,7 @@ def as_json(report: Report) -> dict[str, Any]:
         "fails": report.fails,
         "perms": report.perms,
         "gaps": report.gaps,
+        "interventions": report.interventions,
         "loops": report.loops,
         "noops": report.noops,
         "logs": report.logs,

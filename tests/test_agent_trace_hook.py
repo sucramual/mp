@@ -159,3 +159,30 @@ def test_collect_down_writes_fallback_quietly_and_fast(isolated_env: IsolatedEnv
     assert record["name"] == "agent_trace.pr"
     assert record["attrs"]["agent_trace.pr_url"] == "https://github.com/acme/widgets/pull/9"
     assert record["attrs"]["session.id"] == "s4"
+
+
+# Protects the run outcome of dotfiles runs: `dotfiles-pr ship` opens the PR, so the hook records it as a create.
+# Bug caught: `show` prints "PRs 0" for a run whose PRs all came from `dotfiles-pr ship` (CH-1).
+def test_dotfiles_pr_ship_with_a_pull_url_records_a_create(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    bind(state, "s1", "RUN-1")
+    command = '~/dotfiles/tools/dotfiles-pr/bin/dotfiles-pr ship --body-file b.md "feat: x"'
+    payload = {
+        "session_id": "s1",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "tool_response": {
+            "stdout": "To https://github.com/sucramual/mp.git\nhttps://github.com/sucramual/mp/pull/73\n"
+        },
+    }
+    with recorder() as server:
+        result = run(["hook"], base_env(isolated_env.env, state, server.url), input=json.dumps(payload))
+        failed = {**payload, "tool_response": {"stdout": "", "stderr": "scripts/check failed"}}
+        run(["hook"], base_env(isolated_env.env, state, server.url), input=json.dumps(failed))
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+    # A ship that printed no pull URL opened no PR, so it records nothing.
+    [span] = server.spans()
+    got = attrs(span)
+    assert got["agent_trace.pr_action"] == "create"
+    assert got["agent_trace.pr_url"] == "https://github.com/sucramual/mp/pull/73"
+    assert got["run.ticket"] == "RUN-1"

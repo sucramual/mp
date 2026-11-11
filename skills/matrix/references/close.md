@@ -19,4 +19,5 @@ A router nearly closed a ticket while three goal checks had only unit proof, and
 - Take the waits on Marcus from the transcripts: from each park or question to his answer.
 - Take the errors from the transcripts and the failed checks from GitHub.
 - Take the PR list, with each reviewed SHA and merge SHA, from GitHub.
-- Post the `agent-trace` chart only with a label that says what it covers. When you know that a number is wrong or partial, correct it or leave it out. Never post it as it is.
+- The run log is the `text` fence from `show`. Its GAPS list gives each wait with the event that ended it.
+- When you know that a number in the run log is wrong or partial, correct it or leave it out. Never post it as it is.

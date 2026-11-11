@@ -42,7 +42,13 @@ def tokens(command: str) -> list[str]:
 
 
 def find_action(words: list[str]) -> tuple[str, list[str]] | None:
-    """Return (create|merge, the words after it up to the next shell separator)."""
+    """Return (create|merge, the words after it up to the next shell separator).
+
+    `dotfiles-pr ship` counts as a create: it commits, pushes, and opens the PR of a dotfiles change.
+    """
+    for index in range(len(words) - 1):
+        if words[index].rsplit("/", 1)[-1] == "dotfiles-pr" and words[index + 1] == "ship":
+            return "create", []
     for index in range(len(words) - 2):
         if words[index] == "gh" and words[index + 1] == "pr" and words[index + 2] in ("create", "merge"):
             rest = []
@@ -99,7 +105,7 @@ def build_attrs(payload: dict[str, Any]) -> dict[str, Any] | None:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if isinstance(command, list):
         command = " ".join(shlex.quote(str(part)) for part in command)
-    if not isinstance(command, str) or "gh" not in command:
+    if not isinstance(command, str) or ("gh" not in command and "dotfiles-pr" not in command):
         return None
     found = find_action(tokens(command))
     if found is None:
@@ -112,6 +118,8 @@ def build_attrs(payload: dict[str, Any]) -> dict[str, Any] | None:
         stdout, stderr = response, None
     stdout = stdout if isinstance(stdout, str) else ""
     stderr = stderr if isinstance(stderr, str) else ""
+    if "gh" not in tokens(command) and not PR_URL.search(stdout[:SEARCH_LIMIT]):
+        return None  # A `dotfiles-pr ship` that printed no pull URL opened no PR.
     positional, flags = parse_flags(rest)
     flag_repo = repo_from_flag(flags.get("-R") or flags.get("--repo"))
     match = PR_URL.search(stdout[:SEARCH_LIMIT]) or PR_URL.search(command)

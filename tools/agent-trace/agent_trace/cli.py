@@ -38,6 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--name", required=True)
     start.add_argument("--kind", required=True)
     start.add_argument("--parent")
+    start.add_argument(
+        "--ask", help="for --kind wait: the class of the ask that the wait is for (merge|scope|access|info)"
+    )
     common(start)
     end = span_commands.add_parser("end")
     end.add_argument("--id", required=True)
@@ -53,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     friction.add_argument("--fix", required=True)
     friction.add_argument("--ref", action="append", default=[])
     common(friction)
+    intervention = note_commands.add_parser("intervention", help="answer an intervention item in Reconcile")
+    intervention.add_argument("--ref", action="append", required=True)
+    intervention.add_argument("--avoidable", action="store_true", help="the agent could have avoided it; give --fix")
+    intervention.add_argument("--reserved", action="store_true", help="a reserved decision: Marcus had to make it")
+    intervention.add_argument("--fix", help="for --avoidable: the change that makes the intervention unneeded")
+    common(intervention)
     none = note_commands.add_parser("none")
     none.add_argument("--ref", action="append", required=True)
     common(none)
@@ -70,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     view = show.add_mutually_exclusive_group()
     view.add_argument("--gantt", action="store_true", help="print the bar chart of spans instead of the gaps view")
     view.add_argument("--timeline", action="store_true", help="print the transcript timeline of each session instead")
+    view.add_argument("--json", action="store_true", help="print the digest for /retro: signal events and pointers")
     return parser
 
 

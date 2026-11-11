@@ -69,6 +69,7 @@ Trace the run with `agent-trace` through Bash. Append each call to a command tha
 
 - Pass `--work <ID>` on the first call in each session, the main one and each child. The work ID is the ticket ID, or the chain ID when the chain has no ticket. Later calls in that session reuse it. The [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md) defines these terms.
 - Open a span for each phase, PR, wait, infra step, and check: `span start --id <id> --name <text> --kind <phase|pr|wait|infra|check> [--parent <id>]`. End it with `span end --id <id> --status <ok|error|parked> [--note <text>]`.
+- When you ask Marcus or the router a question, or park a PR, open a wait span with its class: `span start --id ask-<n> --name <text> --kind wait --ask <merge|scope|access|info>`. End it when the answer or the merge comes. `show` then names that wait in GAPS, instead of an unexplained idle gap.
 - Each time you hit friction that you want fixed, run `agent-trace note friction --category <permission|doc|flaky|workaround|missing-tool> --what <text> --fix <text>`.
 - A hook records each `gh pr create` and `gh pr merge`. Do not write `LOG` lines.
 - When a call exits non-zero, fix the arguments from its error and run it again. A warning that collect is not reachable needs no action.

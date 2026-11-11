@@ -464,3 +464,101 @@ def test_a_call_with_the_same_label_but_other_input_does_not_recover_a_fail(tmp_
 
     assert fail["label"] == "Bash(python3 -m)"
     assert fail["recovered"] is False
+
+
+def uuid_line(role: str, when: str, content: Any, uuid: str, origin: str | None = None, meta: bool = False) -> str:
+    record = {"type": role, "timestamp": when, "uuid": uuid, "sessionId": "s-int", "message": {"role": role}}
+    record["message"]["content"] = content
+    if origin:
+        record["turnOrigin"] = origin
+    if meta:
+        record["isMeta"] = True
+    return json.dumps(record)
+
+
+def bash_use(ident: str, command: str) -> list[dict[str, Any]]:
+    return [{"type": "tool_use", "id": ident, "name": "Bash", "input": {"command": command}}]
+
+
+def bash_result(ident: str, output: str, error: bool = False) -> list[dict[str, Any]]:
+    return [{"type": "tool_result", "tool_use_id": ident, "is_error": error, "content": output}]
+
+
+# Protects the digest inputs of /retro: each message that Marcus typed, and each command he ran from the prompt, is one
+# intervention with the ask before it, the wait, the 3 tool calls before it, and the transcript event UUID.
+# Bugs caught: a peer message or a task notification counts as Marcus; a prompt merge is lost because it starts with
+# "<"; the pointer is missing, so /retro must search the transcript; command text leaks past the program.
+def test_interventions_are_typed_messages_and_prompt_commands_with_their_ask_and_pointer(tmp_path: Path) -> None:
+    path = tmp_path / "s-int.jsonl"
+    merge = (
+        "<bash-input>gh pr merge 71 --repo o/r --squash --match-head-commit abc1234</bash-input>"
+        "<bash-stdout>✓ Squashed and merged pull request o/r#71 (feat: x)</bash-stdout><bash-stderr></bash-stderr>"
+    )
+    lines = [
+        # A brief that another session sent to start this one looks typed, but the transcript says who wrote it.
+        uuid_line("user", "2026-10-29T09:59:00Z", "Background: build PR 3", "u-brief", origin="host_synthetic"),
+        uuid_line("user", "2026-10-29T10:00:00Z", "go", "u-go", origin="human"),
+        # A loaded skill is a user record that the harness wrote (`isMeta`), in a transcript with no `turnOrigin`.
+        uuid_line("user", "2026-10-29T10:00:00Z", "Base directory for this skill: /x/neo", "u-skill", meta=True),
+        uuid_line("assistant", "2026-10-29T10:00:01Z", bash_use("t1", "git status"), "a1"),
+        uuid_line("user", "2026-10-29T10:00:02Z", bash_result("t1", "clean"), "r1"),
+        uuid_line("assistant", "2026-10-29T10:00:03Z", bash_use("t2", "python3 -m pytest -q"), "a2"),
+        uuid_line("user", "2026-10-29T10:00:04Z", bash_result("t2", "Exit code 1\nFAILED x", True), "r2"),
+        uuid_line("assistant", "2026-10-29T10:00:05Z", bash_use("t3", "gh pr view 71 --json state"), "a3"),
+        uuid_line("user", "2026-10-29T10:00:06Z", bash_result("t3", "{}"), "r3"),
+        uuid_line("assistant", "2026-10-29T10:00:07Z", "PR 71 is parked. Waiting for Marcus to merge it.", "a4"),
+        uuid_line("user", "2026-10-29T10:30:07Z", merge, "u-merge"),
+        uuid_line("user", "2026-10-29T10:31:00Z", "<task-notification>done</task-notification>", "u-task"),
+        uuid_line("user", "2026-10-29T10:32:00Z", '<cross-session-message from="local_r" from-name="R">x', "u-peer"),
+        uuid_line("assistant", "2026-10-29T10:33:00Z", "Should I drop the flag? Waiting for you to choose.", "a5"),
+        # The harness writes a failed API call as an assistant record: it is not what Marcus answers.
+        json.dumps(
+            {
+                "type": "assistant",
+                "timestamp": "2026-10-29T10:34:00Z",
+                "uuid": "a-err",
+                "isApiErrorMessage": True,
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "API Error: Can't reach"}]},
+            }
+        ),
+        uuid_line("user", "2026-10-29T10:50:00Z", "yes, drop it", "u-yes"),
+        # A prompt command that the harness queued behind a notice: the notice is the record's first text block.
+        uuid_line(
+            "user",
+            "2026-10-29T11:00:00Z",
+            [
+                {
+                    "type": "text",
+                    "text": '<system-reminder>The session "x" you started finished a turn.</system-reminder>',
+                },
+                {"type": "text", "text": merge.replace("71", "72")},
+            ],
+            "u-merge2",
+            origin="human",
+        ),
+    ]
+    path.write_text("\n".join(lines) + "\n")
+    data = report(path)
+
+    assert [(i["kind"], i["uuid"]) for i in data["interventions"]] == [
+        ("message", "u-go"),
+        ("command", "u-merge"),
+        ("message", "u-yes"),
+        ("command", "u-merge2"),
+    ]
+    _, command, reply, queued = data["interventions"]
+    assert (queued["program"], queued["pr"]) == ("gh pr merge", "https://github.com/o/r/pull/72")
+    assert command["program"] == "gh pr merge"
+    assert command["pr"] == "https://github.com/o/r/pull/71"
+    assert command["result"] == "✓ Squashed and merged pull request o/r#71 (feat: x)"
+    assert "text" not in command
+    assert command["asked"] == "PR 71 is parked. Waiting for Marcus to merge it."
+    assert command["wait_seconds"] == 1800
+    assert command["before"] == ["Bash(git status)", "Bash(python3 -m)", "Bash(gh pr)"]
+    assert reply["text"] == "yes, drop it"
+    assert reply["asked"] == "Should I drop the flag? Waiting for you to choose."
+    # The 3 calls before an event are kept for fails too, and fails and gaps point at their transcript events.
+    [fail] = data["fails"]
+    assert (fail["uuid"], fail["before"]) == ("r2", ["Bash(git status)"])
+    gap = next(g for g in data["gaps"] if g["end"].startswith("2026-10-29T10:30"))
+    assert gap["end_uuid"] == "u-merge"

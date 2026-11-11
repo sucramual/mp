@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -377,7 +378,7 @@ printf '%s' '{{"state":"MERGED","headRefOid":"{MOVED}","mergeCommit":{{"oid":"{M
         "view",
         PR_URL,
         "--json",
-        "state,headRefOid,mergeCommit",
+        "state,headRefOid,mergeCommit,mergedAt,mergedBy,commits",
     ]
 
 
@@ -486,6 +487,7 @@ FB_REFS = [
     "tx-dddddddd-block-084611",
     "tx-dddddddd-block-084614",
 ]
+FB_INT = "tx-dddddddd-int-080000"  # "go", the message that Marcus typed to start session FB
 AGENT_TRACE_BLOCK = (
     "PreToolUse:Bash hook error: [python3 /Users/x/dotfiles/tools/agent-trace/bin/agent-trace gate]: "
     "agent-trace gate: this /neo session has no work ID."
@@ -538,7 +540,8 @@ def fallback_transcript(projects: Path) -> None:
         result(
             "t5", "2026-10-29T08:00:21Z", "Permission for this action was denied by the auto mode classifier.", True
         ),
-        said("user", "2026-10-29T08:30:21Z", "continue"),
+        # The agent resumes by itself: nothing names why it waited, so the gap stays unexplained.
+        said("assistant", "2026-10-29T08:30:21Z", "Resuming."),
         # Text longer than the timeline's 160-character quote comes before the call, so the quote drops it.
         use("t6", "2026-10-29T08:30:25Z", "pytest -q", text="Running the full test suite now. " * 8),
         result("t6", "2026-10-29T08:45:30Z", "1 passed", False),
@@ -565,11 +568,19 @@ def fallback_transcript(projects: Path) -> None:
     (folder / f"{FB}.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
 
 
+def bind_record(ticket: str, session: str, when: int) -> dict[str, Any]:
+    """A record that binds a session to a work ID at a time: the run's window starts there (G13)."""
+    record = note("none", when, [])
+    record["attrs"].update({"run.ticket": ticket, "agent_trace.scope": ticket, "session.id": session})
+    return record
+
+
 def fallback_store(env: dict[str, str], *extra: dict[str, Any]) -> None:
     kind = {"agent_trace.kind": "phase"}
     start = agent("impl", "start", at(9, 0), ticket="RUN-3", session=FB, name="Implement", **kind)
     end = agent("impl", "end", at(9, 30), ticket="RUN-3", session=FB, **{"agent_trace.status": "ok"})
-    write_store(state_of(env), [start, end, *extra])
+    bound = bind_record("RUN-3", FB, ns("2026-10-29T08:00:00Z"))
+    write_store(state_of(env), [bound, start, end, *extra])
 
 
 def fallback_note(kind: str, refs: list[str]) -> dict[str, Any]:
@@ -586,8 +597,9 @@ def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_
     assert code == 0, err
     assert "Reconcile: none" not in out.splitlines()
     entries = reconcile(out)
-    assert [e[0] for e in entries] == FB_REFS
+    assert [e[0] for e in entries] == [FB_INT, *FB_REFS]
     assert [e[1:3] for e in entries] == [
+        ["08:00Z", "intervention"],
         ["08:00Z", "fail"],
         ["08:00Z", "block"],
         ["08:00Z", "idle"],
@@ -597,6 +609,7 @@ def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_
     ]
     # The tool and the program only, plus what blocked the call: no more command text, as for native spans.
     assert [e[3] for e in entries] == [
+        '"go"',
         "Bash gh x2",
         "Bash kubectl (auto mode)",
         "30m idle",
@@ -615,8 +628,8 @@ def test_fallback_anomalies_need_answers_before_reconcile_none(env: dict[str, st
     penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
     fallback_store(env, fallback_note("none", FB_REFS[:2]))
     _, out, _ = show(penv, "--work", "RUN-3", "--offline")
-    assert [e[0] for e in reconcile(out)] == FB_REFS[2:]
-    fallback_store(env, fallback_note("none", FB_REFS))
+    assert [e[0] for e in reconcile(out)] == [FB_INT, *FB_REFS[2:]]
+    fallback_store(env, fallback_note("none", FB_REFS), fallback_note("intervention", [FB_INT]))
     _, out, _ = show(penv, "--work", "RUN-3", "--offline")
     assert "Reconcile: none" in out.splitlines()
 
@@ -634,6 +647,10 @@ def test_cli_note_none_answers_transcript_items_to_reconcile_none(env: dict[str,
         ["note", "none", "--work", "RUN-3", *[f"--ref={ref}" for ref in FB_REFS]], {**env, "AGENT_TRACE_SESSION": FB}
     )
     assert answer.returncode == 0, answer.stderr
+    # The message that Marcus typed is an intervention item: `note intervention` answers it.
+    intervention = ["note", "intervention", "--work", "RUN-3", f"--ref={FB_INT}", "--avoidable", "--fix", "a brief"]
+    answer = run(intervention, {**env, "AGENT_TRACE_SESSION": FB})
+    assert answer.returncode == 0, answer.stderr
     _, out, _ = show(penv, "--work", "RUN-3", "--offline")
     assert "Reconcile: none" in out.splitlines()
 
@@ -647,7 +664,7 @@ def test_fallback_gap_inside_a_wait_span_is_not_an_anomaly(env: dict[str, str], 
     wait_end = agent("ci", "end", day_before + 29 * M, ticket="RUN-3", session=FB, **{"agent_trace.status": "ok"})
     fallback_store(env, wait_start, wait_end)
     _, out, _ = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-3", "--offline")
-    assert [e[0] for e in reconcile(out)] == [FB_REFS[0], FB_REFS[1], *FB_REFS[3:]]  # The idle gap is a wait.
+    assert [e[0] for e in reconcile(out)] == [FB_INT, FB_REFS[0], FB_REFS[1], *FB_REFS[3:]]  # The idle gap is a wait.
 
 
 def claude_transcript(projects: Path, session: str, *stamps: str) -> None:
@@ -675,7 +692,7 @@ def test_wall_time_comes_from_the_transcripts_of_every_bound_session(env: dict[s
     # Bug (/matrix run retro, 2026-11-05): spans stopped after context compactions and one worker session had
     # none, so `show` printed a 2h46m run that really ran from 01:24Z to 01:44Z the next day. The chart went
     # into the Linear close comment as the whole run.
-    write_store(state_of(env), scenario())
+    write_store(state_of(env), [bind_record("RUN-1", S1, at(9, 0)), *scenario()])
     sessions = state_of(env) / "sessions"
     sessions.mkdir(parents=True)
     (sessions / f"{S2}.ticket").write_text("RUN-1\n")
@@ -686,15 +703,16 @@ def test_wall_time_comes_from_the_transcripts_of_every_bound_session(env: dict[s
     assert code == 0, err
 
     summary = fence(out)
-    # S1 spans run 09:00-12:00 (3h00m) of the 24h20m wall time: 180 / 1460 minutes is 12%.
-    assert "wall 24h20m (10-30 08:50Z → 10-31 09:10Z) · span coverage 3h00m (12%)" in summary
-    assert summary[0].startswith("RUN-1  10-30 08:50Z → 10-31 09:10Z (24h20m)  sessions 2")
+    # S1 spans run 09:00-12:00 (3h00m) of the 24h10m wall time: 180 / 1450 minutes is 12%. The wall starts at
+    # 09:00, S1's first record for RUN-1, not at 08:50, when its transcript starts (G13).
+    assert "wall 24h10m (10-30 09:00Z → 10-31 09:10Z) · span coverage 3h00m (12%)" in summary
+    assert summary[0].startswith("RUN-1  10-30 09:00Z → 10-31 09:10Z (24h10m)  sessions 2")
     assert section(out, "SESSIONS") == [
-        "claude aaaaaaaa  transcript 10-30 08:50Z → 10-31 09:10Z (24h20m)  spans 10-30 09:00Z → 10-30 12:00Z (3h00m)",
+        "claude aaaaaaaa  transcript 10-30 09:00Z → 10-31 09:10Z (24h10m)  spans 10-30 09:00Z → 10-30 12:00Z (3h00m)",
         "claude bbbbbbbb  transcript 10-30 10:00Z → 10-30 10:30Z (30m)  no spans",
     ]
     _, chart, _ = gantt({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-1", "--offline")
-    assert "wall 24h20m (10-30 08:50Z → 10-31 09:10Z) · span coverage 3h00m (12%)" in fence(chart)
+    assert "wall 24h10m (10-30 09:00Z → 10-31 09:10Z) · span coverage 3h00m (12%)" in fence(chart)
     assert any(line.startswith("spans 3h00m · active 32m") for line in fence(chart))
 
 
@@ -798,6 +816,10 @@ def test_collected_native_spans_join_emitted_agent_spans(env: dict[str, str]) ->
             result = run(args, emit_env)
             assert (result.returncode, result.stderr) == (0, "")
     assert not (state_of(env) / "fallback.jsonl").exists()
+    # The native spans of the fixture are from 10-30, and the emitted spans are from now: bind the session to RUN-5
+    # before its native spans, or the window (from the session's first RUN-5 record) leaves them out.
+    bind = bind_record("RUN-5", session, 1793350800000000000 - 1_000_000_000)
+    (state_of(env) / "spans" / "2026-10-29.jsonl").write_text(json.dumps(bind) + "\n")
     code, out, err = gantt(env, "--work", "RUN-5", "--offline")
     assert code == 0, err
     assert [r["name"] for r in rows(out)] == ["run RUN-5", "  Implement", "  claude aaaaaaaa"]
@@ -915,7 +937,7 @@ def test_gap_costs_count_parallel_idle_once_and_notes_take_only_their_own_sessio
     (state_of(env) / "sessions" / f"{twin}.ticket").write_text("RUN-3\n")
     penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
     _, out, _ = show(penv, "--work", "RUN-3", "--offline")
-    assert "autonomy  blocks 6  fails 4  unexplained idle 30m  friction 0" in fence(out)
+    assert "autonomy  blocks 6  fails 4  unexplained idle 30m  friction 0  interventions 2 (reserved 0)" in fence(out)
     gaps = section(out, "GAPS (cost = wait time)")
     assert "idle     2×  30m  unexplained" in gaps
     assert "idle     2×  10s  Bash gh (polling)" in gaps
@@ -1008,3 +1030,393 @@ def test_default_output_carries_the_chart_in_utc(env: dict[str, str]) -> None:
     assert "12:00Z" in axis
     assert lines.index(axis) < lines.index("SESSIONS")
     assert "Reconcile:" in out.splitlines()
+
+
+CA = "cccccccc-0000-4000-8000-000000000007"
+
+
+def ns(stamp: str) -> int:
+    return int(datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()) * S
+
+
+def causes_transcript(projects: Path) -> None:
+    """A transcript of session CA on 2026-10-29 (UTC) with a 20-minute gap after each assistant message.
+
+    Each gap ends on another kind of event: a background task, a peer message, a linked-sessions reminder, a message
+    that Marcus typed, a compaction summary, and the agent itself (no cause). Two gaps follow an ask in words.
+    """
+
+    def said(role: str, when: str, text: str) -> dict[str, Any]:
+        return {"type": role, "timestamp": when, "sessionId": CA, "message": {"role": role, "content": text}}
+
+    lines = [
+        said("user", "2026-10-29T10:00:00Z", "<system-reminder> Linked sessions now: ch2 = local_ab-1 (working)"),
+        said("assistant", "2026-10-29T10:00:05Z", "Waiting for CI."),
+        said("user", "2026-10-29T10:20:05Z", "<task-notification><summary>CI done</summary></task-notification>"),
+        said("assistant", "2026-10-29T10:20:10Z", "CI passed. The PR stays parked for you to queue."),
+        said("user", "2026-10-29T10:40:10Z", "<task-notification><summary>watcher</summary></task-notification>"),
+        said("assistant", "2026-10-29T10:40:15Z", "I sent my report."),
+        said(
+            "user",
+            "2026-10-29T11:00:15Z",
+            '<cross-session-message from="r" from-name="Matrix R">ok</cross-session-message>',
+        ),
+        said("assistant", "2026-10-29T11:00:20Z", "Noted."),
+        said("user", "2026-10-29T11:20:20Z", "<system-reminder> Linked sessions now: ch2 = local_ab-1 (done, PR #7)"),
+        said("assistant", "2026-10-29T11:20:25Z", "Shall I drop the old branch? Marcus decides the scope."),
+        said("user", "2026-10-29T11:40:25Z", "yes, drop it"),
+        said("assistant", "2026-10-29T11:40:30Z", "Dropped."),
+        said("user", "2026-10-29T12:00:30Z", "This session is being continued from a previous conversation."),
+        said("assistant", "2026-10-29T12:00:35Z", "Back."),
+        said("assistant", "2026-10-29T12:20:35Z", "Resuming."),
+        said("assistant", "2026-10-29T12:25:35Z", "Parked."),
+        said("assistant", "2026-10-29T12:50:40Z", "Merged, verifying."),
+        said("user", "2026-10-29T13:10:40Z", "looks good"),
+    ]
+    folder = projects / "-Users-x-repo"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{CA}.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+
+
+def causes_store(env: dict[str, str], *extra: dict[str, Any]) -> None:
+    """Spans of RUN-4 for session CA: PR 1 created at 12:00 and parked at 12:25 on commit abc1234."""
+    where = {"ticket": "RUN-4", "session": CA}
+    start = agent("pr1", "start", ns("2026-10-29T12:20:00Z"), name="PR 1", **where, **{"agent_trace.kind": "pr"})
+    end = agent(
+        "pr1",
+        "end",
+        ns("2026-10-29T12:25:00Z"),
+        **where,
+        **{"agent_trace.status": "parked", "agent_trace.note": "parked at abc1234"},
+    )
+    created = pr("create", ns("2026-10-29T12:00:00Z"))
+    created["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
+    write_store(state_of(env), [bind_record("RUN-4", CA, ns("2026-10-29T10:00:00Z")), start, end, created, *extra])
+
+
+# Protects the wait causes: each idle gap gets its cause from the kind of event that ended it, a fact in the
+# transcript, so GAPS says why the run waited and Reconcile keeps only the gaps that nothing explains.
+# Bug caught: every idle gap is one "unexplained" line, so GAPS names no cause.
+def test_idle_gaps_get_a_cause_from_the_event_that_ends_them(env: dict[str, str], tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    causes_transcript(projects)
+    causes_store(env)
+    code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-4", "--offline")
+    assert code == 0, err
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "wait     2×  40m  background task (CI or watcher)" in gaps
+    # The peer and the linked session that ended a gap are named: the sender, or the session whose state changed.
+    assert "wait     1×  20m  wait on router, from Matrix R" in gaps
+    assert "wait     1×  20m  wait on another session, from ch2 (done, PR #7)" in gaps
+    assert "wait     1×  20m  context compaction" in gaps
+    # The gap that the agent ended by itself has no cause. Offline, the gap after the park has no merge time, so
+    # it is not guessed: both stay unexplained and in Reconcile, and no wait is. The park holds only the first gap
+    # after it: the later gap that Marcus ended is a wait on him.
+    assert "wait     2×  40m  wait on Marcus" in gaps
+    assert "idle     2×  45m  unexplained" in gaps
+    # Each message that Marcus typed is also an intervention, for `note intervention`.
+    assert [(e[0], e[2]) for e in reconcile(out)] == [
+        ("tx-cccccccc-int-114025", "intervention"),
+        ("tx-cccccccc-gap-120035", "idle"),
+        ("tx-cccccccc-gap-122535", "idle"),
+        ("tx-cccccccc-int-131040", "intervention"),
+    ]
+    assert (
+        "autonomy  blocks 0  fails 0  unexplained idle 45m  friction 0  waits 2h20m (reserved 0s)"
+        "  interventions 2 (reserved 0)"
+    ) in fence(out)
+
+
+# Protects rule 2 of G10: the time from a park to the merge of its PR is a wait on merge, by the commit in the park
+# note, with the merge time from GitHub or from the hook record of the merge.
+# Bug caught: the gap after a park reads as unexplained idle although the PR merged later; or a merge time is guessed.
+def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
+    env: dict[str, str], tmp_path: Path, isolated_env: IsolatedEnv, fake_exe: Any
+) -> None:
+    projects = tmp_path / "projects"
+    causes_transcript(projects)
+    causes_store(env)
+    penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
+    data = {
+        "state": "MERGED",
+        "headRefOid": "abc1234" + "0" * 33,
+        "mergeCommit": {"oid": MERGE},
+        "mergedAt": "2026-10-29T12:50:00Z",
+        "commits": [{"oid": "0" * 40}, {"oid": "abc1234" + "0" * 33}],
+    }
+    fake_exe("gh", f"""printf '%s\\n' "$*" >>"$HOME/gh.log"\nprintf '%s' '{json.dumps(data)}'\n""")
+    code, out, err = show(penv, "--work", "RUN-4")
+    assert code == 0, err
+    # A wait on merge is reserved: it leaves GAPS for RESERVED, still counts in the autonomy line, and is no
+    # Reconcile item.
+    assert not any("wait on merge" in line for line in section(out, "GAPS (cost = wait time)"))
+    assert section(out, "RESERVED") == ["merge    1×  24m  merge rule"]
+    assert "waits 2h44m (reserved 24m)" in fence(out)[1]
+    assert [e[0] for e in reconcile(out)] == [
+        "tx-cccccccc-int-114025",
+        "tx-cccccccc-gap-120035",
+        "tx-cccccccc-int-131040",
+    ]
+    # One gh call for the PR, shared by the PR list and the park lookup.
+    assert len((isolated_env.home / "gh.log").read_text().splitlines()) == 1
+
+    # The wait on merge ends at the merge: the session resumed 20m later, and that time stays idle in Reconcile.
+    early = {**data, "mergedAt": "2026-10-29T12:30:00Z"}
+    fake_exe("gh", f"""printf '%s' '{json.dumps(early)}'\n""")
+    _, out, _ = show(penv, "--work", "RUN-4")
+    assert section(out, "RESERVED") == ["merge    1×  4m  merge rule"]
+    assert [e[0] for e in reconcile(out)] == [
+        "tx-cccccccc-int-114025",
+        "tx-cccccccc-gap-120035",
+        "tx-cccccccc-gap-123000",
+        "tx-cccccccc-int-131040",
+    ]
+
+    # Offline, the hook record of the merge gives the merge time instead.
+    merged = pr("merge", ns("2026-10-29T12:50:00Z"), head="abc1234" + "0" * 33)
+    merged["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
+    causes_store(env, merged)
+    _, out, _ = show(penv, "--work", "RUN-4", "--offline")
+    assert section(out, "RESERVED") == ["merge    1×  24m  merge rule"]
+    assert [e[0] for e in reconcile(out)] == [
+        "tx-cccccccc-int-114025",
+        "tx-cccccccc-gap-120035",
+        "tx-cccccccc-int-131040",
+    ]
+
+    # A failed merge attempt is no merge: offline, its hook record has stderr text, so the merge time stays unknown.
+    # Online, the hook record never counts: GitHub says the PR has not merged, so the gap stays unexplained.
+    merged["attrs"]["agent_trace.stderr"] = "Pull request is not mergeable: required checks have not passed"
+    causes_store(env, merged)
+    _, out, _ = show(penv, "--work", "RUN-4", "--offline")
+    assert "RESERVED" not in out.splitlines()
+    assert [e[0] for e in reconcile(out)] == [
+        "tx-cccccccc-int-114025",
+        "tx-cccccccc-gap-120035",
+        "tx-cccccccc-gap-122535",
+        "tx-cccccccc-int-131040",
+    ]
+    open_pr = {**data, "state": "OPEN", "mergeCommit": None, "mergedAt": None}
+    fake_exe("gh", f"""printf '%s' '{json.dumps(open_pr)}'\n""")
+    del merged["attrs"]["agent_trace.stderr"]
+    causes_store(env, merged)
+    _, out, _ = show(penv, "--work", "RUN-4")
+    assert not any("wait on merge" in line for line in section(out, "GAPS (cost = wait time)"))
+    assert [e[0] for e in reconcile(out)] == [
+        "tx-cccccccc-int-114025",
+        "tx-cccccccc-gap-120035",
+        "tx-cccccccc-gap-122535",
+        "tx-cccccccc-int-131040",
+    ]
+
+
+# Protects the ask span: a wait span with --ask is a named wait in GAPS, not idle, and not a Reconcile item.
+# Bug caught: the ask span hides the gap but GAPS never shows the wait, so its cost is lost.
+def test_ask_span_is_a_wait_on_marcus_with_its_class(env: dict[str, str]) -> None:
+    kind = {"agent_trace.kind": "wait", "agent_trace.ask": "scope"}
+    start = agent("ask-1", "start", at(10, 0), name="Pick the scope", **kind)
+    end = agent("ask-1", "end", at(10, 45), **{"agent_trace.status": "ok"})
+    write_store(state_of(env), [*scenario(), start, end])
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
+    assert "wait     1×  45m  wait on Marcus: scope" in section(out, "GAPS (cost = wait time)")
+    assert sid("RUN-1", "ask-1") not in [e[0] for e in reconcile(out)]
+    assert reconcile(out)
+    # An ask span for a merge is reserved.
+    start["attrs"]["agent_trace.ask"] = "merge"
+    write_store(state_of(env), [*scenario(), start, end])
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
+    assert section(out, "RESERVED") == ["merge    1×  45m  merge rule"]
+    assert not any("wait on Marcus" in line for line in section(out, "GAPS (cost = wait time)"))
+
+
+DG = "dddddddd-1111-4000-8000-00000000000a"  # a worker session bound to RUN-9 at 10:00
+RT = "eeeeeeee-1111-4000-8000-00000000000b"  # a router session, passed with --session, that started days earlier
+DG_PR = "https://github.com/acme/widgets/pull/42"
+
+
+def digest_transcripts(projects: Path) -> None:
+    """Transcripts of DG and RT on 2026-10-29 (UTC), with a UUID on each event.
+
+    DG: an early message before the binding, 3 tool calls (one fails), a park, a merge that Marcus runs from the
+    prompt, an ask, and his typed reply. RT: a message 2 days before the run, then a peer message in the run.
+    """
+
+    def line(session: str, role: str, when: str, content: Any, uuid: str) -> str:
+        record = {"type": role, "timestamp": when, "uuid": uuid, "sessionId": session}
+        record["message"] = {"role": role, "content": content}
+        return json.dumps(record) + "\n"
+
+    def call(ident: str, command: str) -> list[dict[str, Any]]:
+        return [{"type": "tool_use", "id": ident, "name": "Bash", "input": {"command": command}}]
+
+    def result(ident: str, output: str, error: bool = False) -> list[dict[str, Any]]:
+        return [{"type": "tool_result", "tool_use_id": ident, "is_error": error, "content": output}]
+
+    merge = (
+        f"<bash-input>gh pr merge 42 --repo acme/widgets --squash --match-head-commit {HEAD}</bash-input>"
+        "<bash-stdout>✓ Squashed and merged pull request acme/widgets#42 (feat: x)</bash-stdout>"
+    )
+    worker = [
+        line(DG, "user", "2026-10-29T09:00:00Z", "set up the repo first", "u-early"),
+        line(DG, "assistant", "2026-10-29T09:00:05Z", "Done.", "a-early"),
+        line(DG, "user", "2026-10-29T10:00:00Z", "<task-notification>brief</task-notification>", "u-start"),
+        line(DG, "assistant", "2026-10-29T10:00:05Z", call("t1", "git status"), "a1"),
+        line(DG, "user", "2026-10-29T10:00:06Z", result("t1", "clean"), "r1"),
+        line(DG, "assistant", "2026-10-29T10:00:10Z", call("t2", "python3 -m pytest -q"), "a2"),
+        line(DG, "user", "2026-10-29T10:00:11Z", result("t2", "Exit code 1\nFAILED tests/x.py", True), "r-fail"),
+        line(DG, "assistant", "2026-10-29T10:00:20Z", call("t3", "gh pr view 42 --json state"), "a3"),
+        line(DG, "user", "2026-10-29T10:00:21Z", result("t3", "{}"), "r3"),
+        line(DG, "assistant", "2026-10-29T10:00:30Z", "PR 42 is parked. Waiting for Marcus to merge it.", "a4"),
+        line(DG, "user", "2026-10-29T10:30:30Z", merge, "u-merge"),
+        line(DG, "assistant", "2026-10-29T10:31:00Z", "Merged. Drop the flag? Waiting for you to choose.", "a5"),
+        line(DG, "user", "2026-10-29T10:51:00Z", "yes, drop it", "u-yes"),
+        line(DG, "assistant", "2026-10-29T10:52:00Z", "Dropped.", "a6"),
+    ]
+    router = [
+        line(RT, "user", "2026-10-27T08:00:00Z", "an older chain", "u-old"),
+        line(RT, "assistant", "2026-10-27T08:00:05Z", "Done.", "a-old"),
+        line(RT, "user", "2026-10-29T10:40:00Z", "please ship it", "u-rt"),
+        line(RT, "assistant", "2026-10-29T10:40:05Z", "Shipping.", "a-rt"),
+    ]
+    folder = projects / "-Users-x-repo"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{DG}.jsonl").write_text("".join(worker))
+    (folder / f"{RT}.jsonl").write_text("".join(router))
+
+
+def digest_store(env: dict[str, str], *extra: dict[str, Any]) -> None:
+    """RUN-9 spans of DG: PR 42 from 10:00 to 10:55, with a park at 10:00:30 on HEAD."""
+    where = {"ticket": "RUN-9", "session": DG}
+    records = [
+        agent("pr42", "start", ns("2026-10-29T10:00:00Z"), name="PR 42", **where, **{"agent_trace.kind": "pr"}),
+        agent(
+            "ready", "start", ns("2026-10-29T10:00:20Z"), name="PR 42 to ready", **where, **{"agent_trace.kind": "pr"}
+        ),
+        agent(
+            "ready",
+            "end",
+            ns("2026-10-29T10:00:30Z"),
+            **where,
+            **{"agent_trace.status": "parked", "agent_trace.note": f"parked at {HEAD[:12]}"},
+        ),
+        agent("pr42", "end", ns("2026-10-29T10:55:00Z"), **where, **{"agent_trace.status": "ok"}),
+    ]
+    write_store(state_of(env), [*records, *extra])
+
+
+def digest_env(env: dict[str, str], tmp_path: Path) -> dict[str, str]:
+    projects = tmp_path / "projects"
+    digest_transcripts(projects)
+    return {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
+
+
+# Protects G13 and G12 in the text view: the window starts at the work-ID binding, a merge that Marcus ran from the
+# prompt is a PR of the run, and each message he typed is an intervention in Reconcile, unless it is reserved.
+# Bugs caught (CH-1): the window starts when a session started, so a router session gives 106h of idle; PRs merged
+# from the prompt are missing ("PRs 0"); Marcus's messages are not recorded at all.
+def test_window_starts_at_the_binding_and_prompt_merges_and_interventions_are_recorded(
+    env: dict[str, str], tmp_path: Path
+) -> None:
+    # RT's store records from before the run: a native turn 2 days earlier, and a span of other work.
+    early = native(
+        "f000000000000001", "claude_code.interaction", ns("2026-10-27T09:00:00Z"), ns("2026-10-27T09:20:00Z"), None
+    )
+    early["attrs"]["session.id"] = RT
+    # DG is bound late: it started 2 days before its first RUN-9 record, so its native turn then is not in the run.
+    late = native(
+        "f000000000000002", "claude_code.interaction", ns("2026-10-27T10:00:00Z"), ns("2026-10-27T10:10:00Z"), None
+    )
+    late["attrs"]["session.id"] = DG
+    other = {"ticket": "OTHER-1", "session": RT, "name": "other work"}
+    digest_store(
+        env,
+        early,
+        late,
+        agent("other", "start", ns("2026-10-28T09:00:00Z"), **other),
+        agent("other", "end", ns("2026-10-28T09:30:00Z"), ticket="OTHER-1", session=RT, **{"agent_trace.status": "ok"}),
+    )
+    penv = digest_env(env, tmp_path)
+    code, out, err = show(penv, "--work", "RUN-9", "--session", RT, "--offline")
+    assert code == 0, err
+    head = fence(out)
+    # Records that end before a session's binding are not in the run: no 2-day idle, no span of other work.
+    assert "unexplained idle 0s" in head[1] and "other work" not in out
+    # DG starts at its first RUN-9 record (10:00). RT has no RUN-9 record, so it starts at the work ID's first one.
+    assert head[0].startswith("RUN-9  10-29 10:00Z → 10-29 10:52Z (52m)  sessions 2  PRs 1")
+    assert "interventions 3 (reserved 1)" in head[1]
+    assert f"  {DG_PR}  merge  head {HEAD[:7]}  via prompt" in out.splitlines()
+    refs = [(e[0], e[2]) for e in reconcile(out)]
+    # The prompt merge is reserved (neo Hard limits: Marcus merges a parked PR), so only the reply needs an answer.
+    # Nothing before 10:00 is in the run: not the early message, nor the 2-day gap of RT.
+    assert ("tx-dddddddd-int-105100", "intervention") in refs
+    assert ("tx-eeeeeeee-int-104000", "intervention") in refs
+    assert not any(ref.startswith("tx-dddddddd-int-1030") for ref, _ in refs)
+    assert not any("0900" in ref or kind == "idle" and ref.startswith("tx-eeeeeeee") for ref, kind in refs)
+    # The gap from the park to the prompt merge is a wait on merge, with the merge time from the prompt record.
+    assert section(out, "RESERVED") == ["merge    1×  30m  merge rule"]
+
+    # `note intervention` answers an intervention item.
+    answer = note(
+        "intervention", ns("2026-10-29T11:00:00Z"), ["tx-dddddddd-int-105100"], **{"agent_trace.avoidable": True}
+    )
+    answer["attrs"].update({"run.ticket": "RUN-9", "agent_trace.scope": "RUN-9", "session.id": DG})
+    digest_store(env, answer)
+    _, out, _ = show(penv, "--work", "RUN-9", "--session", RT, "--offline")
+    assert "tx-dddddddd-int-105100" not in [e[0] for e in reconcile(out)]
+
+
+# Protects G11: `show --json` is the digest that /retro reads instead of the transcripts. Each signal event has its
+# context, the 3 tool calls before it, the open span, and a pointer (session ID and transcript event UUID).
+# Bugs caught: /retro must read 39 MB of transcripts to judge a run; an event cannot be found again in its
+# transcript; command text leaks into the digest past the tool and program.
+def test_json_digest_gives_signal_events_with_context_and_pointers(env: dict[str, str], tmp_path: Path) -> None:
+    digest_store(env)
+    code, out, err = show(digest_env(env, tmp_path), "--work", "RUN-9", "--session", RT, "--offline", "--json")
+    assert code == 0, err
+    data = json.loads(out)
+    assert data["work"] == "RUN-9"
+    assert data["window"] == {"start": "2026-10-29T10:00:00Z", "end": "2026-10-29T10:52:00Z"}
+    ids = [s["id"] for s in data["sessions"]]
+    assert sorted(ids) == [DG, RT]
+    assert data["outcome"]["checks"] is None
+    [pr_fact] = data["outcome"]["prs"]
+    assert data["outcome"]["repo"] == "acme/widgets"
+    assert pr_fact == {"pr": "#42", "head": HEAD[:7]}  # offline: no GitHub state
+
+    assert data["counts"]["interventions"] == 3
+    assert data["counts"]["reserved"] == 1
+
+    events = data["events"]
+    assert {e["kind"] for e in events} >= {"intervention", "fail", "wait", "park", "merge"}
+    # Event times are `HH:MM` (UTC) in a one-day window, in time order.
+    # Pointers are the first 8 characters of the event UUID.
+    assert [e["t"] for e in events] == sorted(e["t"] for e in events)
+    fail = next(e for e in events if e["kind"] == "fail")
+    assert (fail["s"], fail["uuid"], fail["label"], fail["error"]) == (
+        ids.index(DG),
+        "r-fail",
+        "Bash python3",
+        "FAILED tests/x.py",
+    )
+    assert fail["before"] == ["git"]
+    assert fail["span"] == "PR 42"
+    assert fail["ref"] == "tx-dddddddd-fail-100011"
+    reply = next(e for e in events if e["kind"] == "intervention" and e["uuid"] == "u-yes")
+    assert reply["text"] == "yes, drop it"
+    assert reply["asked"] == "Merged. Drop the flag? Waiting for you to choose."
+    assert (reply["wait_s"], reply["reserved"], reply["ref"]) == (1200, False, "tx-dddddddd-int-105100")
+    assert reply["before"] == ["git", "python3", "gh"]
+    command = next(e for e in events if e["kind"] == "intervention" and e["uuid"] == "u-merge")
+    assert (command["program"], command["pr"], command["reserved"]) == ("gh pr merge", "#42", True)
+    assert "ref" not in command
+    assert HEAD not in json.dumps(command), "command text past the program leaks into the digest"
+    merge = next(e for e in events if e["kind"] == "merge")
+    assert (merge["pr"], merge["via"], merge["t"], merge["by"]) == ("#42", "prompt", "10:30", "Marcus")
+    wait = next(e for e in events if e["kind"] == "wait" and e["s"] == ids.index(DG))
+    assert (wait["cause"], wait["t"], wait["min"], wait["uuid"]) == ("wait on merge", "10:00", 30, "u-merge")
+    assert "before" not in wait
+    park = next(e for e in events if e["kind"] == "park")
+    assert (park["span"], park["note"]) == ("PR 42 to ready", f"parked at {HEAD[:12]}")
+    assert data["counts"]["reconcile"] == len([e for e in events if e.get("ref")])
+    # The early message before the binding is not in the run.
+    assert not any(e.get("uuid") == "u-early" for e in events)

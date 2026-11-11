@@ -494,6 +494,10 @@ def test_interventions_are_typed_messages_and_prompt_commands_with_their_ask_and
         "<bash-input>gh pr merge 71 --repo o/r --squash --match-head-commit abc1234</bash-input>"
         "<bash-stdout>✓ Squashed and merged pull request o/r#71 (feat: x)</bash-stdout><bash-stderr></bash-stderr>"
     )
+    merge2 = (
+        "<bash-input>gh pr merge --match-head-commit abc1234 --body 'x y' --squash 72 -R o/r</bash-input>"
+        "<bash-stdout>✓ Squashed and merged pull request o/r#72 (feat: y)</bash-stdout><bash-stderr></bash-stderr>"
+    )
     lines = [
         # A brief that another session sent to start this one looks typed, but the transcript says who wrote it.
         uuid_line("user", "2026-10-29T09:59:00Z", "Background: build PR 3", "u-brief", origin="host_synthetic"),
@@ -531,7 +535,8 @@ def test_interventions_are_typed_messages_and_prompt_commands_with_their_ask_and
                     "type": "text",
                     "text": '<system-reminder>The session "x" you started finished a turn.</system-reminder>',
                 },
-                {"type": "text", "text": merge.replace("71", "72")},
+                # Flags with values may come before the PR number.
+                {"type": "text", "text": merge2},
             ],
             "u-merge2",
             origin="human",

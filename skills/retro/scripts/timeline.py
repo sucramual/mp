@@ -15,8 +15,10 @@ Exits 2 with one stderr line when a file cannot be read or holds no recognisable
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
+import shlex
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -56,6 +58,9 @@ PEER_RE = re.compile(r'<cross-session-message[^>]*\bfrom-name="([^"]*)"')
 BASH_INPUT_RE = re.compile(r"^<bash-input>(.*?)</bash-input>", re.DOTALL)
 # A notice that the harness queued into the same record as a prompt command, ahead of it.
 NOTICE_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+# The `gh pr merge` flags that take a value.
+MERGE_VALUE_FLAGS = ("--repo", "-R", "--match-head-commit", "--body", "-b", "--body-file", "-F", "--subject", "-t")
+MERGE_VALUE_FLAGS += ("--author-email", "-A")
 BEFORE_CALLS = 3  # the tool calls kept before each event, so /retro sees what led to it
 
 
@@ -379,9 +384,18 @@ def prompt_command(text: str) -> dict[str, str] | None:
     program = " ".join(words[:3]) if words[:1] == ["gh"] else " ".join(words[:1])
     command = {"program": program}
     if program == "gh pr merge":
-        args = [w for w in words[3:] if not w.startswith("-")]
+        try:
+            # Quotes matter here: a quoted `--body` value is one word.
+            words = shlex.split(found.group(1))
+        except ValueError:
+            pass
+        words = list(itertools.takewhile(lambda w: w not in ("&&", "||", ";", "|"), words))
+        # The PR is the first word that is neither a flag nor the value of a flag that takes one.
+        args = [
+            w for i, w in enumerate(words[3:], 3) if not w.startswith("-") and words[i - 1] not in MERGE_VALUE_FLAGS
+        ]
         repo = next((words[i + 1] for i, w in enumerate(words[:-1]) if w in ("--repo", "-R")), "")
-        target = next((a for a in args if a != repo), "")
+        target = next(iter(args), "")
         if target.startswith("https://github.com/"):
             command["pr"] = target
         elif target.isdigit() and repo:

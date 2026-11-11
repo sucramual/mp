@@ -59,7 +59,10 @@ ASK_WHO_RE = re.compile(
 # The class of an ask, first match wins: the words that a sentence (or the one after it) uses for each class.
 ASK_CLASSES = (
     ("merge", re.compile(r"\b(?:merges?|enqueue\w*|queue)\b", re.IGNORECASE)),
-    ("access", re.compile(r"\b(?:grant|access|permission|re-?registers?|register|by hand|admin rights)\b", re.IGNORECASE)),
+    (
+        "access",
+        re.compile(r"\b(?:grant|access|permission|re-?registers?|register|by hand|admin rights)\b", re.IGNORECASE),
+    ),
     ("scope", re.compile(r"\b(?:choose|option|decides?|scope)\b", re.IGNORECASE)),
     ("info", re.compile(r"\b(?:confirms?|answer|reply|approve|decline)\b|\?", re.IGNORECASE)),
 )

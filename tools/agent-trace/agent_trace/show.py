@@ -662,6 +662,16 @@ def transcript_fallback(sid: str) -> list[str]:
     return [f"Transcript timeline for {sid}:", *stdout.rstrip("\n").splitlines()]
 
 
+# The fix target of each wait cause, by the start of the cause: where a change would shorten that wait.
+FIX_TARGETS = (
+    ("wait on merge", "Marcus merges sooner, or a merge grant at intake"),
+    ("wait on Marcus: merge", "Marcus merges sooner, or a merge grant at intake"),
+    ("wait on Marcus", "ask at intake (neo, matrix)"),
+    ("wait on router", "the router answers sooner (matrix)"),
+    ("wait on another session", "the router heartbeat (matrix)"),
+    ("background task", "a wait span around the watch (neo)"),
+    ("context compaction", "the harness: no fix in the skills"),
+)
 WAIT_CAUSES = {
     "peer": "wait on router",
     "background": "background task (CI or watcher)",
@@ -702,11 +712,11 @@ def transcript_anomalies(
     reason. One `fail` for each cause of failure (fails grouped by error text with digit runs replaced, as the
     timeline groups them), and one `idle` for each gap longer than GAP_ANOMALY that no wait span covers. A gap that
     is one long tool call is activity, not idle. An idle gap with a cause (see gap_cause) is a `wait`, which is
-    not in Reconcile. `merges` holds the (park, merge) times of this session's parked PRs. Left out: soft fails (an error line in the output of a call that
-    succeeded), failed agent-trace calls, failed reads, and a fail that the same call (the same tool and input) run
-    again within the next calls recovered, unless its label failed twice. The same call 3 or more times in a row
-    (polling) is `idle` too. When the transcript is missing or cannot be read, one `transcript` anomaly stands for
-    it, so Reconcile never passes on missing evidence. Refs are
+    not in Reconcile. `merges` holds the (park, merge) times of this session's parked PRs. Left out: soft fails (an
+    error line in the output of a call that succeeded), failed agent-trace calls, failed reads, and a fail that the
+    same call (the same tool and input) run again within the next calls recovered, unless its label failed twice.
+    The same call 3 or more times in a row (polling) is `idle` too. When the transcript is missing or cannot be read,
+    one `transcript` anomaly stands for it, so Reconcile never passes on missing evidence. Refs are
     `tx-<session8>-<kind>-<HHMMSS UTC>` (`gap` for an idle gap, `idle` for polling), stable across runs of `show`.
     """
     if not SESSION_NAME.match(sid):
@@ -1048,6 +1058,10 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
         if group[3]:
             # The words that matched, so that Marcus can judge a cause that comes from words: at most two.
             group[2] += ", matched " + "; ".join(group[3][:2]) + (" …" if len(group[3]) > 2 else "")
+    for (kind, key), group in groups.items():
+        target = next((fix for cause, fix in FIX_TARGETS if key.startswith(cause)), None) if kind == "wait" else None
+        if target:
+            group[2] += f" → {target}"
     ranked = sorted(groups.items(), key=lambda item: (-item[1][1], -item[1][0], item[0][0], item[1][2]))
     out = [
         f"  {kind:<8} {count}×  {fmt_duration(cost) if cost else '–'}  {text}"
@@ -1085,8 +1099,13 @@ def park_merges(spans: list[AgentSpan], prs: list[dict[str, Any]], offline: bool
             for url in (u for u in urls if u.startswith("https://github.com/")):
                 answer = gh_view(url)
                 data = json.loads(answer) if answer.startswith("{") else {}
-                commits = data.get("commits") if isinstance(data.get("commits"), list) else []
-                if any(str(c.get("oid") or "").startswith(sha.group(0)) for c in commits if isinstance(c, dict)):
+                commits = data.get("commits")
+                oids = (
+                    [str(c.get("oid") or "") for c in commits if isinstance(c, dict)]
+                    if isinstance(commits, list)
+                    else []
+                )
+                if any(oid.startswith(sha.group(0)) for oid in oids):
                     merged, known = iso_ns(data.get("mergedAt")), True
                     break
         if known or offline:

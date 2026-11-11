@@ -1063,12 +1063,17 @@ def test_idle_gaps_get_a_cause_from_the_event_that_ends_them(env: dict[str, str]
     code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-4", "--offline")
     assert code == 0, err
     gaps = section(out, "GAPS (cost = wait time)")
-    assert "wait     1×  20m  background task (CI or watcher)" in gaps
-    assert 'wait     1×  20m  wait on router: merge (by words), matched "parked for you" + "queue"' in gaps
-    assert "wait     1×  20m  wait on router" in gaps
-    assert "wait     1×  20m  wait on another session" in gaps
-    assert 'wait     1×  20m  wait on Marcus: scope, matched "Marcus decides" + "decides"' in gaps
-    assert "wait     1×  20m  context compaction" in gaps
+    assert "wait     1×  20m  background task (CI or watcher) → a wait span around the watch (neo)" in gaps
+    assert (
+        'wait     1×  20m  wait on router: merge (by words), matched "parked for you" + "queue"'
+        " → the router answers sooner (matrix)"
+    ) in gaps
+    assert "wait     1×  20m  wait on router → the router answers sooner (matrix)" in gaps
+    assert "wait     1×  20m  wait on another session → the router heartbeat (matrix)" in gaps
+    assert (
+        'wait     1×  20m  wait on Marcus: scope, matched "Marcus decides" + "decides" → ask at intake (neo, matrix)'
+    ) in gaps
+    assert "wait     1×  20m  context compaction → the harness: no fix in the skills" in gaps
     # The gap that the agent ended by itself has no cause. Offline, the gap after the park has no merge time, so
     # it is not guessed: both stay unexplained and in Reconcile, and no wait is.
     assert "idle     2×  45m  unexplained" in gaps
@@ -1100,7 +1105,7 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
     code, out, err = show(penv, "--work", "RUN-4")
     assert code == 0, err
     gaps = section(out, "GAPS (cost = wait time)")
-    assert "wait     1×  25m  wait on merge" in gaps
+    assert "wait     1×  25m  wait on merge → Marcus merges sooner, or a merge grant at intake" in gaps
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
     # One gh call for the PR, shared by the PR list and the park lookup.
     assert len((isolated_env.home / "gh.log").read_text().splitlines()) == 1
@@ -1110,7 +1115,9 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
     merged["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
     causes_store(env, merged)
     _, out, _ = show(penv, "--work", "RUN-4", "--offline")
-    assert "wait     1×  25m  wait on merge" in section(out, "GAPS (cost = wait time)")
+    assert "wait     1×  25m  wait on merge → Marcus merges sooner, or a merge grant at intake" in section(
+        out, "GAPS (cost = wait time)"
+    )
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
 
 
@@ -1122,6 +1129,8 @@ def test_ask_span_is_a_wait_on_marcus_with_its_class(env: dict[str, str]) -> Non
     end = agent("ask-1", "end", at(10, 45), **{"agent_trace.status": "ok"})
     write_store(state_of(env), [*scenario(), start, end])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
-    assert "wait     1×  45m  wait on Marcus: merge" in section(out, "GAPS (cost = wait time)")
+    assert "wait     1×  45m  wait on Marcus: merge → Marcus merges sooner, or a merge grant at intake" in section(
+        out, "GAPS (cost = wait time)"
+    )
     assert sid("RUN-1", "ask-1") not in [e[0] for e in reconcile(out)]
     assert reconcile(out)

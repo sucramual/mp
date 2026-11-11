@@ -108,7 +108,6 @@ def _run(
     timeout: int | None = None,
     state_dir: Path | None = None,
     session: str | None = None,
-    parked: bool = False,
     options_last: bool = False,
 ):
     fake = tmp_path / "fake"
@@ -135,7 +134,7 @@ def _run(
     }
     if session is not None:
         env["CLAUDE_CODE_SESSION_ID"] = session
-    options: list[str] = ["--parked"] if parked else []
+    options: list[str] = []
     if timeout is not None:
         options += ["--timeout", str(timeout)]
     args = ["bash", str(SCRIPT), "o/r", "7", *options] if options_last else ["bash", str(SCRIPT), *options, "o/r", "7"]
@@ -353,35 +352,9 @@ def test_mergeable_unknown_then_conflicting_still_reports_the_conflict(tmp_path:
     assert _events(result) == ["event: conflict"]
 
 
-def test_a_parked_ready_pr_does_not_report_ready(tmp_path: Path) -> None:
-    # Bug (/matrix run retro, 2026-11-05): a worker that parks a ready PR and starts its watcher in a new
-    # session has no record, so the first read reported "ready" at once, again and again.
-    green = [check("backend", "SUCCESS")]
-    ready = {"graphql": pr(review="APPROVED", checks=green)}
-    result, polls = _run(tmp_path, {}, change_at=999, base=ready, parked=True, timeout=1)
-    assert _events(result) == ["event: timeout"]
-    assert polls >= 2, "the run should have read the PR more than once before it timed out"
-
-    # A parked PR still wakes the worker for a change that needs it.
-    review = [{"id": 9, "state": "COMMENTED", "user": {"login": "someone"}}]
-    result, _ = _run(tmp_path / "second", {"repos_o_r_pulls_7_reviews": review}, change_at=2, base=ready, parked=True)
-    assert _events(result) == ["event: review"]
-
-
-def test_a_parked_pr_that_was_not_ready_at_start_reports_ready(tmp_path: Path) -> None:
-    # Bug a careless fix makes: a --parked that drops every "ready" would hide the PR becoming mergeable.
-    green = [check("backend", "SUCCESS")]
-    base = {"graphql": pr(review="APPROVED", checks=[check("backend", None)])}
-    after = {"graphql": pr(review="APPROVED", checks=green)}
-    result, _ = _run(tmp_path, after, change_at=2, base=base, parked=True)
-    assert sorted(_events(result)) == ["event: check-finished pass backend", "event: ready"]
-
-
 def test_options_after_the_pr_arguments_work(tmp_path: Path) -> None:
     # Bug (/matrix run retro, 2026-11-05): the /neo example put --timeout after OWNER/REPO PR, and the watcher
     # exited with its usage line, so the worker had no wake source.
-    green = [check("backend", "SUCCESS")]
-    ready = {"graphql": pr(review="APPROVED", checks=green)}
-    result, polls = _run(tmp_path, {}, change_at=999, base=ready, parked=True, timeout=1, options_last=True)
+    result, polls = _run(tmp_path, {}, change_at=999, timeout=1, options_last=True)
     assert _events(result) == ["event: timeout"]
     assert polls >= 2, "the run should have read the PR more than once before it timed out"

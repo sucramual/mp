@@ -1,5 +1,5 @@
 #!/bin/bash
-# watch-pr.sh [--timeout SECONDS] [--parked] OWNER/REPO PR — the one wait for an open PR, for a local agent.
+# watch-pr.sh [--timeout SECONDS] OWNER/REPO PR — the one wait for an open PR, for a local agent.
 #
 # Polls the PR every 30 seconds (WATCH_PR_POLL_SECONDS) and exits 0 on the first change that needs the
 # agent. It prints one `event: <kind> [detail]` line for each change it saw in that poll:
@@ -12,10 +12,6 @@
 # "ready" means open, approved or no review required, every required check passed, and mergeable.
 # A mergeable UNKNOWN read, which GitHub gives while it recomputes after the base moves, counts as no
 # change: the watcher keeps the last known mergeable and ready values until GitHub decides.
-#
-# --parked is for a PR that waits for a person to merge it. When the PR is ready at start, the run does not
-# report "ready", and with no record it takes the PR state at start as seen. It still reports every other
-# change, such as a comment, a new head, a conflict, or a merge.
 #
 # It ignores comments from the bots in IGNORED_AUTHORS, whose status comments never need action, the
 # agent's own comments, reviews, and reactions (the `gh` login), and the "eyes" reaction that a reviewer
@@ -34,12 +30,11 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: watch-pr.sh [--timeout SECONDS] [--parked] OWNER/REPO PR" >&2
+  echo "usage: watch-pr.sh [--timeout SECONDS] OWNER/REPO PR" >&2
   exit 2
 }
 # Options may come before or after OWNER/REPO PR.
 timeout=""
-parked=""
 positional=()
 while [ $# -gt 0 ]; do
   case $1 in
@@ -47,10 +42,6 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || usage
       timeout=$2
       shift 2
-      ;;
-    --parked)
-      parked=yes
-      shift
       ;;
     -*) usage ;;
     *)
@@ -182,28 +173,15 @@ now=$(conditions) || read_failed
 now=$(settle "$before" "$now")
 activity_now=$(activity) || read_failed
 start_head=$(field "$now" head)
-ready_at_start=""
-[ -n "$parked" ] && [ "$(field "$now" ready)" = yes ] && ready_at_start=yes
 activity_before=$(printf '%s\n' "$before" | grep -E '^(comment|review|reaction) ' || true)
 if [ -z "$before" ]; then
   activity_before=$activity_now
-  [ -n "$parked" ] && before=$now
 fi
-
-# Drops the "ready" event when --parked started on a ready PR.
-filter_parked() {
-  if [ -n "$ready_at_start" ]; then
-    grep -vx 'event: ready' || true
-  else
-    cat
-  fi
-}
 
 events=$(
   condition_events "$before" "$now"
   activity_events "$activity_before" "$activity_now"
 )
-events=$(printf '%s\n' "$events" | filter_parked | grep -v '^$' || true)
 record "$now
 $activity_now" || { echo "state write failed" >&2; exit 1; }
 if [ -n "$events" ]; then
@@ -225,8 +203,7 @@ while sleep "${WATCH_PR_POLL_SECONDS:-30}"; do
     head=$(field "$now" head)
     [ "$head" != "$start_head" ] && echo "event: head $head"
   )
-  events=$(printf '%s\n' "$events" | filter_parked | grep -v '^$' || true)
-  record "$now
+    record "$now
 $activity_now" || { echo "state write failed" >&2; exit 1; }
   if [ -n "$events" ]; then
     printf '%s\n' "$events"

@@ -257,7 +257,7 @@ def test_rows_tree_statuses_and_summary(env: dict[str, str]) -> None:
         ("  claude aaaaaaaa", "40m", ""),
     ]
     assert len({len(r["bar"]) for r in rows(out)}) == 1
-    assert "total 3h00m · active 32m · wait on Marcus 8m · errors 2 · retries 3 · open spans 1" in out.splitlines()
+    assert "spans 3h00m · active 32m · wait on Marcus 8m · errors 2 · retries 3 · open spans 1" in out.splitlines()
 
 
 def test_idle_gap_is_one_column_in_every_row_and_labelled(env: dict[str, str]) -> None:
@@ -450,6 +450,76 @@ def test_missing_native_spans_warns_and_falls_back_to_the_transcript(env: dict[s
     assert f"Transcript timeline for {session}:" in lines
     assert any(line.startswith(f"session {session}") for line in lines)
     assert [(r["name"], r["status"]) for r in rows(out)] == [("run RUN-2", ""), ("  Implement", "ok")]
+
+
+def claude_transcript(projects: Path, session: str, *stamps: str) -> None:
+    """A Claude Code transcript with one event at each ISO time, plus a line with no time."""
+    folder = projects / "-Users-x-repo"
+    folder.mkdir(parents=True, exist_ok=True)
+    lines: list[dict[str, str]] = [{"type": "summary", "summary": "no timestamp on this line"}]
+    lines += [{"type": "user", "timestamp": stamp, "sessionId": session} for stamp in stamps]
+    (folder / f"{session}.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+
+
+def section(output: str, title: str) -> list[str]:
+    lines = output.splitlines()
+    start = lines.index(title)
+    out = []
+    for line in lines[start + 1 :]:
+        if not line.startswith("  "):
+            break
+        out.append(line.strip())
+    return out
+
+
+def test_wall_time_comes_from_the_transcripts_of_every_bound_session(env: dict[str, str], tmp_path: Path) -> None:
+    # Bug (/matrix run retro, 2026-11-05): spans stopped after context compactions and one worker session had
+    # none, so `show` printed a 2h46m run that really ran from 01:24Z to 01:44Z the next day. The chart went
+    # into the Linear close comment as the whole run.
+    write_store(state_of(env), scenario())
+    sessions = state_of(env) / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / f"{S2}.ticket").write_text("RUN-1\n")
+    projects = tmp_path / "projects"
+    claude_transcript(projects, S1, "2026-10-30T08:50:00.000Z", "2026-10-30T12:30:00Z", "2026-10-31T09:10:00.000Z")
+    claude_transcript(projects, S2, "2026-10-30T10:00:00Z", "2026-10-30T10:30:00.000Z")
+    code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-1", "--offline")
+    assert code == 0, err
+
+    summary = fence(out)
+    # S1 spans run 09:00-12:00 (3h00m) of the 24h20m wall time: 180 / 1460 minutes is 12%.
+    assert "wall 24h20m (10-30 08:50 → 10-31 09:10) · span coverage 3h00m (12%)" in summary
+    assert any(line.startswith("spans 3h00m · active 32m") for line in summary)
+    assert section(out, "Sessions:") == [
+        "claude aaaaaaaa  transcript 10-30 08:50 → 10-31 09:10 (24h20m)  spans 10-30 09:00 → 10-30 12:00 (3h00m)",
+        "claude bbbbbbbb  transcript 10-30 10:00 → 10-30 10:30 (30m)  no spans",
+    ]
+
+
+def test_a_session_bound_to_a_later_work_id_does_not_leak_earlier_agent_spans(env: dict[str, str]) -> None:
+    # Bug: bound sessions were passed as explicit selectors, so one session that served RUN-1 and then RUN-2
+    # put the spans of both work IDs into the RUN-2 timeline.
+    records = [
+        agent("old", "start", at(9, 0), ticket="RUN-1", name="Old work", **{"agent_trace.kind": "phase"}),
+        agent("old", "end", at(9, 10), ticket="RUN-1", **{"agent_trace.status": "ok"}),
+        agent("new", "start", at(9, 20), ticket="RUN-2", name="New work", **{"agent_trace.kind": "phase"}),
+        agent("new", "end", at(9, 30), ticket="RUN-2", **{"agent_trace.status": "ok"}),
+    ]
+    write_store(state_of(env), records)
+    (state_of(env) / "sessions").mkdir(parents=True)
+    (state_of(env) / "sessions" / f"{S1}.ticket").write_text("RUN-2\n")
+    code, out, err = show(env, "--work", "RUN-2", "--offline")
+    assert code == 0, err
+    assert [r["name"] for r in rows(out)] == ["run RUN-2", "  New work"]
+
+
+def test_wall_time_is_unknown_without_transcripts(env: dict[str, str]) -> None:
+    # Bug a careless fix makes: falling back to the span window would print it as the wall time again.
+    write_store(state_of(env), scenario())
+    code, out, err = show(env, "--work", "RUN-1", "--offline")
+    assert code == 0, err
+    assert "wall unknown (no transcript found for 1 of 1 sessions)" in fence(out)
+    assert section(out, "Sessions:") == ["claude aaaaaaaa  no transcript  spans 10-30 09:00 → 10-30 12:00 (3h00m)"]
 
 
 def test_jaeger_gets_one_joined_trace_without_identity(env: dict[str, str]) -> None:

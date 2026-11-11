@@ -38,6 +38,7 @@ def trace_id(scope: str) -> str:
         (["span", "end", "--id", "a", "--status", "ok", "--note", "a\nb"], "--note must not contain a newline"),
         (["span", "start", "--id", "a", "--name", "n" * 301, "--kind", "phase"], "--name must be at most 300"),
         (["note", "none", "--ref", "xyz"], "--ref must match"),
+        (["note", "none", "--ref", "tx-dddddddd-fail-0800"], "--ref must match"),
     ],
 )
 def test_invalid_input_exits_2_and_sends_and_writes_nothing(
@@ -267,7 +268,9 @@ def test_notes_are_zero_length_spans_with_one_event(isolated_env: IsolatedEnv, t
             ],
             env,
         )
-        none = run(["note", "none", "--ref", ref, "--ref", "gap-fedcba9876543210", "--work", "RUN-1"], env)
+        # Transcript items too: `tx-<session 8>-<kind>-<HHMMSS>`, with a `-N` suffix for a repeat, and `-unread`.
+        refs = [ref, "gap-fedcba9876543210", "tx-dddddddd-fail-080006-2", "tx-dddddddd-unread"]
+        none = run(["note", "none", *[f"--ref={r}" for r in refs], "--work", "RUN-1"], env)
     assert friction.returncode == none.returncode == 0
     first, second = server.spans()
     for span in (first, second):
@@ -283,7 +286,7 @@ def test_notes_are_zero_length_spans_with_one_event(isolated_env: IsolatedEnv, t
     assert attrs["agent_trace.refs"] == {"arrayValue": {"values": [{"stringValue": ref}]}}
     assert first["events"][0]["name"] == "friction"
     second_attrs = {a["key"]: a["value"] for a in second["attributes"]}
-    assert second_attrs["agent_trace.refs"]["arrayValue"]["values"][1] == {"stringValue": "gap-fedcba9876543210"}
+    assert second_attrs["agent_trace.refs"]["arrayValue"]["values"] == [{"stringValue": r} for r in refs]
     assert second["events"][0]["name"] == "none"
 
 

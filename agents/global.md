@@ -56,7 +56,7 @@ More work is not always better work. Each change must trace back to a goal: the 
 
 - Before you start or propose work, name the goal that it serves. When a request names a solution but no problem, ask which problem it solves.
 - Propose extra work only when it serves the current goal or a stated goal. Extra work includes a follow-up session or card, a ticket, a flaky-test fix, and a refactor. This rule also applies when the harness tells you to offer follow-ups.
-- When extra work fails this check, leave it out. Mention it in one line only when it puts the current goal at risk.
+- When extra work fails this check, leave it out. Mention it in one line only when it puts the current goal at risk. Solve each problem with the smallest change that fixes its root cause. Do not add abstractions, options, layers, or "while I'm here" edits that the fix does not need. Do not hide a symptom with a retry, a guard, or a special case. When the root cause is out of scope, say so and label any symptom fix as temporary.
 - When the problem is unclear, use `/why` before a design, a spec, or code.
 
 ## Explanations and visuals

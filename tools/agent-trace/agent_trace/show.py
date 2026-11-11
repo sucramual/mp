@@ -12,6 +12,11 @@ session that has native spans, drawn from its interaction spans (Codex: turns). 
 session row: `✗` error, `↻` retry, `▒` waiting on Marcus. Notes and PR records are listed after the timeline.
 
 Time. Gaps in activity longer than 30 minutes shrink to one `┆` column each. Clock times are local (set TZ).
+The summary gives the wall time of the run, from the first to the last transcript event of every session, and the
+span coverage: how much of that wall time falls inside some session's span window. A session's span window runs from
+its first to its last span. With --work, the sessions also include each session bound to the work ID in
+sessions/<id>.ticket, so a session with no spans still counts. The Sessions section lists each session's transcript
+and span windows, and marks a session that has no spans. "spans" in the summary is the time the chart covers.
 
 Sections after the timeline: PRs (with GitHub state unless --offline), Parks, Notes, and Reconcile (anomalies that
 no note answers). Prompts, command text, and identity attributes are never printed.
@@ -28,7 +33,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +69,28 @@ def fmt_duration(ns: int) -> str:
 
 def clock(ns: int) -> str:
     return datetime.fromtimestamp(ns / 1e9).strftime("%H:%M")
+
+
+def stamp(ns: int) -> str:
+    return datetime.fromtimestamp(ns / 1e9).strftime("%m-%d %H:%M")
+
+
+def window(start: int, end: int) -> str:
+    return f"{stamp(start)} → {stamp(end)} ({fmt_duration(end - start)})"
+
+
+def iso_ns(value: Any) -> int | None:
+    """Nanoseconds since the epoch for an ISO 8601 time, or None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    delta = parsed - datetime(1970, 1, 1, tzinfo=UTC)
+    return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
 
 
 def union(intervals: list[Interval]) -> list[Interval]:
@@ -322,7 +349,14 @@ class Selection:
         return [r for group in (*self.claude.values(), *self.codex.values()) for r in group]
 
 
-def select(records: list[dict[str, Any]], ticket: str | None, wanted: list[str]) -> Selection:
+def select(
+    records: list[dict[str, Any]], ticket: str | None, wanted: list[str], bound: list[str] | None = None
+) -> Selection:
+    """Pick the records of one run. `wanted` sessions are explicit and give all their agent records.
+
+    A `bound` session is only discovered: it gives its transcript and native spans, but its agent records
+    count only when they name this ticket, because one session can serve several work IDs in turn.
+    """
     wanted_set = set(wanted)
 
     def agent_match(record: dict[str, Any]) -> bool:
@@ -333,7 +367,7 @@ def select(records: list[dict[str, Any]], ticket: str | None, wanted: list[str])
         return session_of(record) in wanted_set
 
     agent = [r for r in records if agent_match(r)]
-    sessions = list(dict.fromkeys([*wanted, *[s for s in map(session_of, agent) if s]]))
+    sessions = list(dict.fromkeys([*wanted, *(bound or []), *[s for s in map(session_of, agent) if s]]))
     session_set = set(sessions)
     claude: dict[str, list[dict[str, Any]]] = {}
     for record in records:
@@ -551,6 +585,38 @@ def transcript_fallback(sid: str) -> list[str]:
     return [f"Transcript timeline for {sid}:", *result.stdout.rstrip("\n").splitlines()]
 
 
+def transcript_files(sid: str) -> tuple[str, list[Path]]:
+    """The tool and the transcript files of a session: Claude Code first, then Codex."""
+    if not SESSION_NAME.match(sid):
+        return "session", []
+    claude_root = Path(os.environ.get("AGENT_TRACE_CLAUDE_PROJECTS") or Path.home() / ".claude" / "projects")
+    files = sorted(claude_root.glob(f"*/{sid}.jsonl"))
+    if files:
+        return "claude", files
+    codex_root = Path(os.environ.get("AGENT_TRACE_CODEX_SESSIONS") or Path.home() / ".codex" / "sessions")
+    return "codex", sorted(codex_root.glob(f"**/rollout-*{sid}.jsonl"))
+
+
+def transcript_window(sid: str) -> tuple[str, Interval] | None:
+    """The tool and the (first, last) event time of a session's transcripts, or None when there are none."""
+    tool, files = transcript_files(sid)
+    times: list[int] = []
+    for path in files:
+        try:
+            with path.open(errors="replace") as handle:
+                for line in handle:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    when = iso_ns(record.get("timestamp")) if isinstance(record, dict) else None
+                    if when:
+                        times.append(when)
+        except OSError:
+            continue
+    return (tool, (min(times), max(times))) if times else None
+
+
 def scrub(attrs: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in attrs.items() if key not in IDENTITY_ATTRS}
 
@@ -644,7 +710,9 @@ def run(args: argparse.Namespace) -> int:
         return 2
     base = Path(args.dir).expanduser() if args.dir else store.state_dir()
     width = max(10, int(args.width))
-    selection = select(dedupe(store.read_all(base)), args.ticket, list(args.session))
+    wanted = list(args.session)
+    bound = [s for s in store.sessions_bound_to(base, args.ticket) if s not in wanted] if args.ticket else []
+    selection = select(dedupe(store.read_all(base)), args.ticket, wanted, bound)
     if not selection.agent and not selection.native:
         what = f"work ID {args.ticket}" if args.ticket else "session " + ", ".join(args.session)
         print(f"agent-trace: no spans for {what}", file=sys.stderr)
@@ -746,16 +814,64 @@ def run(args: argparse.Namespace) -> int:
     axis = axis_lines(layout, t0, t1, bar_width)
     out.append(" " * (name_width + 2) + axis[0])
     out += axis[1:]
+    span_windows: dict[str, Interval] = {}
+    for sid in selection.sessions:
+        own = [
+            (int(r.get("start") or 0), int(r.get("end") or 0))
+            for r in [*selection.claude.get(sid, []), *selection.codex.get(sid, [])]
+            if r.get("type") == "span"
+        ]
+        own += [span_interval(span) for span in spans if span.session == sid]
+        edges = [t for interval in own for t in interval if t > 0]
+        if edges:
+            span_windows[sid] = (min(edges), max(edges))
+    loose = [span_interval(span) for span in spans if span.session not in span_windows]
+    transcripts = {sid: transcript_window(sid) for sid in selection.sessions}
+    found = [found[1] for found in transcripts.values() if found]
+    missing = sum(1 for found in transcripts.values() if not found)
+    if found:
+        wall = (min(start for start, _ in found), max(end for _, end in found))
+        covered = measure(
+            [
+                (max(start, wall[0]), min(end, wall[1]))
+                for start, end in [*span_windows.values(), *loose]
+                if min(end, wall[1]) > max(start, wall[0])
+            ]
+        )
+        share = round(100 * covered / max(1, wall[1] - wall[0]))
+        line = f"wall {fmt_duration(wall[1] - wall[0])} ({stamp(wall[0])} → {stamp(wall[1])})"
+        line += f" · span coverage {fmt_duration(covered)} ({share}%)"
+        if missing:
+            line += f" · no transcript for {missing} of {len(transcripts)} sessions"
+        out.append(line)
+    else:
+        out.append(f"wall unknown (no transcript found for {missing} of {len(transcripts)} sessions)")
     errors = sum(len(d.errors) for d in sessions) + sum(1 for s in spans if s.status == "error")
     retries = sum(len(d.retries) for d in sessions) + sum(1 for s in spans if s.retry)
     open_spans = sum(1 for s in spans if s.end is None)
     active = measure(subtract(turn_time, waits_all))
     out.append(
-        f"total {fmt_duration(t1 - t0)} · active {fmt_duration(active)}"
+        f"spans {fmt_duration(t1 - t0)} · active {fmt_duration(active)}"
         f" · wait on Marcus {fmt_duration(measure(waits_all))}"
         f" · errors {errors} · retries {retries} · open spans {open_spans}"
     )
     out.append("```")
+
+    tools = {data.sid: data.tool for data in sessions}
+    out += ["", "Sessions:"]
+
+    def first_seen(sid: str) -> int:
+        found = transcripts[sid]
+        starts = [found[1][0]] if found else []
+        starts += [span_windows[sid][0]] if sid in span_windows else []
+        return min(starts, default=0)
+
+    for sid in sorted(selection.sessions, key=first_seen):
+        found = transcripts[sid]
+        tool = tools.get(sid) or (found[0] if found else "session")
+        parts = [f"{tool} {sid[:8]}", f"transcript {window(*found[1])}" if found else "no transcript"]
+        parts.append(f"spans {window(*span_windows[sid])}" if sid in span_windows else "no spans")
+        out.append("  " + "  ".join(parts))
 
     if prs:
         out += ["", "PRs:", *pr_lines(prs, args.offline)]

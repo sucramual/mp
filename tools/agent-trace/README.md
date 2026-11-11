@@ -16,7 +16,7 @@ It is Python 3.11+ with only the standard library. `bin/agent-trace` is linked i
 | `agent-trace note none --ref REF [--ref REF ...]` | Answers anomalies from `show` with "no friction". |
 | `agent-trace hook` | PostToolUse hook. Records `gh pr create` and `gh pr merge` (PR URL and head SHA). Always exits 0 and prints nothing. |
 | `agent-trace gate` | PreToolUse trace gate. In a session that ran the /neo skill, it blocks the first file edit (Edit, Write, MultiEdit, NotebookEdit) and `gh pr create` (exit 2, reason on stderr) until a work ID is bound to the session, so the trace covers the red test and the fix. It allows reads and every other call, and fails open on any error. |
-| `agent-trace show (--work W \| --session S ...) [--width 60] [--offline] [--jaeger URL] [--dir D]` | Prints the joined timeline, then the PRs (with GitHub state unless `--offline`), parks, notes, and the reconcile list. `--jaeger` also posts the joined run as one trace. `--dir` is the state directory. |
+| `agent-trace show (--work W \| --session S ...) [--width 60] [--offline] [--jaeger URL] [--dir D]` | Prints the joined timeline, then the sessions, PRs (with GitHub state unless `--offline`), parks, notes, and the reconcile list. `--work` also takes each session bound to the work ID, and `--session` adds a session that is not bound, such as a `/matrix` router. The summary gives the wall time, from the first to the last transcript event of every session, and the span coverage, the part of the wall time inside some session's span window. `spans` is only the time the chart covers. The Sessions list marks a session with no spans. `--jaeger` also posts the joined run as one trace. `--dir` is the state directory. |
 
 A work ID given once (flag or `AGENT_TRACE_WORK`) is bound to the session, so later `span` and `note` calls in that session need no flag. An invalid value exits 2 with one line `agent-trace: <message>`, and nothing is sent or written. When collect does not answer, `span`, `note`, and `hook` write the record to `fallback.jsonl` and still exit 0. `span` and `note` then print one warning; `hook` prints nothing.
 
@@ -41,7 +41,8 @@ Under `AGENT_TRACE_DIR` (default `~/.local/state/agent-trace`; directories 0700,
 | `AGENT_TRACE_WORK` | Work ID for `span` and `note`. |
 | `AGENT_TRACE_SESSION` | Session id. Overrides `CLAUDE_CODE_SESSION_ID` and `CODEX_THREAD_ID`. Order: this, `CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`. |
 | `TRACEPARENT` | W3C trace context. Sets the trace id and the default parent span. |
-| `AGENT_TRACE_CLAUDE_PROJECTS` | Root of Claude Code transcripts for the `show` fallback. Default `~/.claude/projects`. |
+| `AGENT_TRACE_CLAUDE_PROJECTS` | Root of Claude Code transcripts for the `show` wall time and fallback. Default `~/.claude/projects`. |
+| `AGENT_TRACE_CODEX_SESSIONS` | Root of Codex transcripts for the `show` wall time. Default `~/.codex/sessions`. |
 
 ## Install
 

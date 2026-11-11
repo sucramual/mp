@@ -95,3 +95,13 @@ def write_ticket(base: Path, session: str, ticket: str) -> None:
         os.write(fd, (ticket + "\n").encode())
     finally:
         os.close(fd)
+
+
+def sessions_bound_to(base: Path, ticket: str) -> list[str]:
+    """The session ids whose sessions/<id>.ticket names this work ID, in name order."""
+    folder = base / "sessions"
+    try:
+        paths = sorted(folder.glob("*.ticket"))
+    except OSError:
+        return []
+    return [path.stem for path in paths if read_ticket(base, path.stem) == ticket]

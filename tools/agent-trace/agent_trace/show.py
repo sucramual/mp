@@ -26,6 +26,7 @@ Exit 0 when anything matched, 1 when nothing matched, 2 for a usage error.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -55,6 +56,7 @@ CODEX_TURNS = {"session_task.turn", "run_turn"}
 TIMELINE = Path(__file__).resolve().parents[3] / "skills" / "retro" / "scripts" / "timeline.py"
 
 Interval = tuple[int, int]
+Merge = tuple[int, int | None]  # (park time, merge time or None when unknown) of one parked PR
 
 
 # ---------------------------------------------------------------- helpers
@@ -187,7 +189,10 @@ class AgentSpan:
 
 @dataclass
 class Anomaly:
-    """One event that may be a gap: kind is block, fail, idle, retry (chart only), or transcript (unread)."""
+    """One event that may be a gap: kind is block, fail, idle, wait, retry (chart only), or transcript (unread).
+
+    A `wait` is an idle gap whose cause is known: it is in GAPS with its cause, but not in Reconcile.
+    """
 
     ref: str
     kind: str
@@ -197,15 +202,20 @@ class Anomaly:
     detail: str
     count: int = 1  # the fails that one transcript anomaly groups
     recovered: bool = False  # a later call of the same tool and program succeeded: on the chart, not a gap
+    cause: str = ""  # what a wait waited on, such as "wait on merge": it groups the wait in GAPS
+    words: str = ""  # the words that matched the ask, when the cause comes from words
 
     @property
     def cost(self) -> int:
         """The time this gap lost: the wait of a block, the length of an idle gap, else 0."""
-        return self.end - self.start if self.kind in ("block", "idle") else 0
+        return self.end - self.start if self.kind in ("block", "idle", "wait") else 0
 
     @property
     def key(self) -> str:
-        """What groups anomalies within one run: the detail without its repeat count; idle gaps share one key."""
+        """What groups anomalies within one run: the cause, else the detail without its repeat count. Idle gaps
+        without a cause share one key."""
+        if self.cause:
+            return self.cause
         if self.kind == "idle" and not self.detail.endswith("(polling)"):
             return "unexplained"
         return re.sub(r" x\d+\b", "", self.detail)
@@ -563,10 +573,12 @@ def truncate(name: str, limit: int) -> str:
     return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
+@functools.cache
 def gh_view(url: str) -> str:
+    """The GitHub state of a PR as JSON text, or a reason. One `gh` call per PR in each run of `show`."""
     try:
         result = subprocess.run(
-            ["gh", "pr", "view", url, "--json", "state,headRefOid,mergeCommit"],
+            ["gh", "pr", "view", url, "--json", "state,headRefOid,mergeCommit,mergedAt,commits"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -650,13 +662,47 @@ def transcript_fallback(sid: str) -> list[str]:
     return [f"Transcript timeline for {sid}:", *stdout.rstrip("\n").splitlines()]
 
 
-def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) -> list[Anomaly]:
+WAIT_CAUSES = {
+    "peer": "wait on router",
+    "background": "background task (CI or watcher)",
+    "linked": "wait on another session",
+    "compaction": "context compaction",
+}
+
+
+def gap_cause(gap: dict[str, Any], start: int, merges: list[Merge]) -> tuple[str, str]:
+    """The cause of a transcript gap and the words that it matched: ("", "") when the gap stays unexplained.
+
+    In order: the time between a park and the merge of its PR; a message that Marcus typed; an ask in the last
+    assistant text, matched by words and marked so; then the event that ended the gap. A park whose merge time is
+    unknown, such as offline, keeps the gap unexplained, so the merge time is never guessed.
+    """
+    for parked, merged in merges:
+        if parked <= start and (merged is None or start < merged):
+            return ("wait on merge", "") if merged is not None else ("", "")
+    ask = gap.get("ask") if isinstance(gap.get("ask"), dict) else None
+    words = ""
+    if ask:
+        words = f'"{ask.get("who")}"' + (f' + "{ask.get("word")}"' if ask.get("word") else "")
+    ended = str(gap.get("ended_by"))
+    if ended == "user":
+        return f"wait on Marcus: {ask.get('class') if ask else 'reply'}", words
+    if ask:
+        who = "Marcus" if "marcus" in str(ask.get("who")).lower() else "router"
+        return f"wait on {who}: {ask.get('class')} (by words)", words
+    return WAIT_CAUSES.get(ended, ""), ""
+
+
+def transcript_anomalies(
+    sid: str, waits: list[Interval], fallback_time: int, merges: list[Merge] | None = None
+) -> list[Anomaly]:
     """The anomalies of a session that has no native spans, from its transcript, for the Reconcile list.
 
     One `block` for each call that a hook or the auto-mode classifier blocked, with the hook name or the denial
     reason. One `fail` for each cause of failure (fails grouped by error text with digit runs replaced, as the
     timeline groups them), and one `idle` for each gap longer than GAP_ANOMALY that no wait span covers. A gap that
-    is one long tool call is activity, not idle. Left out: soft fails (an error line in the output of a call that
+    is one long tool call is activity, not idle. An idle gap with a cause (see gap_cause) is a `wait`, which is
+    not in Reconcile. `merges` holds the (park, merge) times of this session's parked PRs. Left out: soft fails (an error line in the output of a call that
     succeeded), failed agent-trace calls, failed reads, and a fail that the same call (the same tool and input) run
     again within the next calls recovered, unless its label failed twice. The same call 3 or more times in a row
     (polling) is `idle` too. When the transcript is missing or cannot be read, one `transcript` anomaly stands for
@@ -732,10 +778,13 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
         left = subtract([(start, end)], waits)
         if max((b - a for a, b in left), default=0) <= GAP_ANOMALY:
             continue
-        detail = f"{fmt_duration(end - start)} idle" + (
-            " (permission wait)" if gap.get("cause") == "permission" else ""
-        )
-        found.append(Anomaly(f"{prefix}-gap-{hms(start)}", "idle", start, end, sid, detail))
+        if gap.get("cause") == "permission":
+            detail = f"{fmt_duration(end - start)} idle (permission wait)"
+            found.append(Anomaly(f"{prefix}-gap-{hms(start)}", "idle", start, end, sid, detail))
+            continue
+        cause, words = gap_cause(gap, start, merges or [])
+        kind, detail = ("wait", cause) if cause else ("idle", f"{fmt_duration(end - start)} idle")
+        found.append(Anomaly(f"{prefix}-gap-{hms(start)}", kind, start, end, sid, detail, cause=cause, words=words))
     seen: dict[str, int] = {}
     for anomaly in found:
         seen[anomaly.ref] = seen.get(anomaly.ref, 0) + 1
@@ -970,7 +1019,7 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
     for record in sorted(friction, key=time_of):
         attrs = attrs_of(record)
         text = f"{attrs.get('agent_trace.category')}: {attrs.get('agent_trace.what')} → {attrs.get('agent_trace.fix')}"
-        group = groups.setdefault(("friction", friction_key(record)), [0, [], text])
+        group = groups.setdefault(("friction", friction_key(record)), [0, [], text, []])
         group[0] += 1
     for anomaly in anomalies:
         record = by_ref.get(anomaly.ref) or next(
@@ -989,19 +1038,60 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
             groups[("friction", friction_key(record))][1].extend(cost)
             continue
         text = anomaly.key
-        group = groups.setdefault((anomaly.kind, anomaly.key), [0, [], text])
+        group = groups.setdefault((anomaly.kind, anomaly.key), [0, [], text, []])
         group[0] += anomaly.count
         group[1].extend(cost)
+        if anomaly.words and anomaly.words not in group[3]:
+            group[3].append(anomaly.words)
     for group in groups.values():
         group[1] = measure(group[1])
+        if group[3]:
+            # The words that matched, so that Marcus can judge a cause that comes from words: at most two.
+            group[2] += ", matched " + "; ".join(group[3][:2]) + (" …" if len(group[3]) > 2 else "")
     ranked = sorted(groups.items(), key=lambda item: (-item[1][1], -item[1][0], item[0][0], item[1][2]))
     out = [
         f"  {kind:<8} {count}×  {fmt_duration(cost) if cost else '–'}  {text}"
-        for (kind, _), (count, cost, text) in ranked[:GAP_ROWS]
+        for (kind, _), (count, cost, text, _) in ranked[:GAP_ROWS]
     ]
     if len(ranked) > GAP_ROWS:
         out.append(f"  … {len(ranked) - GAP_ROWS} more")
     return out or ["  none"]
+
+
+def park_merges(spans: list[AgentSpan], prs: list[dict[str, Any]], offline: bool) -> dict[str, list[Merge]]:
+    """The (park, merge) times of each session's parked PRs, found by the SHA in the park note.
+
+    The merge time comes from the hook record of the merge, else from GitHub `mergedAt` of the run's PR that has
+    that commit. Offline, a park with no hook record has an unknown merge time (None). Online, a park whose SHA is in
+    no PR of the run is left out.
+    """
+    urls = list(dict.fromkeys(str(attrs_of(r).get("agent_trace.pr_url") or "") for r in prs))
+    found: dict[str, list[Merge]] = {}
+    for span in spans:
+        sha = re.search(r"\b[0-9a-f]{7,40}\b", span.note)
+        if span.status != "parked" or span.end is None or not span.session or sha is None:
+            continue
+        merged = next(
+            (
+                time_of(r)
+                for r in prs
+                if attrs_of(r).get("agent_trace.pr_action") == "merge"
+                and str(attrs_of(r).get("agent_trace.head_sha") or "").startswith(sha.group(0))
+            ),
+            None,
+        )
+        known = merged is not None
+        if not known and not offline:
+            for url in (u for u in urls if u.startswith("https://github.com/")):
+                answer = gh_view(url)
+                data = json.loads(answer) if answer.startswith("{") else {}
+                commits = data.get("commits") if isinstance(data.get("commits"), list) else []
+                if any(str(c.get("oid") or "").startswith(sha.group(0)) for c in commits if isinstance(c, dict)):
+                    merged, known = iso_ns(data.get("mergedAt")), True
+                    break
+        if known or offline:
+            found.setdefault(span.session, []).append((span.end, merged))
+    return found
 
 
 def run(args: argparse.Namespace) -> int:
@@ -1120,15 +1210,23 @@ def run(args: argparse.Namespace) -> int:
             detail = f"{fmt_duration(gap_end - gap_start)} idle"
             anomalies.append(Anomaly(f"gap-{after[1]}", "idle", gap_start, gap_end, after[2], detail))
     wait_intervals = [span_interval(span) for span in wait_spans]
+    for span in wait_spans:
+        ask = str(span.attrs.get("agent_trace.ask") or "")
+        if ask:
+            # An ask span: neo waits on Marcus or the router. Its cause is known, so it is a wait, not idle.
+            start, end = span_interval(span)
+            cause = f"wait on Marcus: {ask}"
+            anomalies.append(Anomaly(span.span_id, "wait", start, end, span.session, cause, cause=cause))
+    merges = park_merges(spans, prs, args.offline) if any(span.status == "parked" for span in spans) else {}
     for sid in selection.sessions:
         if not selection.claude.get(sid) and not selection.codex.get(sid):
-            anomalies += transcript_anomalies(sid, wait_intervals, t0)
+            anomalies += transcript_anomalies(sid, wait_intervals, t0, merges.get(sid, []))
     answered_refs = {
         str(ref) for r in notes for ref in (attrs_of(r).get("agent_trace.refs") or []) if isinstance(ref, str)
     }
     unanswered = []
     for anomaly in sorted(anomalies, key=lambda a: (a.start, a.ref)):
-        if anomaly.ref in answered_refs:
+        if anomaly.ref in answered_refs or anomaly.kind == "wait":
             continue
         near = any(
             session_of(r) == anomaly.session and anomaly.start - NOTE_BEFORE <= time_of(r) <= anomaly.end + NOTE_AFTER

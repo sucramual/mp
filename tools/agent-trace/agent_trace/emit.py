@@ -27,6 +27,7 @@ IDENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 REF = re.compile(r"^(gap-)?[0-9a-f]{16}$")
 KINDS = ("phase", "pr", "wait", "infra", "check")
 STATUSES = ("ok", "error", "parked")
+ASKS = ("merge", "scope", "access", "info")  # the class of an ask span: what neo waits on Marcus or the router for
 CATEGORIES = ("permission", "doc", "flaky", "workaround", "missing-tool")
 TEXT_LIMIT = 300
 DEFAULT_ENDPOINT = "http://127.0.0.1:4318"
@@ -191,6 +192,10 @@ def build(args: argparse.Namespace, base: Path) -> tuple[list[otlp.Record], Cont
         attrs: dict[str, Any] = {"agent_trace.phase": "start", "agent_trace.id": ident, "agent_trace.kind": kind}
         if parent:
             attrs["agent_trace.parent"] = parent
+        if args.ask is not None:
+            if kind != "wait":
+                raise Invalid("--ask needs --kind wait")
+            attrs["agent_trace.ask"] = check_choice("--ask", args.ask, ASKS)
         parent_span = otlp.span_id_for(context.scope or "", parent) if parent else None
         if parent_span is None and context.traceparent:
             parent_span = context.traceparent[1]

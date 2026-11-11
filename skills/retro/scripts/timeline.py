@@ -50,6 +50,20 @@ RECOVER_WINDOW = 3
 DENIED_RE = re.compile(r"^Permission for this action was denied by the (?:Claude Code |server-side )?auto mode")
 DENIED_REASON_RE = re.compile(r"Reason: \[([^\]]+)\]")
 HOOK_RE = re.compile(r"^(?:\w+:\w+ )?hook error: (?:\[([^\]]*)\]|([^:\n]+)):")
+# The words of an ask: a sentence that says the session waits on Marcus, the router, or "you" (its reader).
+ASK_WHO_RE = re.compile(
+    r"\b(?:wait(?:s|ing)?\s+(?:for|on)|parked\s+(?:for|to|with)|until)\s+(?:the\s+)?(Marcus|router|you)\b"
+    r"|\b(Marcus|router)\s+(?:decides|has to|must|needs to|confirms|chooses)\b",
+    re.IGNORECASE,
+)
+# The class of an ask, first match wins: the words that a sentence (or the one after it) uses for each class.
+ASK_CLASSES = (
+    ("merge", re.compile(r"\b(?:merges?|enqueue\w*|queue)\b", re.IGNORECASE)),
+    ("access", re.compile(r"\b(?:grant|access|permission|re-?registers?|register|by hand|admin rights)\b", re.IGNORECASE)),
+    ("scope", re.compile(r"\b(?:choose|option|decides?|scope)\b", re.IGNORECASE)),
+    ("info", re.compile(r"\b(?:confirms?|answer|reply|approve|decline)\b|\?", re.IGNORECASE)),
+)
+SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 class InputError(Exception):
@@ -308,6 +322,57 @@ def block_of(output: str) -> dict[str, str] | None:
     return {"by": "hook", "name": " ".join([script, *words[at + 1 :]])}
 
 
+def ended_by(event: Event) -> str | None:
+    """What kind of event ended a gap: a message that a person typed, a peer session, a background task, a status
+    reminder about linked sessions, or the summary after a compaction. None for anything else, such as a tool result.
+    """
+    if event.kind != "user" or any(block.get("type") == "tool_result" for block in content_blocks(event)):
+        return None
+    text = (user_text(event) or "").lstrip()
+    if not text:
+        return None
+    if text.startswith("<task-notification>"):
+        return "background"
+    if text.startswith("<cross-session-message"):
+        return "peer"
+    if text.startswith("<system-reminder>") and "Linked sessions now" in text[:200]:
+        return "linked"
+    if text.startswith("This session is being continued"):
+        return "compaction"
+    if text.startswith(("<", "[")):
+        return None  # Other harness text, such as a command or a reminder.
+    return "user"
+
+
+def ask_of(text: str) -> dict[str, str] | None:
+    """The ask in an assistant message, matched by words: who the session waits on, the class, and the words.
+
+    The last sentence that names a wait on Marcus, the router, or "you" counts. Its class comes from that sentence or
+    the next one, in the order of ASK_CLASSES, else `info`. Returns None when no sentence names such a wait.
+    """
+    sentences = [part.strip() for part in SENTENCE_RE.split(text) if part.strip()]
+    for index in range(len(sentences) - 1, -1, -1):
+        who = ASK_WHO_RE.search(sentences[index])
+        if who is None:
+            continue
+        window = " ".join(sentences[index : index + 2])
+        for name, pattern in ASK_CLASSES:
+            word = pattern.search(window)
+            if word is not None:
+                return {"class": name, "who": who.group(0), "word": word.group(0).lower()}
+        return {"class": "info", "who": who.group(0), "word": ""}
+    return None
+
+
+def assistant_text(event: Event) -> str:
+    """The text of an assistant message, or of a turn's result, without its tool calls."""
+    if event.kind == "result":
+        return str(event.body.get("result") or "")
+    if event.kind != "assistant":
+        return ""
+    return user_text(event) or ""
+
+
 def same_call(one: tuple[str, Any] | None, other: tuple[str, Any] | None) -> bool:
     """The same tool with the same input, such as a test run that is run again after a fix."""
     if one is None or other is None:
@@ -346,6 +411,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     open_perms: dict[str, datetime] = {}  # request_id -> time the wait ends
     in_turn = False
     previous: Event | None = None
+    said = ""  # the last assistant text so far: the ask that a gap after it waits on
 
     for index, event in enumerate(events):
         if previous is not None:
@@ -363,6 +429,8 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                         "after_tool_use": previous.kind == "assistant"
                         and any(block.get("type") == "tool_use" for block in content_blocks(previous)),
                         "quote": describe(previous),
+                        "ended_by": ended_by(event),
+                        "ask": ask_of(said),
                     }
                 )
 
@@ -446,6 +514,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                     "quote": short(f"{request.get('tool_name')} {json.dumps(request.get('input'), sort_keys=True)}"),
                 }
             )
+        said = assistant_text(event).strip() or said
         previous = event
 
     flush_run()

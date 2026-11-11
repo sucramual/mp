@@ -38,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--name", required=True)
     start.add_argument("--kind", required=True)
     start.add_argument("--parent")
+    start.add_argument("--ask", help="for --kind wait: what the wait asks Marcus or the router for (merge|scope|access|info)")
     common(start)
     end = span_commands.add_parser("end")
     end.add_argument("--id", required=True)

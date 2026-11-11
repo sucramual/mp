@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -377,7 +378,7 @@ printf '%s' '{{"state":"MERGED","headRefOid":"{MOVED}","mergeCommit":{{"oid":"{M
         "view",
         PR_URL,
         "--json",
-        "state,headRefOid,mergeCommit",
+        "state,headRefOid,mergeCommit,mergedAt,commits",
     ]
 
 
@@ -538,7 +539,8 @@ def fallback_transcript(projects: Path) -> None:
         result(
             "t5", "2026-10-29T08:00:21Z", "Permission for this action was denied by the auto mode classifier.", True
         ),
-        said("user", "2026-10-29T08:30:21Z", "continue"),
+        # The agent resumes by itself: nothing names why it waited, so the gap stays unexplained.
+        said("assistant", "2026-10-29T08:30:21Z", "Resuming."),
         # Text longer than the timeline's 160-character quote comes before the call, so the quote drops it.
         use("t6", "2026-10-29T08:30:25Z", "pytest -q", text="Running the full test suite now. " * 8),
         result("t6", "2026-10-29T08:45:30Z", "1 passed", False),
@@ -991,3 +993,135 @@ def test_default_output_carries_the_chart_in_utc(env: dict[str, str]) -> None:
     assert "12:00Z" in axis
     assert lines.index(axis) < lines.index("SESSIONS")
     assert "Reconcile:" in out.splitlines()
+
+
+CA = "cccccccc-0000-4000-8000-000000000007"
+
+
+def ns(stamp: str) -> int:
+    return int(datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()) * S
+
+
+def causes_transcript(projects: Path) -> None:
+    """A transcript of session CA on 2026-10-29 (UTC) with a 20-minute gap after each assistant message.
+
+    Each gap ends on another kind of event: a background task, a peer message, a linked-sessions reminder, a message
+    that Marcus typed, a compaction summary, and the agent itself (no cause). Two gaps follow an ask in words.
+    """
+
+    def said(role: str, when: str, text: str) -> dict[str, Any]:
+        return {"type": role, "timestamp": when, "sessionId": CA, "message": {"role": role, "content": text}}
+
+    lines = [
+        said("user", "2026-10-29T10:00:00Z", "go"),
+        said("assistant", "2026-10-29T10:00:05Z", "Waiting for CI."),
+        said("user", "2026-10-29T10:20:05Z", "<task-notification><summary>CI done</summary></task-notification>"),
+        said("assistant", "2026-10-29T10:20:10Z", "CI passed. The PR stays parked for you to queue."),
+        said("user", "2026-10-29T10:40:10Z", "<task-notification><summary>watcher</summary></task-notification>"),
+        said("assistant", "2026-10-29T10:40:15Z", "I sent my report."),
+        said("user", "2026-10-29T11:00:15Z", '<cross-session-message from="r">ok</cross-session-message>'),
+        said("assistant", "2026-10-29T11:00:20Z", "Noted."),
+        said("user", "2026-10-29T11:20:20Z", "<system-reminder> Linked sessions now (status): x </system-reminder>"),
+        said("assistant", "2026-10-29T11:20:25Z", "Shall I drop the old branch? Marcus decides the scope."),
+        said("user", "2026-10-29T11:40:25Z", "yes, drop it"),
+        said("assistant", "2026-10-29T11:40:30Z", "Dropped."),
+        said("user", "2026-10-29T12:00:30Z", "This session is being continued from a previous conversation."),
+        said("assistant", "2026-10-29T12:00:35Z", "Back."),
+        said("assistant", "2026-10-29T12:20:35Z", "Resuming."),
+        said("assistant", "2026-10-29T12:25:35Z", "Parked."),
+        said("assistant", "2026-10-29T12:50:40Z", "Merged, verifying."),
+    ]
+    folder = projects / "-Users-x-repo"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{CA}.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+
+
+def causes_store(env: dict[str, str], *extra: dict[str, Any]) -> None:
+    """Spans of RUN-4 for session CA: PR 1 created at 12:00 and parked at 12:25 on commit abc1234."""
+    where = {"ticket": "RUN-4", "session": CA}
+    start = agent("pr1", "start", ns("2026-10-29T12:20:00Z"), name="PR 1", **where, **{"agent_trace.kind": "pr"})
+    end = agent(
+        "pr1",
+        "end",
+        ns("2026-10-29T12:25:00Z"),
+        **where,
+        **{"agent_trace.status": "parked", "agent_trace.note": "parked at abc1234"},
+    )
+    created = pr("create", ns("2026-10-29T12:00:00Z"))
+    created["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
+    write_store(state_of(env), [start, end, created, *extra])
+
+
+# Protects G10: each idle gap gets a cause, cost, and fix target from stored data, so GAPS names why the run waited
+# and Reconcile keeps only the gaps that nothing explains.
+# Bug caught: every idle gap is one "unexplained" line, so the top GAPS line names no cause; or a cause from words is
+# not marked, so Marcus cannot judge it.
+def test_idle_gaps_get_a_cause_from_the_event_that_ends_them(env: dict[str, str], tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    causes_transcript(projects)
+    causes_store(env)
+    code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-4", "--offline")
+    assert code == 0, err
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "wait     1×  20m  background task (CI or watcher)" in gaps
+    assert 'wait     1×  20m  wait on router: merge (by words), matched "parked for you" + "queue"' in gaps
+    assert "wait     1×  20m  wait on router" in gaps
+    assert "wait     1×  20m  wait on another session" in gaps
+    assert 'wait     1×  20m  wait on Marcus: scope, matched "Marcus decides" + "decides"' in gaps
+    assert "wait     1×  20m  context compaction" in gaps
+    # The gap that the agent ended by itself has no cause. Offline, the gap after the park has no merge time, so
+    # it is not guessed: both stay unexplained and in Reconcile, and no wait is.
+    assert "idle     2×  45m  unexplained" in gaps
+    assert [(e[0], e[2]) for e in reconcile(out)] == [
+        ("tx-cccccccc-gap-120035", "idle"),
+        ("tx-cccccccc-gap-122535", "idle"),
+    ]
+    assert "autonomy  blocks 0  fails 0  unexplained idle 45m  friction 0" in fence(out)
+
+
+# Protects rule 2 of G10: the time from a park to the merge of its PR is a wait on merge, by the commit in the park
+# note, with the merge time from GitHub or from the hook record of the merge.
+# Bug caught: the gap after a park reads as unexplained idle although the PR merged later; or a merge time is guessed.
+def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
+    env: dict[str, str], tmp_path: Path, isolated_env: IsolatedEnv, fake_exe: Any
+) -> None:
+    projects = tmp_path / "projects"
+    causes_transcript(projects)
+    causes_store(env)
+    penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
+    data = {
+        "state": "MERGED",
+        "headRefOid": "abc1234" + "0" * 33,
+        "mergeCommit": {"oid": MERGE},
+        "mergedAt": "2026-10-29T13:00:00Z",
+        "commits": [{"oid": "0" * 40}, {"oid": "abc1234" + "0" * 33}],
+    }
+    fake_exe("gh", f"""printf '%s\\n' "$*" >>"$HOME/gh.log"\nprintf '%s' '{json.dumps(data)}'\n""")
+    code, out, err = show(penv, "--work", "RUN-4")
+    assert code == 0, err
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "wait     1×  25m  wait on merge" in gaps
+    assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
+    # One gh call for the PR, shared by the PR list and the park lookup.
+    assert len((isolated_env.home / "gh.log").read_text().splitlines()) == 1
+
+    # Offline, the hook record of the merge gives the merge time instead.
+    merged = pr("merge", ns("2026-10-29T13:00:00Z"), head="abc1234" + "0" * 33)
+    merged["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
+    causes_store(env, merged)
+    _, out, _ = show(penv, "--work", "RUN-4", "--offline")
+    assert "wait     1×  25m  wait on merge" in section(out, "GAPS (cost = wait time)")
+    assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
+
+
+# Protects the ask span: a wait span with --ask is a named wait in GAPS, not idle, and not a Reconcile item.
+# Bug caught: the ask span hides the gap but GAPS never shows the wait, so its cost is lost.
+def test_ask_span_is_a_wait_on_marcus_with_its_class(env: dict[str, str]) -> None:
+    kind = {"agent_trace.kind": "wait", "agent_trace.ask": "merge"}
+    start = agent("ask-1", "start", at(10, 0), name="Merge PR 7", **kind)
+    end = agent("ask-1", "end", at(10, 45), **{"agent_trace.status": "ok"})
+    write_store(state_of(env), [*scenario(), start, end])
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
+    assert "wait     1×  45m  wait on Marcus: merge" in section(out, "GAPS (cost = wait time)")
+    assert sid("RUN-1", "ask-1") not in [e[0] for e in reconcile(out)]
+    assert reconcile(out)

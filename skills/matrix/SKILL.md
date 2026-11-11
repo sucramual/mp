@@ -22,7 +22,7 @@ Send Marcus one message:
   - Messages: list each message to a person outside the run that the plan needs, with its text. Ask Marcus to send it, to let you send it, or to drop it.
 - **Earlier findings.** When the goal comes from earlier findings, such as a spike, read them into the plan file: the baseline runs by run ID, the methods that prove a change, the known traps, the dropped ideas, and the open decisions with their owners. Put each part that the results do not give in this message as a question.
 
-Then start the workers. Do not come back to Marcus except with a decision batch or the close.
+Before you send it, run `agent-trace span start --id router --name router --kind phase --work <ID>` in your own session. This binds your session to the work ID, so `show` names each gap that ends on a message from Marcus as a wait on Marcus. Then start the workers. Do not come back to Marcus except with a decision batch or the close.
 
 ## Split
 

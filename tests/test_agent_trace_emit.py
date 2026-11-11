@@ -38,6 +38,8 @@ def trace_id(scope: str) -> str:
         (["span", "end", "--id", "a", "--status", "ok", "--note", "a\nb"], "--note must not contain a newline"),
         (["span", "start", "--id", "a", "--name", "n" * 301, "--kind", "phase"], "--name must be at most 300"),
         (["note", "none", "--ref", "xyz"], "--ref must match"),
+        (["span", "start", "--id", "a", "--name", "x", "--kind", "phase", "--ask", "merge"], "--ask needs --kind wait"),
+        (["span", "start", "--id", "a", "--name", "x", "--kind", "wait", "--ask", "later"], "--ask must be one of"),
     ],
 )
 def test_invalid_input_exits_2_and_sends_and_writes_nothing(
@@ -321,3 +323,17 @@ def test_fallback_when_endpoint_is_not_collect(isolated_env: IsolatedEnv, tmp_pa
     [record] = read_jsonl(state / "fallback.jsonl")
     assert record["name"] == "agent_trace.note"
     assert record["attrs"]["agent_trace.refs"] == ["0123456789abcdef"]
+
+
+# Protects the ask span: neo marks a wait on Marcus or the router with its class, so `show` names the wait.
+# Bug caught: --ask is accepted but not stored, so the wait stays an unexplained idle gap.
+def test_ask_flag_stores_the_class_of_a_wait_span(isolated_env: IsolatedEnv, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    with recorder() as server:
+        args = ["span", "start", "--id", "ask-1", "--name", "Merge PR 7", "--kind", "wait", "--ask", "merge"]
+        result = run([*args, "--work", "RUN-1"], base_env(isolated_env.env, state, server.url))
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+    [span] = server.spans()
+    attrs = {a["key"]: a["value"] for a in span["attributes"]}
+    assert attrs["agent_trace.kind"] == {"stringValue": "wait"}
+    assert attrs["agent_trace.ask"] == {"stringValue": "merge"}

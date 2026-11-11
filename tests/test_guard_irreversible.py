@@ -208,15 +208,13 @@ SPACECTL_READS_ALLOWED = [
     "grep -rn 'spacectl stack deploy' docs/",
     "cat runbook.md | grep spacectl",
     'echo "next: spacectl stack confirm --id x"',
-    "cat > notes.md <<'EOF'\nMarcus runs spacectl stack confirm --id x, then it's live.\nEOF",
     "git commit -m \"$(cat <<'EOF'\nfix: don't run spacectl stack preview from an agent\nEOF\n)\"",
 ]
 
 
 # Protects: an agent can read Spacelift runs and write text that names spacectl without a block.
 # Bug caught (/matrix run retro, 2026-11-05, finding 11): the guard blocked `spacectl stack run changes` and
-# `command -v spacectl` as writes ("spacectl /dev/null can change infrastructure"), and a quoted heredoc
-# body that named spacectl kept the whole call, so an apostrophe in it blocked with "could not split".
+# `command -v spacectl` as writes ("spacectl /dev/null can change infrastructure").
 @pytest.mark.parametrize("command", SPACECTL_READS_ALLOWED)
 def test_allows_spacectl_reads_and_text_that_names_spacectl(command: str, tmp_path: Path):
     result = run_guard(bash(command, tmp_path), tmp_path)
@@ -239,12 +237,14 @@ SPACECTL_WRITES_BLOCKED = [
     ("\"/bin/bash\" <<'EOF'\nspacectl stack confirm --id prod --run r1\nEOF", SPACELIFT_REASON),
     ("'bash' <<'EOF'\nspacectl stack confirm --id prod --run r1\nEOF", SPACELIFT_REASON),
     ("bash <<'EOF'\necho it's\nspacectl stack preview --id x\nEOF", "could not split"),
+    ("bash<<'EOF'\nspacectl stack preview --id x\nEOF", SPACELIFT_REASON),
+    ("cat > run.sh <<'EOF'\nspacectl stack deploy --id x\nEOF\nbash run.sh", SPACELIFT_REASON),
 ]
 
 
-# Protects: the read allowances and the heredoc change open no write path to Spacelift.
-# Bug caught: a fix that allows `stack run *`, skips `command` without -v, or strips a heredoc body that a
-# shell runs or expands (an unquoted delimiter runs $(...) in the body).
+# Protects: the read allowances open no write path to Spacelift, and a heredoc body that names spacectl
+# is still checked, because a shell may run it now or later (a script written with cat, then run).
+# Bug caught: a fix that allows `stack run *`, skips `command` without -v, or strips such a body.
 @pytest.mark.parametrize(("command", "reason"), SPACECTL_WRITES_BLOCKED)
 def test_still_blocks_spacectl_writes(command: str, reason: str, tmp_path: Path):
     result = run_guard(bash(command, tmp_path), tmp_path)

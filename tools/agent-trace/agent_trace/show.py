@@ -208,8 +208,10 @@ class Anomaly:
 
     @property
     def key(self) -> str:
-        """What groups anomalies within one run: the detail without its repeat count, or one key for idle."""
-        return "unexplained" if self.kind == "idle" else re.sub(r" x\d+$", "", self.detail)
+        """What groups anomalies within one run: the detail without its repeat count; idle gaps share one key."""
+        if self.kind == "idle" and not self.detail.endswith("(polling)"):
+            return "unexplained"
+        return re.sub(r" x\d+\b", "", self.detail)
 
 
 @dataclass
@@ -647,9 +649,10 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
     timeline groups them), and one `idle` for each gap longer than GAP_ANOMALY that no wait span covers. A gap that
     is one long tool call is activity, not idle. Left out: soft fails (an error line in the output of a call that
     succeeded), failed agent-trace calls, failed reads, and a fail that the next calls of the same tool and program
-    recovered, unless that tool and program failed twice. When the transcript is missing or cannot be read, one
+    recovered, unless that tool and program failed twice. The same call 3 or more times in a row (polling) is `idle`
+    too. When the transcript is missing or cannot be read, one
     `transcript` anomaly stands for it, so Reconcile never passes on missing evidence. Refs are
-    `tx-<session8>-<kind>-<HHMMSS UTC>` (`gap` for idle), stable across runs of `show`.
+    `tx-<session8>-<kind>-<HHMMSS UTC>` (`gap` for an idle gap, `idle` for polling), stable across runs of `show`.
     """
     if not SESSION_NAME.match(sid):
         return []
@@ -707,6 +710,12 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
         label = program(str(items[0].get("label") or "?"))
         detail = f"{label} x{len(items)}" if len(items) > 1 else label
         found.append(Anomaly(f"{prefix}-fail-{hms(start)}", "fail", start, start, sid, detail, count=len(items)))
+    for loop in report.get("loops") or []:
+        # The same call 3 or more times in a row, such as polling: time lost, so idle.
+        start = iso_ns(loop.get("first")) or fallback_time
+        end = iso_ns(loop.get("last")) or start
+        detail = f"{program(str(loop.get('label') or '?'))} x{loop.get('count')} (polling)"
+        found.append(Anomaly(f"{prefix}-idle-{hms(start)}", "idle", start, end, sid, detail))
     for gap in report.get("gaps") or []:
         start, end = iso_ns(gap.get("start")), iso_ns(gap.get("end"))
         if not start or not end:
@@ -966,7 +975,7 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
         if record is not None:
             groups[("friction", friction_key(record))][1].extend(cost)
             continue
-        text = "unexplained" if anomaly.kind == "idle" else anomaly.key
+        text = anomaly.key
         group = groups.setdefault((anomaly.kind, anomaly.key), [0, [], text])
         group[0] += anomaly.count
         group[1].extend(cost)

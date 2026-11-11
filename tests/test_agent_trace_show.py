@@ -478,6 +478,7 @@ FB_REFS = [
     "tx-dddddddd-fail-080006",
     "tx-dddddddd-block-080021",
     "tx-dddddddd-gap-080021",
+    "tx-dddddddd-idle-084540",
     "tx-dddddddd-block-084611",
 ]
 GUARD = (
@@ -492,7 +493,7 @@ def fallback_transcript(projects: Path) -> None:
     08:00:06 and 08:00:10: one cause fails twice (one repeated group). 08:00:13: a soft fail (an error line in the
     output of a read that succeeded). 08:00:16: a failed agent-trace call. 08:00:21: a permission denial. Then 30
     minutes with no event (idle). 08:30:25 to 08:45:30: one tool call runs 15 minutes (activity, not idle).
-    08:45:40 to 08:45:50: the same call three times in a row (polling, not a gap). 08:46:01: a failed read. 08:46:04:
+    08:45:40 to 08:45:50: the same call three times in a row (polling, an idle gap). 08:46:01: a failed read. 08:46:04:
     a fail that the next call of the same program recovers (08:46:07). 08:46:11: a hook block.
     """
 
@@ -578,6 +579,7 @@ def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_
         ["08:00Z", "fail"],
         ["08:00Z", "block"],
         ["08:00Z", "idle"],
+        ["08:45Z", "idle"],
         ["08:46Z", "block"],
     ]
     # The tool and the program only, plus what blocked the call: no more command text, as for native spans.
@@ -585,11 +587,11 @@ def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_
         "Bash gh x2",
         "Bash kubectl (auto mode)",
         "30m idle",
+        "Bash gh x3 (polling)",
         "Bash spacectl (hook guard_irreversible)",
     ]
     # The 15-minute tool call (08:30:25 to 08:45:30) is activity, so it is not an idle gap.
-    # The soft fail, the failed read, the failed agent-trace call, the recovered fail, and the polling loop are not
-    # anomalies.
+    # The soft fail, the failed read, the failed agent-trace call, and the recovered fail are not anomalies.
     assert not any(word in e[3] for e in entries for word in ("cat", "agent-trace", "python3"))
 
 
@@ -614,7 +616,7 @@ def test_fallback_gap_inside_a_wait_span_is_not_an_anomaly(env: dict[str, str], 
     wait_end = agent("ci", "end", day_before + 29 * M, ticket="RUN-3", session=FB, **{"agent_trace.status": "ok"})
     fallback_store(env, wait_start, wait_end)
     _, out, _ = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-3", "--offline")
-    assert [e[0] for e in reconcile(out)] == [FB_REFS[0], FB_REFS[1], FB_REFS[3]]  # The idle gap is a wait.
+    assert [e[0] for e in reconcile(out)] == [FB_REFS[0], FB_REFS[1], *FB_REFS[3:]]  # The idle gap is a wait.
 
 
 def claude_transcript(projects: Path, session: str, *stamps: str) -> None:
@@ -878,7 +880,9 @@ def test_gap_costs_count_parallel_idle_once_and_notes_take_only_their_own_sessio
     penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
     _, out, _ = show(penv, "--work", "RUN-3", "--offline")
     assert "autonomy  blocks 4  fails 4  unexplained idle 30m  friction 0" in fence(out)
-    assert "idle     2×  30m  unexplained" in section(out, "GAPS (cost = wait time)")
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "idle     2×  30m  unexplained" in gaps
+    assert "idle     2×  10s  Bash gh (polling)" in gaps
 
     text = {"agent_trace.category": "doc", "agent_trace.what": "slow", "agent_trace.fix": "go faster"}
     friction = note("friction", at(9, 0) - 25 * 60 * M + 2 * M, [], **text)  # 2026-10-29T08:02Z, in session FB

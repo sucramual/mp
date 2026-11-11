@@ -6,9 +6,12 @@ from tempfile import TemporaryDirectory
 import replay_file
 
 
-def call(name: str, **args: object) -> str:
-    block = {"type": "tool_use", "name": name, "input": args}
-    return json.dumps({"message": {"role": "assistant", "content": [block]}})
+def call(name: str, result: str | None = "ok", call_id: str = "c", **args: object) -> str:
+    """One transcript line. `result` is "ok", "error", or None for a call with no tool_result."""
+    content: list[dict] = [{"type": "tool_use", "id": call_id, "name": name, "input": args}]
+    if result is not None:
+        content.append({"type": "tool_result", "tool_use_id": call_id, "is_error": result == "error"})
+    return json.dumps({"message": {"role": "assistant", "content": content}})
 
 
 class ReplayTests(unittest.TestCase):
@@ -37,6 +40,30 @@ class ReplayTests(unittest.TestCase):
         result = replay_file.replay(lines, "plan.md")
         self.assertEqual(result.text, "one")
         self.assertEqual(result.unmatched, 1)
+
+    def test_a_failed_or_unanswered_call_is_not_replayed(self):
+        lines = [
+            call("Write", call_id="w", file_path="/x/plan.md", content="Status: pending\nStatus: pending\n"),
+            call(
+                "Edit",
+                result="error",
+                call_id="e1",
+                file_path="/x/plan.md",
+                old_string="Status: pending",
+                new_string="Status: complete",
+            ),
+            call(
+                "Edit",
+                result=None,
+                call_id="e2",
+                file_path="/x/plan.md",
+                old_string="Status: pending",
+                new_string="Status: done",
+            ),
+        ]
+        result = replay_file.replay(lines, "plan.md")
+        self.assertEqual(result.text, "Status: pending\nStatus: pending\n")
+        self.assertEqual((result.applied, result.unmatched, result.unconfirmed), (1, 0, 2))
 
     def test_other_files_and_bad_lines_are_ignored(self):
         lines = [

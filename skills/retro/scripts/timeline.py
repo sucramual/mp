@@ -320,6 +320,9 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                         "gap_seconds": seconds,
                         "in_turn": in_turn,
                         "cause": "permission" if pending else None,
+                        # The gap follows a tool call: the time is the call running, not idle.
+                        "after_tool_use": previous.kind == "assistant"
+                        and any(block.get("type") == "tool_use" for block in content_blocks(previous)),
                         "quote": describe(previous),
                     }
                 )

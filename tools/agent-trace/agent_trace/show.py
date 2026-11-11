@@ -649,8 +649,7 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
         start, end = iso_ns(gap.get("start")), iso_ns(gap.get("end"))
         if not start or not end:
             continue
-        quote = str(gap.get("quote") or "")
-        if "tool_use " in quote and not quote.startswith("tool_result") and gap.get("cause") != "permission":
+        if gap.get("after_tool_use") is True and gap.get("cause") != "permission":
             continue  # One long tool call, such as a test run: the native path counts it as activity, not idle.
         left = subtract([(start, end)], waits)
         if max((b - a for a, b in left), default=0) <= GAP_ANOMALY:

@@ -470,8 +470,9 @@ def fallback_transcript(projects: Path) -> None:
     08:45:40 to 08:45:50: the same call three times in a row (a retry).
     """
 
-    def use(ident: str, when: str, command: str) -> dict[str, Any]:
-        content = [{"type": "tool_use", "id": ident, "name": "Bash", "input": {"command": command}}]
+    def use(ident: str, when: str, command: str, text: str = "") -> dict[str, Any]:
+        content: list[dict[str, Any]] = [{"type": "text", "text": text}] if text else []
+        content.append({"type": "tool_use", "id": ident, "name": "Bash", "input": {"command": command}})
         return {
             "type": "assistant",
             "timestamp": when,
@@ -501,7 +502,8 @@ def fallback_transcript(projects: Path) -> None:
             "t5", "2026-10-29T08:00:21Z", "Permission for this action was denied by the auto mode classifier.", True
         ),
         said("user", "2026-10-29T08:30:21Z", "continue"),
-        use("t6", "2026-10-29T08:30:25Z", "pytest -q"),
+        # Text longer than the timeline's 160-character quote comes before the call, so the quote drops it.
+        use("t6", "2026-10-29T08:30:25Z", "pytest -q", text="Running the full test suite now. " * 8),
         result("t6", "2026-10-29T08:45:30Z", "1 passed", False),
         use("t7", "2026-10-29T08:45:40Z", "gh run view 1"),
         result("t7", "2026-10-29T08:45:41Z", "in_progress", False),

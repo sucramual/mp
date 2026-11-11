@@ -741,16 +741,12 @@ def fix_target(cause: str) -> str:
     return next((fix for prefix, fix in FIX_TARGETS if cause.startswith(prefix)), "")
 
 
-def gap_cause(gap: dict[str, Any], start: int, merges: list[Merge]) -> tuple[str, str]:
+def gap_cause(gap: dict[str, Any]) -> tuple[str, str]:
     """The cause of a transcript gap and the words that it matched: ("", "") when the gap stays unexplained.
 
-    In order: the time between a park and the merge of its PR; a message that Marcus typed; an ask in the last
-    assistant text, matched by words and marked so; then the event that ended the gap. `merges` holds only parks
-    whose merge time is known: transcript_anomalies handles a park with an unknown merge time.
+    In order: a message that Marcus typed; an ask in the last assistant text, matched by words and marked so; then
+    the event that ended the gap. transcript_anomalies handles the time between a park and the merge of its PR.
     """
-    for parked, merged in merges:
-        if merged is not None and parked <= start < merged:
-            return "wait on merge", ""
     ask = gap.get("ask") if isinstance(gap.get("ask"), dict) else None
     words = ""
     if ask:
@@ -864,7 +860,18 @@ def transcript_anomalies(
                 Anomaly(f"{prefix}-gap-{hms(start)}", "idle", start, end, sid, f"{fmt_duration(end - start)} idle")
             )
             continue
-        cause, words = gap_cause(gap, start, merges or [])
+        merged = next((m for p, m in merges or [] if m is not None and p <= start < m), None)
+        if merged is not None:
+            # The time between a park and its merge is a wait on merge. The time after the merge is not: it gets
+            # its own cause, or stays idle, when it is longer than GAP_ANOMALY.
+            held = min(end, merged)
+            found.append(
+                Anomaly(f"{prefix}-gap-{hms(start)}", "wait", start, held, sid, "wait on merge", cause="wait on merge")
+            )
+            if end - held <= GAP_ANOMALY:
+                continue
+            start = held
+        cause, words = gap_cause(gap)
         if cause.startswith("wait on router"):
             # A chained wait: the router was itself waiting on Marcus at the same time, so the worker waited on him.
             peer = str(gap.get("peer_id") or next(iter(report.get("peers") or []), ""))

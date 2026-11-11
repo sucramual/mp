@@ -1116,18 +1116,25 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
     # A wait on merge is reserved: it leaves GAPS for RESERVED, still counts in the autonomy line, and is no
     # Reconcile item.
     assert not any("wait on merge" in line for line in section(out, "GAPS (cost = wait time)"))
-    assert section(out, "RESERVED") == ["merge    1×  25m  merge rule"]
-    assert "waits 2h45m (reserved 25m)" in fence(out)[1]
+    assert section(out, "RESERVED") == ["merge    1×  24m  merge rule"]
+    assert "waits 2h44m (reserved 24m)" in fence(out)[1]
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
     # One gh call for the PR, shared by the PR list and the park lookup.
     assert len((isolated_env.home / "gh.log").read_text().splitlines()) == 1
+
+    # The wait on merge ends at the merge: the session resumed 20m later, and that time stays idle in Reconcile.
+    early = {**data, "mergedAt": "2026-10-29T12:30:00Z"}
+    fake_exe("gh", f"""printf '%s' '{json.dumps(early)}'\n""")
+    _, out, _ = show(penv, "--work", "RUN-4")
+    assert section(out, "RESERVED") == ["merge    1×  4m  merge rule"]
+    assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035", "tx-cccccccc-gap-123000"]
 
     # Offline, the hook record of the merge gives the merge time instead.
     merged = pr("merge", ns("2026-10-29T12:50:00Z"), head="abc1234" + "0" * 33)
     merged["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
     causes_store(env, merged)
     _, out, _ = show(penv, "--work", "RUN-4", "--offline")
-    assert section(out, "RESERVED") == ["merge    1×  25m  merge rule"]
+    assert section(out, "RESERVED") == ["merge    1×  24m  merge rule"]
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
 
     # A failed merge attempt is no merge: offline, its hook record has stderr text, so the merge time stays unknown.

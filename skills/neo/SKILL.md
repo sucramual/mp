@@ -20,7 +20,6 @@ Send Marcus one message:
 
 When `/matrix` starts you with a PR brief, the PR brief is your ticket, and these rules change the run:
 
-- Before any other step, read the run contract that the PR brief names on its `Run contract:` line. Read it again when `/matrix` says its version changed. Where it differs from this skill or from `review-pr`, follow the contract. It never lifts a [Hard limit](#hard-limits). [Run contract](https://raw.githubusercontent.com/sucramual/mp/main/skills/matrix/references/run-contract.md) defines its fields. When you cannot read it, park every merge and GitHub post and tell `/matrix`.
 - Skip the intake message. `/matrix` sent it. Still read the merge rules as the Merge rules step says, and still run the `auth-helper` check. Send a failed check to `/matrix`, not to Marcus.
 - Own every PR that the PR brief assigns to you, in order. Never start another `/neo`.
 - Change only the files that the PR brief gives you. Report any other file as a contract change.
@@ -38,7 +37,7 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 
 - When an existing executable check fails on each defect class that the diff could add, such as a conformance test, a schema check, a guard test, or a typecheck, run no reviewer. Name that check in the PR body.
 - When the diff adds or changes a check, a test helper that other tests use, or other code that verifies code, first write the invariants as failing tests. Then have one reviewer read the diff with an open brief, not a rubric.
-- Never skip or suppress the Codex review after the PR opens, because it is the second model family.
+- Never skip the repository's configured reviewer: its entry in `reviewers.json`, or `work-reviewers.json` for a work repository. Re-trigger it only with that entry's `retrigger` text, and never where the entry sets `threadRepliesOnly: true`.
 - Before a PR is ready, and for every wait on an external state, follow [Live proof and waits](references/live-proof-and-waits.md).
 
 Publish with `open-pr --no-review`. You take each PR to ready yourself, inline, with `review-pr` as the procedure. Start no background `review-pr` agent, because two writers would push to one branch. Never end the run at an open PR.
@@ -62,7 +61,7 @@ A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a sto
 
 Context compaction drops rules from the conversation.
 
-- Before the first change, write a run-state file in the session scratch directory, such as `<scratchpad>/neo-run-state.md`. List the standing obligations: the work ID and the open `agent-trace` spans, the run contract path and version when `/matrix` started you, a wait for each open PR, and each decision rule that intake or `/matrix` gave the run, with its source. Add the next step.
+- Before the first change, write a run-state file in the session scratch directory, such as `<scratchpad>/neo-run-state.md`. List the standing obligations: the work ID and the open `agent-trace` spans, a wait for each open PR, and each decision rule that intake or `/matrix` gave the run, with its source. Add the next step.
 - Update the file when a PR opens or merges, when a decision rule is added, and when the next step changes.
 - When a turn starts with "continued from a previous conversation", read the run-state file first, before any other action.
 

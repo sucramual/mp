@@ -300,18 +300,22 @@ def test_reconcile_lists_each_unanswered_anomaly(env: dict[str, str]) -> None:
     write_store(state_of(env), scenario())
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     entries = reconcile(out)
-    # The 09:05 fail is recovered by the 09:06 call of the same program, and retries are not a gap kind.
+    # Native Bash spans name the program only, so the 09:06 `false` cannot prove that it recovered the 09:05 fail.
+    # Retries are not a gap kind.
     assert [(e[0], e[1], e[2]) for e in entries] == [
+        ("a000000000000003", "09:05Z", "fail"),
         ("gap-a000000000000010", "09:20Z", "idle"),
         ("a000000000000012", "11:45Z", "block"),
     ]
-    assert entries[1][3] == "Bash git decision=reject"
+    assert entries[0][3] == "Bash false ShellError"
+    assert entries[2][3] == "Bash git decision=reject"
     assert "agent-trace note friction" in out
     assert "agent-trace note none --ref" in out
 
 
 def test_note_none_answers_its_ref(env: dict[str, str]) -> None:
-    write_store(state_of(env), scenario(), fallback=[note("none", at(12, 30), ["a000000000000012"])])
+    refs = ["a000000000000003", "a000000000000012"]
+    write_store(state_of(env), scenario(), fallback=[note("none", at(12, 30), refs)])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     refs = [e[0] for e in reconcile(out)]
     assert refs == ["gap-a000000000000010"]
@@ -329,7 +333,7 @@ def test_nearby_friction_note_answers_anomalies_in_its_window(env: dict[str, str
     write_store(state_of(env), [*scenario(), friction])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     refs = [e[0] for e in reconcile(out)]
-    assert refs == ["gap-a000000000000010"]
+    assert refs == ["a000000000000003", "gap-a000000000000010"]
     # The friction takes the block that it answers: its count and its 5-minute wait.
     gaps = section(out, "GAPS (cost = wait time)")
     assert "friction 1×  5m  permission: git was rejected → allow it" in gaps
@@ -337,7 +341,7 @@ def test_nearby_friction_note_answers_anomalies_in_its_window(env: dict[str, str
 
 
 def test_all_answered_prints_reconcile_none(env: dict[str, str]) -> None:
-    refs = ["gap-a000000000000010", "a000000000000012"]
+    refs = ["a000000000000003", "gap-a000000000000010", "a000000000000012"]
     write_store(state_of(env), [*scenario(), note("none", at(12, 1), refs)])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
     assert "Reconcile: none" in out.splitlines()
@@ -480,7 +484,12 @@ FB_REFS = [
     "tx-dddddddd-gap-080021",
     "tx-dddddddd-idle-084540",
     "tx-dddddddd-block-084611",
+    "tx-dddddddd-block-084614",
 ]
+AGENT_TRACE_BLOCK = (
+    "PreToolUse:Bash hook error: [python3 /Users/x/dotfiles/tools/agent-trace/bin/agent-trace gate]: "
+    "agent-trace gate: this /neo session has no work ID."
+)
 GUARD = (
     "PreToolUse:Bash hook error: [python3 /Users/x/dotfiles/config/agent-hooks/guard_irreversible.py]: "
     "Blocked by the guard_irreversible hook: spacectl stack confirm is irreversible."
@@ -494,7 +503,8 @@ def fallback_transcript(projects: Path) -> None:
     output of a read that succeeded). 08:00:16: a failed agent-trace call. 08:00:21: a permission denial. Then 30
     minutes with no event (idle). 08:30:25 to 08:45:30: one tool call runs 15 minutes (activity, not idle).
     08:45:40 to 08:45:50: the same call three times in a row (polling, an idle gap). 08:46:01: a failed read. 08:46:04:
-    a fail that the next call of the same program recovers (08:46:07). 08:46:11: a hook block.
+    a fail that the next call of the same program recovers (08:46:07). 08:46:11: a hook block. 08:46:14: a hook
+    block of an agent-trace call (a block, although failed agent-trace calls are not gaps).
     """
 
     def use(ident: str, when: str, command: str, text: str = "") -> dict[str, Any]:
@@ -546,6 +556,8 @@ def fallback_transcript(projects: Path) -> None:
         result("t12", "2026-10-29T08:46:07Z", "1 passed", False),
         use("t13", "2026-10-29T08:46:10Z", "spacectl stack confirm"),
         result("t13", "2026-10-29T08:46:11Z", GUARD, True),
+        use("t14", "2026-10-29T08:46:13Z", "agent-trace note none --ref x"),
+        result("t14", "2026-10-29T08:46:14Z", AGENT_TRACE_BLOCK, True),
         said("assistant", "2026-10-29T08:46:20Z", "done"),
     ]
     folder = projects / "-Users-x-repo"
@@ -581,6 +593,7 @@ def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_
         ["08:00Z", "idle"],
         ["08:45Z", "idle"],
         ["08:46Z", "block"],
+        ["08:46Z", "block"],
     ]
     # The tool and the program only, plus what blocked the call: no more command text, as for native spans.
     assert [e[3] for e in entries] == [
@@ -589,10 +602,11 @@ def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_
         "30m idle",
         "Bash gh x3 (polling)",
         "Bash spacectl (hook guard_irreversible)",
+        "Bash agent-trace (hook agent-trace gate)",
     ]
     # The 15-minute tool call (08:30:25 to 08:45:30) is activity, so it is not an idle gap.
     # The soft fail, the failed read, the failed agent-trace call, and the recovered fail are not anomalies.
-    assert not any(word in e[3] for e in entries for word in ("cat", "agent-trace", "python3"))
+    assert not any(word in e[3] for e in entries if e[2] == "fail" for word in ("cat", "agent-trace", "python3"))
 
 
 def test_fallback_anomalies_need_answers_before_reconcile_none(env: dict[str, str], tmp_path: Path) -> None:
@@ -818,7 +832,7 @@ def g2_records() -> list[dict[str, Any]]:
     calls = [
         ("agent-trace", False),  # a failed agent-trace call: never an error
         ("cat", False),  # a failed read: never a gap
-        ("python3", False),  # recovered by the next python3 call
+        ("python3", False),  # a native Bash span names no subcommand, so a later python3 call proves nothing
         ("python3", True),
         ("make", False),  # never recovered
         ("gh", False),  # gh fails twice with a success between: the same program failing twice is a gap
@@ -840,8 +854,8 @@ def g2_records() -> list[dict[str, Any]]:
     return records
 
 
-# Protects G2 for native spans: failed agent-trace calls and failed reads never count as errors, and a fail that
-# the next call of the same program recovers is not a gap.
+# Protects G2 for native spans: failed agent-trace calls and failed reads never count as errors, and a native
+# Bash fail is always a gap, because its span names the program but not the subcommand.
 # Bug caught: every native tool error became a Reconcile item, including the agent-trace calls of the agent.
 def test_native_soft_fails_are_not_errors_and_recovered_fails_are_not_gaps(env: dict[str, str]) -> None:
     write_store(state_of(env), g2_records())
@@ -849,16 +863,17 @@ def test_native_soft_fails_are_not_errors_and_recovered_fails_are_not_gaps(env: 
     assert code == 0, err
     entries = reconcile(out)
     assert [(e[0], e[2], e[3]) for e in entries] == [
+        ("c000000000000203", "fail", "Bash python3 ShellError"),
         ("c000000000000205", "fail", "Bash make ShellError"),
         ("c000000000000206", "fail", "Bash gh ShellError"),
         ("c000000000000208", "fail", "Bash gh ShellError"),
     ]
-    assert "autonomy  blocks 0  fails 3  unexplained idle 0s  friction 0" in fence(out)
+    assert "autonomy  blocks 0  fails 4  unexplained idle 0s  friction 0" in fence(out)
     gaps = section(out, "GAPS (cost = wait time)")
     assert "fail     2×  –  Bash gh ShellError" in gaps
     assert "fail     1×  –  Bash make ShellError" in gaps
     _, chart, _ = gantt(env, "--work", "RUN-1", "--offline")
-    # The chart still marks the recovered python3 fail, but never the agent-trace call or the read.
+    # The chart marks the python3, make, and gh fails, but never the agent-trace call or the read.
     assert any(line.startswith("spans 30m") and "errors 4" in line for line in fence(chart))
 
 
@@ -879,7 +894,7 @@ def test_gap_costs_count_parallel_idle_once_and_notes_take_only_their_own_sessio
     (state_of(env) / "sessions" / f"{twin}.ticket").write_text("RUN-3\n")
     penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
     _, out, _ = show(penv, "--work", "RUN-3", "--offline")
-    assert "autonomy  blocks 4  fails 4  unexplained idle 30m  friction 0" in fence(out)
+    assert "autonomy  blocks 6  fails 4  unexplained idle 30m  friction 0" in fence(out)
     gaps = section(out, "GAPS (cost = wait time)")
     assert "idle     2×  30m  unexplained" in gaps
     assert "idle     2×  10s  Bash gh (polling)" in gaps
@@ -893,3 +908,62 @@ def test_gap_costs_count_parallel_idle_once_and_notes_take_only_their_own_sessio
     assert "friction 1×  30m  doc: slow → go faster" in gaps
     assert "idle     1×  30m  unexplained" in gaps
     assert "tx-ffffffff-gap-080021" in [e[0] for e in reconcile(out)]
+
+
+def native_tool(n: int, interaction: str, name: str, when: int, result: str) -> list[dict[str, Any]]:
+    """One native tool call: result is "ok", "fail", or "rejected" (a permission prompt, then no execution)."""
+    tool = f"d0000000000001{n:02d}"
+    out = [native(tool, "claude_code.tool", when, when + 30 * S, interaction, tool_name=name)]
+    if result == "rejected":
+        out.append(
+            native(
+                f"d0000000000003{n:02d}",
+                "claude_code.tool.blocked_on_user",
+                when,
+                when + 20 * S,
+                tool,
+                decision="reject",
+            )
+        )
+        return out
+    status = {"code": 0, "message": ""} if result == "ok" else {"code": 2, "message": "ToolError"}
+    execution = native(
+        f"d0000000000002{n:02d}",
+        "claude_code.tool.execution",
+        when,
+        when + 30 * S,
+        tool,
+        success=result == "ok",
+        status=status,
+    )
+    return [*out, execution]
+
+
+# Protects native recovery: only a later call of the same tool that ran and succeeded recovers a fail, and a tool
+# that failed twice in the session is a gap even when each fail was recovered.
+# Bugs caught: a rejected call counted as a success and hid the fail before it; the failed-twice count looked at
+# one turn only, so the same fail in every turn never reached Reconcile.
+def test_native_recovery_needs_a_real_success_and_two_fails_are_a_gap(env: dict[str, str]) -> None:
+    one, two = "d000000000000001", "d000000000000002"
+    records = [
+        native(one, "claude_code.interaction", at(9, 0), at(9, 20), None),
+        native(two, "claude_code.interaction", at(9, 25), at(9, 40), None),
+        *native_tool(1, one, "Edit", at(9, 1), "fail"),
+        *native_tool(2, one, "Edit", at(9, 2), "ok"),
+        *native_tool(3, one, "Write", at(9, 3), "fail"),
+        *native_tool(4, one, "Write", at(9, 4), "rejected"),
+        *native_tool(5, one, "NotebookEdit", at(9, 5), "fail"),
+        *native_tool(6, one, "NotebookEdit", at(9, 6), "ok"),
+        *native_tool(7, two, "Edit", at(9, 26), "fail"),
+        *native_tool(8, two, "Edit", at(9, 27), "ok"),
+        agent("impl", "start", at(9, 0), name="Implement", **{"agent_trace.kind": "phase"}),
+    ]
+    write_store(state_of(env), records)
+    code, out, err = show(env, "--work", "RUN-1", "--offline")
+    assert code == 0, err
+    assert [(e[0], e[2]) for e in reconcile(out)] == [
+        ("d000000000000201", "fail"),
+        ("d000000000000203", "fail"),
+        ("d000000000000304", "block"),
+        ("d000000000000207", "fail"),
+    ]

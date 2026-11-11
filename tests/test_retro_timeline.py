@@ -427,13 +427,17 @@ def test_fails_say_whether_a_later_call_recovered_and_what_blocked_them(tmp_path
             + _call(9, "spacectl stack confirm", HOOK_BLOCK, True)
             + _call(11, "kubectl create job x", DENIED, True)
             + _call(13, "cat notes.md", HOOK_BLOCK + "\nerror: quoted in a file", False)
+            + _call(15, "git push origin main", "Exit code 1\n! [rejected] main (non-fast-forward)", True)
+            + _call(17, "git status", "clean", False)
         )
     )
 
     fails = {fail["label"]: fail for fail in report(path)["fails"]}
 
     labels = {"Bash(python3 -m)", "Bash(make build)", "Bash(spacectl stack)", "Bash(kubectl create)"}
-    assert set(fails) == labels | {"Bash(cat notes.md)"}
+    assert set(fails) == labels | {"Bash(cat notes.md)", "Bash(git push)"}
+    # A later success of another subcommand of the same program does not recover the fail.
+    assert fails["Bash(git push)"]["recovered"] is False
     assert fails["Bash(python3 -m)"]["recovered"] is True
     assert fails["Bash(make build)"]["recovered"] is False
     assert fails["Bash(python3 -m)"]["block"] is None

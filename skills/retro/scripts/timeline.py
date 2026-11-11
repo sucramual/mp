@@ -44,7 +44,8 @@ BASH_SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
 # an HTTP 403 and an HTTP 500 are two causes.
 HTTP_STATUS_OR_NUMBER_RE = re.compile(r"(?<!HTTP )\b\d+")
 ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# A fail is recovered when one of this many next tool calls runs the same tool and program and succeeds.
+# A fail is recovered when one of this many next tool calls has the same label (tool, program, and subcommand) and
+# succeeds.
 RECOVER_WINDOW = 3
 DENIED_RE = re.compile(r"^Permission for this action was denied by the (?:Claude Code |server-side )?auto mode")
 DENIED_REASON_RE = re.compile(r"Reason: \[([^\]]+)\]")
@@ -283,14 +284,6 @@ def tool_label(name: str, tool_input: Any) -> str:
     return name
 
 
-def program_of(name: str, tool_input: Any) -> str:
-    """The tool and its program: `Bash gh` for a Bash call, else the tool name."""
-    if name == "Bash" and isinstance(tool_input, dict):
-        words = bash_words(str(tool_input.get("command", "")))[:1]
-        return " ".join(["Bash", *words])
-    return name
-
-
 def block_of(output: str) -> dict[str, str] | None:
     """What blocked a failed call: an auto-mode denial (with its reason) or a hook (with its name), or None.
 
@@ -452,10 +445,10 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     order = {ident: index for index, ident in enumerate(calls)}
     for fail in report.fails:
         ident = str(fail["tool_use_id"])
-        program = program_of(*tool_uses.get(ident, ("?", None)))
+        label = tool_label(*tool_uses.get(ident, ("?", None)))
         later = calls[order[ident] + 1 :] if ident in order else []
         fail["recovered"] = any(
-            program_of(*tool_uses[other]) == program and other in errored and not errored[other]
+            tool_label(*tool_uses[other]) == label and other in errored and not errored[other]
             for other in later[:RECOVER_WINDOW]
         )
     report.fail_groups = group_fails(report.fails)

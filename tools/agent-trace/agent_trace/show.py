@@ -295,6 +295,7 @@ def claude_session(sid: str, spans: list[dict[str, Any]]) -> SessionData:
     data = SessionData(sid, "claude")
     by_id = {span.get("spanId"): span for span in spans}
     tool_errored: dict[str, bool] = {}
+    tool_succeeded: set[str] = set()  # tool spans whose execution ran and succeeded
     pending: list[tuple[str, Anomaly]] = []  # (tool span id, error) until recovery is known
     for span in spans:
         name, attrs = span.get("name"), attrs_of(span)
@@ -312,6 +313,8 @@ def claude_session(sid: str, spans: list[dict[str, Any]]) -> SessionData:
                     detail += f" {error_class}"
                 anomaly = Anomaly(str(span.get("spanId")), "fail", start, end, sid, detail)
                 pending.append((str(span.get("parentSpanId")), anomaly))
+            else:
+                tool_succeeded.add(str(span.get("parentSpanId")))
         elif name == "claude_code.tool.blocked_on_user":
             data.waits.append((start, end))
             if attrs.get("decision") != "accept":
@@ -342,16 +345,25 @@ def claude_session(sid: str, spans: list[dict[str, Any]]) -> SessionData:
                 start, end = int(span.get("start") or 0), int(span.get("end") or 0)
                 data.retries.append(Anomaly(str(span.get("spanId")), "retry", start, end, sid, label))
 
+    failures: dict[str, int] = {}  # tool label -> failed calls in the whole session
+    for span in spans:
+        if span.get("name") == "claude_code.tool" and tool_errored.get(str(span.get("spanId"))):
+            failures[tool_label(attrs_of(span))] = failures.get(tool_label(attrs_of(span)), 0) + 1
+
     def recovered(tool: dict[str, Any]) -> bool:
-        """The next calls recovered this fail, and its tool and program did not fail twice in this turn."""
-        group = siblings.get(str(tool.get("parentSpanId")), [])
-        label = tool_label(attrs_of(tool))
-        same = [other for other in group if tool_label(attrs_of(other)) == label]
-        if sum(1 for other in same if tool_errored.get(str(other.get("spanId")))) > 1:
+        """One of the next calls in this turn ran the same tool and succeeded, and the tool did not fail twice.
+
+        A Bash span names its program but not the subcommand, so a later call of the same program proves nothing:
+        a Bash fail is never recovered.
+        """
+        attrs = attrs_of(tool)
+        label = tool_label(attrs)
+        if attrs.get("tool_name") == "Bash" or failures.get(label, 0) > 1:
             return False
+        group = siblings.get(str(tool.get("parentSpanId")), [])
         later = group[group.index(tool) + 1 :][:RECOVER_WINDOW] if tool in group else []
         return any(
-            tool_label(attrs_of(other)) == label and not tool_errored.get(str(other.get("spanId"))) for other in later
+            tool_label(attrs_of(other)) == label and str(other.get("spanId")) in tool_succeeded for other in later
         )
 
     for tool_id, anomaly in pending:
@@ -677,17 +689,15 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
         return " ".join([tool, *inner.rstrip(")").split()[:1]])
 
     found: list[Anomaly] = []
-    hard = [
-        fail
-        for fail in report.get("fails") or []
-        if not fail.get("soft") and program(str(fail.get("label") or "?")) != "Bash agent-trace"
-    ]
     plain: list[dict[str, Any]] = []
-    for fail in hard:
+    for fail in report.get("fails") or []:
+        if fail.get("soft"):
+            continue
         block = fail.get("block") if isinstance(fail.get("block"), dict) else None
         label = program(str(fail.get("label") or "?"))
         if block is None:
-            if label.split()[-1] not in READS:
+            # A failed agent-trace call or read is never a gap; a block of one still is.
+            if label != "Bash agent-trace" and label.split()[-1] not in READS:
                 plain.append(fail)
             continue
         when = iso_ns(fail.get("time")) or fallback_time

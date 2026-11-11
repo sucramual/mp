@@ -1127,6 +1127,21 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
     assert "wait     1×  25m  wait on merge → Marcus merge step" in section(out, "GAPS (cost = wait time)")
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
 
+    # A failed merge attempt is no merge: offline, its hook record has stderr text, so the merge time stays unknown.
+    # Online, the hook record never counts: GitHub says the PR has not merged, so the gap stays unexplained.
+    merged["attrs"]["agent_trace.stderr"] = "Pull request is not mergeable: required checks have not passed"
+    causes_store(env, merged)
+    _, out, _ = show(penv, "--work", "RUN-4", "--offline")
+    assert not any("wait on merge" in line for line in section(out, "GAPS (cost = wait time)"))
+    assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035", "tx-cccccccc-gap-122535"]
+    open_pr = {**data, "state": "OPEN", "mergeCommit": None, "mergedAt": None}
+    fake_exe("gh", f"""printf '%s' '{json.dumps(open_pr)}'\n""")
+    del merged["attrs"]["agent_trace.stderr"]
+    causes_store(env, merged)
+    _, out, _ = show(penv, "--work", "RUN-4")
+    assert not any("wait on merge" in line for line in section(out, "GAPS (cost = wait time)"))
+    assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035", "tx-cccccccc-gap-122535"]
+
 
 # Protects the ask span: a wait span with --ask is a named wait in GAPS, not idle, and not a Reconcile item.
 # Bug caught: the ask span hides the gap but GAPS never shows the wait, so its cost is lost.

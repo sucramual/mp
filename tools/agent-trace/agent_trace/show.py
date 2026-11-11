@@ -1094,9 +1094,11 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
 def park_merges(spans: list[AgentSpan], prs: list[dict[str, Any]], offline: bool) -> dict[str, list[Merge]]:
     """The (park, merge) times of each session's parked PRs, found by the SHA in the park note.
 
-    The merge time comes from the hook record of the merge, else from GitHub `mergedAt` of the run's PR that has
-    that commit. Offline or when a gh call failed, a park with no hook record has an unknown merge time (None), and
-    so has a PR that has not merged. Online, a park whose SHA is in no PR of the run is left out.
+    Online, the merge time is GitHub `mergedAt` of the run's PR that has that commit: the hook records each merge
+    attempt, also one that failed, so only GitHub proves a merge. Offline, it is the time of the hook record of the
+    merge, but only of a record with no stderr text, which a failed `gh pr merge` writes. Otherwise the merge time is
+    unknown (None): offline, when a gh call failed, or when the PR has not merged. Online, a park whose SHA is in no
+    PR of the run is left out.
     """
     urls = list(dict.fromkeys(str(attrs_of(r).get("agent_trace.pr_url") or "") for r in prs))
     found: dict[str, list[Merge]] = {}
@@ -1104,15 +1106,18 @@ def park_merges(spans: list[AgentSpan], prs: list[dict[str, Any]], offline: bool
         sha = re.search(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b", span.note)
         if span.status != "parked" or span.end is None or not span.session or sha is None:
             continue
-        merged = next(
-            (
-                time_of(r)
-                for r in prs
-                if attrs_of(r).get("agent_trace.pr_action") == "merge"
-                and str(attrs_of(r).get("agent_trace.head_sha") or "").startswith(sha.group(0))
-            ),
-            None,
-        )
+        merged = None
+        if offline:
+            merged = next(
+                (
+                    time_of(r)
+                    for r in prs
+                    if attrs_of(r).get("agent_trace.pr_action") == "merge"
+                    and str(attrs_of(r).get("agent_trace.head_sha") or "").startswith(sha.group(0))
+                    and not attrs_of(r).get("agent_trace.stderr")
+                ),
+                None,
+            )
         known = merged is not None
         failed = False  # a gh call failed, so the PR of this park may be among the PRs it did not answer for
         if not known and not offline:

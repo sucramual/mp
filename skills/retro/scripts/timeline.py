@@ -71,6 +71,7 @@ SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 # One session in a linked-sessions reminder: its name and its state, such as `ch2 = local_ab12 (done, PR #7)`.
 LINKED_RE = re.compile(r"([\w.-]+) = local_[\w-]+ \(([^)]*)\)")
 PEER_RE = re.compile(r'<cross-session-message[^>]*\bfrom-name="([^"]*)"')
+PEER_ID_RE = re.compile(r'<cross-session-message[^>]*\bfrom="([^"]*)"')
 
 
 class InputError(Exception):
@@ -100,6 +101,7 @@ class Report:
     noops: list[dict[str, Any]] = field(default_factory=list)
     logs: list[dict[str, Any]] = field(default_factory=list)
     turns: list[dict[str, Any]] = field(default_factory=list)
+    peers: list[str] = field(default_factory=list)  # the ids of the sessions that sent messages, most messages first
 
 
 def parse_time(value: str) -> datetime:
@@ -369,6 +371,12 @@ def woke_by(event: Event, kind: str | None, linked: dict[str, str]) -> str:
     return ""
 
 
+def peer_id(event: Event) -> str:
+    """The session id in the `from` attribute of a message from another session, or ""."""
+    found = PEER_ID_RE.search(user_text(event) or "") if event.kind == "user" else None
+    return found.group(1) if found else ""
+
+
 def ask_of(text: str) -> dict[str, str] | None:
     """The ask in an assistant message, matched by words: who the session waits on, the class, and the words.
 
@@ -438,6 +446,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     previous: Event | None = None
     said = ""  # the last assistant text so far: the ask that a gap after it waits on
     linked: dict[str, str] = {}  # the session states of the last linked-sessions reminder
+    senders: dict[str, int] = {}  # the number of messages from each other session, by its id
 
     for index, event in enumerate(events):
         if previous is not None:
@@ -457,6 +466,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                         "quote": describe(previous),
                         "ended_by": ended_by(event),
                         "woke_by": woke_by(event, ended_by(event), linked),
+                        "peer_id": peer_id(event),
                         "ask": ask_of(said),
                     }
                 )
@@ -542,6 +552,9 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                 }
             )
         said = assistant_text(event).strip() or said
+        sender = peer_id(event)
+        if sender:
+            senders[sender] = senders.get(sender, 0) + 1
         if ended_by(event) in ("user", "peer"):
             said = ""  # A reply answered the ask, so a later gap does not wait on it.
         if event.kind == "user":
@@ -558,6 +571,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
             same_call(tool_uses[other], call) and other in errored and not errored[other]
             for other in later[:RECOVER_WINDOW]
         )
+    report.peers = sorted(senders, key=lambda ident: -senders[ident])
     report.fail_groups = group_fails(report.fails)
     report.loops.sort(key=lambda loop: (-loop["count"], loop["first"]))
     return report
@@ -623,6 +637,7 @@ def as_json(report: Report) -> dict[str, Any]:
         "fails": report.fails,
         "perms": report.perms,
         "gaps": report.gaps,
+        "peers": report.peers,
         "loops": report.loops,
         "noops": report.noops,
         "logs": report.logs,

@@ -1090,7 +1090,7 @@ def test_idle_gaps_get_a_cause_from_the_event_that_ends_them(env: dict[str, str]
         ("tx-cccccccc-gap-120035", "idle"),
         ("tx-cccccccc-gap-122535", "idle"),
     ]
-    assert "autonomy  blocks 0  fails 0  unexplained idle 45m  friction 0" in fence(out)
+    assert "autonomy  blocks 0  fails 0  unexplained idle 45m  friction 0  waits 2h20m (reserved 0s)" in fence(out)
 
 
 # Protects rule 2 of G10: the time from a park to the merge of its PR is a wait on merge, by the commit in the park
@@ -1113,8 +1113,11 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
     fake_exe("gh", f"""printf '%s\\n' "$*" >>"$HOME/gh.log"\nprintf '%s' '{json.dumps(data)}'\n""")
     code, out, err = show(penv, "--work", "RUN-4")
     assert code == 0, err
-    gaps = section(out, "GAPS (cost = wait time)")
-    assert "wait     1×  25m  wait on merge → Marcus merge step" in gaps
+    # A wait on merge is reserved: it leaves GAPS for RESERVED, still counts in the autonomy line, and is no
+    # Reconcile item.
+    assert not any("wait on merge" in line for line in section(out, "GAPS (cost = wait time)"))
+    assert section(out, "RESERVED") == ["merge    1×  25m  merge rule"]
+    assert "waits 2h45m (reserved 25m)" in fence(out)[1]
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
     # One gh call for the PR, shared by the PR list and the park lookup.
     assert len((isolated_env.home / "gh.log").read_text().splitlines()) == 1
@@ -1124,7 +1127,7 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
     merged["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
     causes_store(env, merged)
     _, out, _ = show(penv, "--work", "RUN-4", "--offline")
-    assert "wait     1×  25m  wait on merge → Marcus merge step" in section(out, "GAPS (cost = wait time)")
+    assert section(out, "RESERVED") == ["merge    1×  25m  merge rule"]
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
 
     # A failed merge attempt is no merge: offline, its hook record has stderr text, so the merge time stays unknown.
@@ -1132,7 +1135,7 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
     merged["attrs"]["agent_trace.stderr"] = "Pull request is not mergeable: required checks have not passed"
     causes_store(env, merged)
     _, out, _ = show(penv, "--work", "RUN-4", "--offline")
-    assert not any("wait on merge" in line for line in section(out, "GAPS (cost = wait time)"))
+    assert "RESERVED" not in out.splitlines()
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035", "tx-cccccccc-gap-122535"]
     open_pr = {**data, "state": "OPEN", "mergeCommit": None, "mergedAt": None}
     fake_exe("gh", f"""printf '%s' '{json.dumps(open_pr)}'\n""")
@@ -1146,16 +1149,22 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
 # Protects the ask span: a wait span with --ask is a named wait in GAPS, not idle, and not a Reconcile item.
 # Bug caught: the ask span hides the gap but GAPS never shows the wait, so its cost is lost.
 def test_ask_span_is_a_wait_on_marcus_with_its_class(env: dict[str, str]) -> None:
-    kind = {"agent_trace.kind": "wait", "agent_trace.ask": "merge"}
-    start = agent("ask-1", "start", at(10, 0), name="Merge PR 7", **kind)
+    kind = {"agent_trace.kind": "wait", "agent_trace.ask": "scope"}
+    start = agent("ask-1", "start", at(10, 0), name="Pick the scope", **kind)
     end = agent("ask-1", "end", at(10, 45), **{"agent_trace.status": "ok"})
     write_store(state_of(env), [*scenario(), start, end])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
-    assert "wait     1×  45m  wait on Marcus: merge → merge rule: the PR parks for Marcus" in section(
+    assert "wait     1×  45m  wait on Marcus: scope → brief or ticket names the scope" in section(
         out, "GAPS (cost = wait time)"
     )
     assert sid("RUN-1", "ask-1") not in [e[0] for e in reconcile(out)]
     assert reconcile(out)
+    # An ask span for a merge is reserved.
+    start["attrs"]["agent_trace.ask"] = "merge"
+    write_store(state_of(env), [*scenario(), start, end])
+    _, out, _ = show(env, "--work", "RUN-1", "--offline")
+    assert section(out, "RESERVED") == ["merge    1×  45m  merge rule"]
+    assert not any("wait on Marcus" in line for line in section(out, "GAPS (cost = wait time)"))
 
 
 # Protects G10 part (c): every wait cause and ask class has its fix target, from one table.
@@ -1180,3 +1189,45 @@ def test_each_wait_cause_has_a_fix_target(cause: str, target: str) -> None:
     sys.path.insert(0, str(REPO_ROOT / "tools" / "agent-trace"))
     show_module = importlib.import_module("agent_trace.show")
     assert show_module.fix_target(cause) == target
+
+
+RID = "eeeeeeee-0000-4000-8000-000000000008"  # the router's transcript session
+DESKTOP_ID = "local_99999999-0000-4000-8000-000000000009"  # the router's id in the `from` of its messages
+
+
+# Protects the chained wait: a worker that waits on the router, while the router waits on Marcus, waits on Marcus.
+# The router is found by the `from` id of its messages, through the desktop app's record of that session.
+# Bug caught: the line says "wait on router", so the fix goes to the router although Marcus held the run.
+def test_wait_on_router_while_the_router_waits_on_marcus_is_a_wait_on_marcus(
+    env: dict[str, str], tmp_path: Path
+) -> None:
+    projects = tmp_path / "projects"
+    causes_transcript(projects)
+    worker = projects / "-Users-x-repo" / f"{CA}.jsonl"
+    worker.write_text(worker.read_text().replace('from=\\"r\\"', f'from=\\"{DESKTOP_ID}\\"'))
+    causes_store(env)
+    desktop = tmp_path / "desktop"
+    penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects), "AGENT_TRACE_DESKTOP_SESSIONS": str(desktop)}
+
+    # Without the router's transcript, the gap stays a wait on the router.
+    _, out, _ = show(penv, "--work", "RUN-4", "--offline")
+    assert any(
+        line.startswith("wait     1×  20m  wait on router, from Matrix R")
+        for line in section(out, "GAPS (cost = wait time)")
+    )
+
+    # The router waited on Marcus from 10:45 to 10:58, inside the worker's wait from 10:40 to 11:00.
+    def said(role: str, when: str, text: str) -> str:
+        record = {"type": role, "timestamp": when, "sessionId": RID, "message": {"role": role, "content": text}}
+        return json.dumps(record) + "\n"
+
+    router = said("assistant", "2026-10-29T10:45:00Z", "Marcus decides the scope of CH-2.")
+    router += said("user", "2026-10-29T10:58:00Z", "keep it small")
+    (projects / "-Users-x-router").mkdir()
+    (projects / "-Users-x-router" / f"{RID}.jsonl").write_text(router)
+    (desktop / "a" / "b").mkdir(parents=True)
+    (desktop / "a" / "b" / f"{DESKTOP_ID}.json").write_text(json.dumps({"cliSessionId": RID}))
+    _, out, _ = show(penv, "--work", "RUN-4", "--offline")
+    gaps = section(out, "GAPS (cost = wait time)")
+    assert "wait     1×  20m  wait on Marcus: scope, via router → brief or ticket names the scope" in gaps
+    assert not any("from Matrix R" in line for line in gaps)

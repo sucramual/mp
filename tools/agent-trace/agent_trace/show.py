@@ -683,6 +683,59 @@ WAIT_CAUSES = {
 }
 
 
+# Waits that a reserved rule causes: they print under RESERVED, not GAPS, and never go to Reconcile.
+RESERVED_CAUSES = ("wait on merge", "wait on Marcus: merge")
+
+
+def is_reserved(anomaly: Anomaly) -> bool:
+    return anomaly.kind == "wait" and anomaly.cause.startswith(RESERVED_CAUSES)
+
+
+def peer_transcript(peer: str) -> str | None:
+    """The transcript session id of another session, from the `from` id of its messages, or None.
+
+    The id is `local_<id>`. The transcript is `<id>.jsonl`, or the `cliSessionId` that the Claude desktop app's
+    record of that session names (under $AGENT_TRACE_DESKTOP_SESSIONS).
+    """
+    bare = peer.removeprefix("local_")
+    if SESSION_NAME.match(bare) and transcript_files(bare)[1]:
+        return bare
+    default = Path.home() / "Library" / "Application Support" / "Claude" / "claude-code-sessions"
+    root = Path(os.environ.get("AGENT_TRACE_DESKTOP_SESSIONS") or default)
+    if not SESSION_NAME.match(peer):
+        return None
+    for path in sorted(root.glob(f"*/*/{peer}.json")):
+        try:
+            record = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        cli = record.get("cliSessionId") if isinstance(record, dict) else None
+        if isinstance(cli, str) and SESSION_NAME.match(cli) and transcript_files(cli)[1]:
+            return cli
+    return None
+
+
+@functools.cache
+def marcus_waits(peer: str) -> tuple[tuple[int, int, str], ...]:
+    """The gaps of another session (the router) that a message Marcus typed ended: (start, end, ask class).
+
+    The class comes from the router's ask before its gap, else `reply`. Empty when its transcript cannot be read.
+    """
+    sid = peer_transcript(peer)
+    stdout = run_timeline(sid, "--json", "--gap-minutes", str(GAP_ANOMALY / MIN))[0] if sid else None
+    try:
+        report = json.loads(stdout) if stdout else {}
+    except ValueError:
+        report = {}
+    waits = []
+    for gap in report.get("gaps") or [] if isinstance(report, dict) else []:
+        start, end = iso_ns(gap.get("start")), iso_ns(gap.get("end"))
+        if start and end and gap.get("ended_by") == "user":
+            ask = gap.get("ask") if isinstance(gap.get("ask"), dict) else {}
+            waits.append((start, end, str(ask.get("class") or "reply")))
+    return tuple(waits)
+
+
 def fix_target(cause: str) -> str:
     """The fix target of a wait cause, from FIX_TARGETS, or "" when the cause has none."""
     return next((fix for prefix, fix in FIX_TARGETS if cause.startswith(prefix)), "")
@@ -812,6 +865,12 @@ def transcript_anomalies(
             )
             continue
         cause, words = gap_cause(gap, start, merges or [])
+        if cause.startswith("wait on router"):
+            # A chained wait: the router was itself waiting on Marcus at the same time, so the worker waited on him.
+            peer = str(gap.get("peer_id") or next(iter(report.get("peers") or []), ""))
+            hit = next((w for w in marcus_waits(peer) if w[0] < end and start < w[1]), None) if peer else None
+            if hit is not None:
+                cause, words = f"wait on Marcus: {hit[2]}, via router", ""
         kind, detail = ("wait", cause) if cause else ("idle", f"{fmt_duration(end - start)} idle")
         found.append(Anomaly(f"{prefix}-gap-{hms(start)}", kind, start, end, sid, detail, cause=cause, words=words))
     seen: dict[str, int] = {}
@@ -1027,12 +1086,31 @@ def gantt_lines(
     return out + axis[1:] + ([f"… {hidden} more rows (--gantt)"] if hidden else [])
 
 
-def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: list[dict[str, Any]]) -> list[str]:
+def reserved_lines(reserved: list[Anomaly]) -> list[str]:
+    """The RESERVED list: the waits that a reserved rule causes, with their count, wall time, and rule.
+
+    The data does not name which merge rule parked a PR, so the rule is "merge rule".
+    """
+    if not reserved:
+        return []
+    cost = measure([(a.start, a.end) for a in reserved])
+    by_words = sum(1 for a in reserved if a.cause.endswith("(by words)"))
+    rule = "merge rule" + (f" ({by_words} by words)" if by_words else "")
+    return ["RESERVED", f"  {'merge':<8} {len(reserved)}×  {fmt_duration(cost)}  {rule}"]
+
+
+def gap_lines(
+    anomalies: list[Anomaly],
+    notes: list[dict[str, Any]],
+    friction: list[dict[str, Any]],
+    reserved: list[Anomaly] | None = None,
+) -> list[str]:
     """The GAPS list: each anomaly and friction note, grouped by kind and key, most costly first.
 
     An anomaly that `note none` answers is no gap. An anomaly that a friction note answers (by ref, or by time as
     Reconcile does) moves into that friction's group, which takes its count of notes and the anomaly's cost.
     A group's cost is the wall time that its anomalies cover, so idle gaps of parallel sessions count once.
+    A reserved wait that no note answers is no GAPS line: it is added to `reserved`, for the RESERVED list.
     """
     by_ref: dict[str, dict[str, Any]] = {}
     for record in sorted(notes, key=time_of):
@@ -1065,6 +1143,9 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
             continue  # `note none`: no gap.
         if record is not None:
             groups[("friction", friction_key(record))][1].extend(cost)
+            continue
+        if reserved is not None and is_reserved(anomaly):
+            reserved.append(anomaly)
             continue
         text = anomaly.key
         group = groups.setdefault((anomaly.kind, anomaly.key), [0, [], text, []])
@@ -1289,15 +1370,22 @@ def run(args: argparse.Namespace) -> int:
     name = args.ticket or selection.sessions[0][:8]
     header = f"{name}  {stamp(w0)} → {stamp(w1)} ({fmt_duration(w1 - w0)})  sessions {len(selection.sessions)}"
     blocks = sum(a.count for a in anomalies if a.kind == "block")
+    # All waits count here, reserved ones too: parallel sessions count once.
+    reserved: list[Anomaly] = []
+    gaps = gap_lines(anomalies, notes, friction, reserved)
+    waited = measure([(a.start, a.end) for a in anomalies if a.kind == "wait"])
+    held = measure([(a.start, a.end) for a in reserved])
     fails = sum(a.count for a in anomalies if a.kind == "fail")
     idle = measure([(a.start, a.end) for a in unanswered if a.kind == "idle"])  # parallel sessions count once
     out = [
         "```text",
         f"{header}  {pr_summary}",
-        f"autonomy  blocks {blocks}  fails {fails}  unexplained idle {fmt_duration(idle)}  friction {len(friction)}",
+        f"autonomy  blocks {blocks}  fails {fails}  unexplained idle {fmt_duration(idle)}  friction {len(friction)}"
+        + (f"  waits {fmt_duration(waited)} (reserved {fmt_duration(held)})" if waited else ""),
         wall_line,
         "GAPS (cost = wait time)",
-        *gap_lines(anomalies, notes, friction),
+        *gaps,
+        *reserved_lines(reserved),
         "RUN SHAPE",
         *gantt_lines(label, spans, sessions, t0, t1, activity, waits_all, width, limit=SHAPE_ROWS),
         "SESSIONS",

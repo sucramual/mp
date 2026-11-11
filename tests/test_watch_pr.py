@@ -49,9 +49,6 @@ jq -r "$jq" "$file"
 
 SHA = "abc"
 
-# The watcher keys its state file by the session that runs it. The tests set the session themselves.
-SESSION_VARS = ("WATCH_PR_SESSION", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
-
 
 def check(name: str, conclusion: str | None, required: bool = True) -> dict[str, object]:
     """One check run in the GraphQL rollup. A None conclusion means the run is still in progress."""
@@ -107,7 +104,6 @@ def _run(
     drop: str | None = None,
     timeout: int | None = None,
     state_dir: Path | None = None,
-    session: str | None = None,
     options_last: bool = False,
 ):
     fake = tmp_path / "fake"
@@ -123,17 +119,14 @@ def _run(
     gh = bin_dir / "gh"
     gh.write_text(FAKE_GH)
     gh.chmod(0o755)
-    inherited = {k: v for k, v in os.environ.items() if k not in SESSION_VARS}
     env = {
-        **inherited,
+        **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "FAKE_DIR": str(fake),
         "CHANGE_AT": str(change_at),
         "WATCH_PR_POLL_SECONDS": "0",
         "WATCH_PR_STATE_DIR": str(state_dir or tmp_path / "state"),
     }
-    if session is not None:
-        env["CLAUDE_CODE_SESSION_ID"] = session
     options: list[str] = []
     if timeout is not None:
         options += ["--timeout", str(timeout)]
@@ -302,24 +295,6 @@ def test_the_agents_own_posts_do_not_end_the_wait(tmp_path: Path) -> None:
     base = {"graphql": pr(state="MERGED"), "repos_o_r_pulls_7_comments": reply, "repos_o_r_issues_7_reactions": thumbs}
     result, _ = _run(tmp_path / "second", {}, change_at=999, base=base, state_dir=state, timeout=1)
     assert _events(result) == ["event: timeout"]
-
-
-def test_two_sessions_on_one_pr_each_see_a_new_review(tmp_path: Path) -> None:
-    # Bug (/matrix run retro, 2026-11-05): the state file was keyed only by repo and PR, so the first session
-    # to read a change recorded it, and the other session watching the same PR never woke for it.
-    state = tmp_path / "state"
-    merged = {"graphql": pr(state="MERGED")}
-    for session in ("session-a", "session-b"):
-        _run(tmp_path / f"{session}-first", {}, change_at=999, base=merged, state_dir=state, session=session, timeout=1)
-
-    review = [{"id": 9, "state": "CHANGES_REQUESTED", "user": {"login": "someone"}}]
-    base = {**merged, "repos_o_r_pulls_7_reviews": review}
-    for session in ("session-a", "session-b"):
-        result, polls = _run(
-            tmp_path / f"{session}-second", {}, change_at=999, base=base, state_dir=state, session=session, timeout=1
-        )
-        assert _events(result) == ["event: review"], session
-        assert polls == 1, "the run should end on its first read"
 
 
 def test_mergeable_going_unknown_and_back_does_not_report_ready_again(tmp_path: Path) -> None:

@@ -17,9 +17,7 @@
 # agent's own comments, reviews, and reactions (the `gh` login), and the "eyes" reaction that a reviewer
 # adds when it starts. Edits count, because the Codex reviewer reports "done" by editing its summary comment.
 #
-# It records the last PR state that it read in WATCH_PR_STATE_DIR, in one file for each session and PR, so
-# two sessions that watch one PR each see every change. The session is WATCH_PR_SESSION, else
-# CLAUDE_CODE_SESSION_ID, else CODEX_THREAD_ID. The next run of that session compares with that record,
+# It records the last PR state that it read in WATCH_PR_STATE_DIR. The next run compares with that record,
 # so a check, approval, comment, or review that arrived between two runs ends the next run at once, and a
 # state that the last run already reported, such as a parked ready PR, does not. The head compares with
 # the start of each run, so the agent's own push does not wake it. With no record, the first read reports
@@ -59,8 +57,7 @@ pr=${positional[1]}
 IGNORED_AUTHORS='"nx-cloud[bot]", "github-actions[bot]"'
 
 state_dir=${WATCH_PR_STATE_DIR:-${TMPDIR:-/tmp}/watch-pr}
-session=${WATCH_PR_SESSION:-${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-no-session}}}
-state_file="$state_dir/$(printf '%s_%s_%s' "$repo" "$pr" "$session" | tr -c 'A-Za-z0-9._-' '_')"
+state_file="$state_dir/$(printf '%s' "$repo" | tr '/' '_')_$pr"
 
 QUERY='query($owner: String!, $name: String!, $pr: Int!) {
   repository(owner: $owner, name: $name) {

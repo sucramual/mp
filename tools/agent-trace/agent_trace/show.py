@@ -19,7 +19,9 @@ sessions/<id>.ticket, so a session with no spans still counts. The Sessions sect
 and span windows, and marks a session that has no spans. "spans" in the summary is the time the chart covers.
 
 Sections after the timeline: PRs (with GitHub state unless --offline), Parks, Notes, and Reconcile (anomalies that
-no note answers). Prompts, command text, and identity attributes are never printed.
+no note answers). A session with no native spans gets its anomalies from its transcript (`transcript_anomalies`),
+so Reconcile never prints `none` while such a session has unanswered failures or idle gaps. Prompts, command text,
+and identity attributes are never printed.
 
 Exit 0 when anything matched, 1 when nothing matched, 2 for a usage error.
 """
@@ -563,26 +565,106 @@ def pr_lines(records: list[dict[str, Any]], offline: bool) -> list[str]:
     return lines
 
 
-def transcript_fallback(sid: str) -> list[str]:
-    if not SESSION_NAME.match(sid):
-        return []
+def run_timeline(sid: str, *extra: str) -> tuple[str | None, str]:
+    """Run the retro timeline on a session's Claude Code transcripts: (stdout, "") or (None, a reason)."""
     root = Path(os.environ.get("AGENT_TRACE_CLAUDE_PROJECTS") or Path.home() / ".claude" / "projects")
     files = sorted(root.glob(f"*/{sid}.jsonl"))
     if not files:
-        return [f"(no transcript found for {sid} under {root})"]
+        return None, f"no transcript found for {sid} under {root}"
     try:
         result = subprocess.run(
-            [sys.executable, str(TIMELINE), "--session", sid, *map(str, files)],
+            [sys.executable, str(TIMELINE), "--session", sid, *extra, *map(str, files)],
             capture_output=True,
             text=True,
             timeout=60,
             stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.SubprocessError) as error:
-        return [f"(transcript timeline failed: {error})"]
+        return None, f"transcript timeline failed: {error}"
     if result.returncode != 0:
-        return [f"(transcript timeline failed: {result.stderr.strip()[:200]})"]
-    return [f"Transcript timeline for {sid}:", *result.stdout.rstrip("\n").splitlines()]
+        return None, f"transcript timeline failed: {result.stderr.strip()[:200]}"
+    return result.stdout, ""
+
+
+def transcript_fallback(sid: str) -> list[str]:
+    if not SESSION_NAME.match(sid):
+        return []
+    stdout, reason = run_timeline(sid)
+    if stdout is None:
+        return [f"({reason})"]
+    return [f"Transcript timeline for {sid}:", *stdout.rstrip("\n").splitlines()]
+
+
+def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) -> list[Anomaly]:
+    """The anomalies of a session that has no native spans, from its transcript, for the Reconcile list.
+
+    One anomaly for each cause of failure (fails grouped by error text with digit runs replaced, as the timeline
+    groups them), one for each run of a repeated call (a retry), and one for each idle gap longer than GAP_ANOMALY
+    that no wait span covers. A gap that is one long tool call is activity, not idle. Soft fails (an error line in
+    the output of a call that succeeded) and failed agent-trace calls are left out. When the
+    transcript is missing or cannot be read, one `unread` anomaly stands for it, so Reconcile never passes on
+    missing evidence. Refs are `tx-<session8>-<kind>-<HHMMSS UTC>`, stable across runs of `show`.
+    """
+    if not SESSION_NAME.match(sid):
+        return []
+    prefix = f"tx-{sid[:8]}"
+    stdout, reason = run_timeline(sid, "--json", "--gap-minutes", str(GAP_ANOMALY / MIN))
+    report: dict[str, Any] = {}
+    if stdout is not None:
+        try:
+            loaded = json.loads(stdout)
+            report = loaded if isinstance(loaded, dict) else {}
+        except ValueError:
+            reason = "transcript timeline printed no JSON"
+    if not report:
+        return [Anomaly(f"{prefix}-unread", "transcript", fallback_time, fallback_time, sid, reason or "no events")]
+
+    def hms(ns: int) -> str:
+        return datetime.fromtimestamp(ns / 1_000_000_000, UTC).strftime("%H%M%S")
+
+    def program(label: str) -> str:
+        """The tool and the program only, as tool_label gives for native spans: never more command text."""
+        tool, _, inner = label.partition("(")
+        return " ".join([tool, *inner.rstrip(")").split()[:1]])
+
+    found: list[Anomaly] = []
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for fail in report.get("fails") or []:
+        if fail.get("soft") or program(str(fail.get("label") or "?")) == "Bash agent-trace":
+            continue
+        key = re.sub(r"(?<!HTTP )\b\d+", "N", str(fail.get("error") or ""))
+        groups.setdefault(key, []).append(fail)
+    for items in groups.values():
+        # The window is the first fail only, so a friction note about another matter hours later answers nothing.
+        start = iso_ns(items[0].get("time")) or fallback_time
+        label = program(str(items[0].get("label") or "?"))
+        detail = f"{label} x{len(items)}" if len(items) > 1 else label
+        found.append(Anomaly(f"{prefix}-fail-{hms(start)}", "fail", start, start, sid, detail))
+    for loop in report.get("loops") or []:
+        # The same call repeated, the transcript form of a native retry.
+        start = iso_ns(loop.get("first")) or fallback_time
+        detail = f"{program(str(loop.get('label') or '?'))} x{loop.get('count')}"
+        found.append(Anomaly(f"{prefix}-retry-{hms(start)}", "retry", start, start, sid, detail))
+    for gap in report.get("gaps") or []:
+        start, end = iso_ns(gap.get("start")), iso_ns(gap.get("end"))
+        if not start or not end:
+            continue
+        quote = str(gap.get("quote") or "")
+        if "tool_use " in quote and not quote.startswith("tool_result") and gap.get("cause") != "permission":
+            continue  # One long tool call, such as a test run: the native path counts it as activity, not idle.
+        left = subtract([(start, end)], waits)
+        if max((b - a for a, b in left), default=0) <= GAP_ANOMALY:
+            continue
+        detail = f"{fmt_duration(end - start)} idle" + (
+            " (permission wait)" if gap.get("cause") == "permission" else ""
+        )
+        found.append(Anomaly(f"{prefix}-gap-{hms(start)}", "gap", start, end, sid, detail))
+    seen: dict[str, int] = {}
+    for anomaly in found:
+        seen[anomaly.ref] = seen.get(anomaly.ref, 0) + 1
+        if seen[anomaly.ref] > 1:
+            anomaly.ref = f"{anomaly.ref}-{seen[anomaly.ref]}"
+    return found
 
 
 def transcript_files(sid: str) -> tuple[str, list[Path]]:
@@ -901,6 +983,10 @@ def run(args: argparse.Namespace) -> int:
         if after:
             detail = f"{fmt_duration(gap_end - gap_start)} idle"
             anomalies.append(Anomaly(f"gap-{after[1]}", "gap", gap_start, gap_end, after[2], detail))
+    wait_intervals = [span_interval(span) for span in wait_spans]
+    for sid in selection.sessions:
+        if not selection.claude.get(sid) and not selection.codex.get(sid):
+            anomalies += transcript_anomalies(sid, wait_intervals, t0)
     answered_refs = {
         str(ref) for r in notes for ref in (attrs_of(r).get("agent_trace.refs") or []) if isinstance(ref, str)
     }

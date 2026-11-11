@@ -452,6 +452,125 @@ def test_missing_native_spans_warns_and_falls_back_to_the_transcript(env: dict[s
     assert [(r["name"], r["status"]) for r in rows(out)] == [("run RUN-2", ""), ("  Implement", "ok")]
 
 
+FB = "dddddddd-0000-4000-8000-000000000004"
+FB_REFS = [
+    "tx-dddddddd-fail-080006",
+    "tx-dddddddd-fail-080021",
+    "tx-dddddddd-gap-080021",
+    "tx-dddddddd-retry-084540",
+]
+
+
+def fallback_transcript(projects: Path) -> None:
+    """A Claude Code transcript for session FB on 2026-10-29 (UTC). The store has no native spans for it.
+
+    08:00:06 and 08:00:10: one cause fails twice (one repeated group). 08:00:13: a soft fail (an error line in the
+    output of a read that succeeded). 08:00:16: a failed agent-trace call. 08:00:21: a permission denial. Then 30
+    minutes with no event (idle). 08:30:25 to 08:45:30: one tool call runs 15 minutes (activity, not idle).
+    08:45:40 to 08:45:50: the same call three times in a row (a retry).
+    """
+
+    def use(ident: str, when: str, command: str) -> dict[str, Any]:
+        content = [{"type": "tool_use", "id": ident, "name": "Bash", "input": {"command": command}}]
+        return {
+            "type": "assistant",
+            "timestamp": when,
+            "sessionId": FB,
+            "message": {"role": "assistant", "content": content},
+        }
+
+    def result(ident: str, when: str, text: str, error: bool) -> dict[str, Any]:
+        block = {"type": "tool_result", "tool_use_id": ident, "is_error": error, "content": text}
+        return {"type": "user", "timestamp": when, "sessionId": FB, "message": {"role": "user", "content": [block]}}
+
+    def said(role: str, when: str, text: str) -> dict[str, Any]:
+        return {"type": role, "timestamp": when, "sessionId": FB, "message": {"role": role, "content": text}}
+
+    lines = [
+        said("user", "2026-10-29T08:00:00Z", "go"),
+        use("t1", "2026-10-29T08:00:04Z", "gh pr view 7"),
+        result("t1", "2026-10-29T08:00:06Z", "Exit code 1\n\nHTTP 404: not found (repos/x/pulls/7)", True),
+        use("t2", "2026-10-29T08:00:08Z", "gh pr view 8"),
+        result("t2", "2026-10-29T08:00:10Z", "Exit code 1\n\nHTTP 404: not found (repos/x/pulls/8)", True),
+        use("t3", "2026-10-29T08:00:12Z", "cat notes.md"),
+        result("t3", "2026-10-29T08:00:13Z", "error: this line is only text in the file", False),
+        use("t4", "2026-10-29T08:00:15Z", "agent-trace show --work RUN-3"),
+        result("t4", "2026-10-29T08:00:16Z", "Exit code 1\nagent-trace: no spans for work ID RUN-3", True),
+        use("t5", "2026-10-29T08:00:20Z", "kubectl create job x"),
+        result(
+            "t5", "2026-10-29T08:00:21Z", "Permission for this action was denied by the auto mode classifier.", True
+        ),
+        said("user", "2026-10-29T08:30:21Z", "continue"),
+        use("t6", "2026-10-29T08:30:25Z", "pytest -q"),
+        result("t6", "2026-10-29T08:45:30Z", "1 passed", False),
+        use("t7", "2026-10-29T08:45:40Z", "gh run view 1"),
+        result("t7", "2026-10-29T08:45:41Z", "in_progress", False),
+        use("t8", "2026-10-29T08:45:45Z", "gh run view 1"),
+        result("t8", "2026-10-29T08:45:46Z", "in_progress", False),
+        use("t9", "2026-10-29T08:45:50Z", "gh run view 1"),
+        result("t9", "2026-10-29T08:45:51Z", "completed", False),
+        said("assistant", "2026-10-29T08:45:55Z", "done"),
+    ]
+    folder = projects / "-Users-x-repo"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{FB}.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+
+
+def fallback_store(env: dict[str, str], *extra: dict[str, Any]) -> None:
+    kind = {"agent_trace.kind": "phase"}
+    start = agent("impl", "start", at(9, 0), ticket="RUN-3", session=FB, name="Implement", **kind)
+    end = agent("impl", "end", at(9, 30), ticket="RUN-3", session=FB, **{"agent_trace.status": "ok"})
+    write_store(state_of(env), [start, end, *extra])
+
+
+def fallback_note(kind: str, refs: list[str]) -> dict[str, Any]:
+    record = note(kind, at(10, 0), refs)
+    record["attrs"].update({"run.ticket": "RUN-3", "agent_trace.scope": "RUN-3", "session.id": FB})
+    return record
+
+
+def test_fallback_transcript_anomalies_reach_reconcile(env: dict[str, str], tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    fallback_transcript(projects)
+    fallback_store(env)
+    code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-3", "--offline")
+    assert code == 0, err
+    assert "Reconcile: none" not in out.splitlines()
+    entries = reconcile(out)
+    assert [e[0] for e in entries] == FB_REFS
+    assert [e[1:3] for e in entries] == [["08:00", "fail"], ["08:00", "fail"], ["08:00", "gap"], ["08:45", "retry"]]
+    # The tool and the program only: no more command text, as for native spans.
+    assert [e[3] for e in entries[:2]] == ["Bash gh x2", "Bash kubectl"]
+    assert entries[3][3] == "Bash gh x3"
+    # The 15-minute tool call (08:30:25 to 08:45:30) is activity, so it is not an idle gap.
+    # The soft fail and the failed agent-trace call are not anomalies.
+    assert not any("cat" in e[3] or "agent-trace" in e[3] for e in entries)
+
+
+def test_fallback_anomalies_need_answers_before_reconcile_none(env: dict[str, str], tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    fallback_transcript(projects)
+    penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
+    fallback_store(env, fallback_note("none", FB_REFS[:2]))
+    _, out, _ = show(penv, "--work", "RUN-3", "--offline")
+    assert [e[0] for e in reconcile(out)] == FB_REFS[2:]
+    fallback_store(env, fallback_note("none", FB_REFS))
+    _, out, _ = show(penv, "--work", "RUN-3", "--offline")
+    assert "Reconcile: none" in out.splitlines()
+
+
+def test_fallback_gap_inside_a_wait_span_is_not_an_anomaly(env: dict[str, str], tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    fallback_transcript(projects)
+    day_before = T0 - 25 * 60 * M  # 2026-10-29T08:00:00Z
+    kind = {"agent_trace.kind": "wait"}
+    wait_start = agent("ci", "start", day_before + 60 * S, ticket="RUN-3", session=FB, name="Wait for CI", **kind)
+    wait_end = agent("ci", "end", day_before + 29 * M, ticket="RUN-3", session=FB, **{"agent_trace.status": "ok"})
+    fallback_store(env, wait_start, wait_end)
+    _, out, _ = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-3", "--offline")
+    assert [e[0] for e in reconcile(out)] == [FB_REFS[0], FB_REFS[1], FB_REFS[3]]
+
+
 def claude_transcript(projects: Path, session: str, *stamps: str) -> None:
     """A Claude Code transcript with one event at each ISO time, plus a line with no time."""
     folder = projects / "-Users-x-repo"

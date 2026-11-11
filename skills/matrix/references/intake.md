@@ -26,7 +26,3 @@ The goal table gives each goal check its Proof column: the evidence that the che
 - When the ticket does not have a goal table, draft the ticket again in that format: one row for each goal check, with its pass/fail check, its Proof column, and its coverage boundary.
 - Put the draft in the intake message. Update the ticket only after Marcus says OK.
 - Copy the Proof column word for word into every PR brief and acceptance brief that covers the check.
-
-## Run contract
-
-Worker skills obey the run contract: the file that records the run's reply grammar, comment rule, grants, park deadlines, and live proofs. `run-contract.md` in this directory defines its format. After Marcus answers the intake message, and before you start the first worker, write it as `run-contract.md` in the same directory as the plan file. Name it in each PR brief on one line: `Run contract: <absolute path>`.

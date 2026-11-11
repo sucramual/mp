@@ -37,7 +37,8 @@ Change, verify, then keep or fix. Plan, test, and split PRs as you judge best. B
 
 - When an existing executable check fails on each defect class that the diff could add, such as a conformance test, a schema check, a guard test, or a typecheck, run no reviewer. Name that check in the PR body.
 - When the diff adds or changes a check, a test helper that other tests use, or other code that verifies code, first write the invariants as failing tests. Then have one reviewer read the diff with an open brief, not a rubric.
-- Never skip or suppress the Codex review after the PR opens, because it is the second model family.
+- Never skip the repository's configured reviewer: its entry in `reviewers.json`, or `work-reviewers.json` for a work repository. Re-trigger it only with that entry's `retrigger` text, and never where the entry sets `threadRepliesOnly: true`.
+- Before a PR is ready, and for every wait on an external state, follow [Live proof and waits](references/live-proof-and-waits.md).
 
 Publish with `open-pr --no-review`. You take each PR to ready yourself, inline, with `review-pr` as the procedure. Start no background `review-pr` agent, because two writers would push to one branch. Never end the run at an open PR.
 

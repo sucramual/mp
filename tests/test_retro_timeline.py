@@ -429,6 +429,7 @@ def test_fails_say_whether_a_later_call_recovered_and_what_blocked_them(tmp_path
             + _call(13, "cat notes.md", HOOK_BLOCK + "\nerror: quoted in a file", False)
             + _call(15, "git push origin main", "Exit code 1\n! [rejected] main (non-fast-forward)", True)
             + _call(17, "git status", "clean", False)
+            + _call(19, "python3 -m json.tool a.json", "{}", False)
         )
     )
 
@@ -436,7 +437,7 @@ def test_fails_say_whether_a_later_call_recovered_and_what_blocked_them(tmp_path
 
     labels = {"Bash(python3 -m)", "Bash(make build)", "Bash(spacectl stack)", "Bash(kubectl create)"}
     assert set(fails) == labels | {"Bash(cat notes.md)", "Bash(git push)"}
-    # A later success of another subcommand of the same program does not recover the fail.
+    # A later success of another subcommand, or of another call with the same label, does not recover the fail.
     assert fails["Bash(git push)"]["recovered"] is False
     assert fails["Bash(python3 -m)"]["recovered"] is True
     assert fails["Bash(make build)"]["recovered"] is False
@@ -445,3 +446,21 @@ def test_fails_say_whether_a_later_call_recovered_and_what_blocked_them(tmp_path
     assert fails["Bash(kubectl create)"]["block"] == {"by": "auto mode", "name": "Shared Cluster Mutation"}
     assert fails["Bash(cat notes.md)"]["soft"] is True
     assert fails["Bash(cat notes.md)"]["block"] is None
+
+
+def test_a_call_with_the_same_label_but_other_input_does_not_recover_a_fail(tmp_path: Path) -> None:
+    """Bug caught (Codex review of PR 71): a failed `python3 -m pytest` and a later successful `python3 -m json.tool`
+    share the label `Bash(python3 -m)`, so the unrelated success hid the test failure from Reconcile.
+    """
+    path = tmp_path / "session.jsonl"
+    path.write_text(
+        _local_text(
+            _call(1, "python3 -m pytest", "Exit code 1\nFAILED tests/x.py", True)
+            + _call(3, "python3 -m json.tool a.json", "{}", False)
+        )
+    )
+
+    [fail] = report(path)["fails"]
+
+    assert fail["label"] == "Bash(python3 -m)"
+    assert fail["recovered"] is False

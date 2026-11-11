@@ -44,8 +44,8 @@ BASH_SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
 # an HTTP 403 and an HTTP 500 are two causes.
 HTTP_STATUS_OR_NUMBER_RE = re.compile(r"(?<!HTTP )\b\d+")
 ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# A fail is recovered when one of this many next tool calls has the same label (tool, program, and subcommand) and
-# succeeds.
+# A fail is recovered when one of this many next tool calls is the same call (the same tool and the same input) and
+# succeeds. The label is too short to tell operations apart: `python3 -m pytest` and `python3 -m json.tool` share it.
 RECOVER_WINDOW = 3
 DENIED_RE = re.compile(r"^Permission for this action was denied by the (?:Claude Code |server-side )?auto mode")
 DENIED_REASON_RE = re.compile(r"Reason: \[([^\]]+)\]")
@@ -308,6 +308,13 @@ def block_of(output: str) -> dict[str, str] | None:
     return {"by": "hook", "name": " ".join([script, *words[at + 1 :]])}
 
 
+def same_call(one: tuple[str, Any] | None, other: tuple[str, Any] | None) -> bool:
+    """The same tool with the same input, such as a test run that is run again after a fix."""
+    if one is None or other is None:
+        return False
+    return one[0] == other[0] and json.dumps(one[1], sort_keys=True) == json.dumps(other[1], sort_keys=True)
+
+
 def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     report = Report(session=session, start=iso(events[0].time), end=iso(events[-1].time))
     tool_uses: dict[str, tuple[str, Any]] = {}
@@ -445,10 +452,10 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     order = {ident: index for index, ident in enumerate(calls)}
     for fail in report.fails:
         ident = str(fail["tool_use_id"])
-        label = tool_label(*tool_uses.get(ident, ("?", None)))
-        later = calls[order[ident] + 1 :] if ident in order else []
+        call = tool_uses.get(ident)
+        later = calls[order[ident] + 1 :] if ident in order and call is not None else []
         fail["recovered"] = any(
-            tool_label(*tool_uses[other]) == label and other in errored and not errored[other]
+            same_call(tool_uses[other], call) and other in errored and not errored[other]
             for other in later[:RECOVER_WINDOW]
         )
     report.fail_groups = group_fails(report.fails)

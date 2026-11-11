@@ -8,8 +8,10 @@ or `conversation.id` is one of them, plus any Codex record that shares a trace i
 
 Gaps. A session with native spans gives its gaps from them: a `block` for each permission prompt that was not
 accepted, and a `fail` for each failed tool call. A session with none gives its gaps from its transcript
-(`transcript_anomalies`). In both, failed reads, failed agent-trace calls, and soft fails are not gaps, and a fail
-that the next calls of the same tool and program recovered is not a gap unless that tool and program failed twice.
+(`transcript_anomalies`). In both, failed reads, failed agent-trace calls, and soft fails are not gaps. A fail that
+one of the next calls recovered is not a gap unless its label failed twice: in a transcript, the same call (the same
+tool and input) run again; for a native span, a later call of the same tool, but never for Bash, whose span names
+the program only.
 Every idle gap longer than GAP_ANOMALY that no wait span covers is `idle`.
 
 Output. One `text` fence: the run window and totals, the wall time and span coverage, GAPS (grouped by kind and
@@ -660,10 +662,10 @@ def transcript_anomalies(sid: str, waits: list[Interval], fallback_time: int) ->
     reason. One `fail` for each cause of failure (fails grouped by error text with digit runs replaced, as the
     timeline groups them), and one `idle` for each gap longer than GAP_ANOMALY that no wait span covers. A gap that
     is one long tool call is activity, not idle. Left out: soft fails (an error line in the output of a call that
-    succeeded), failed agent-trace calls, failed reads, and a fail that the next calls of the same tool and program
-    recovered, unless that tool and program failed twice. The same call 3 or more times in a row (polling) is `idle`
-    too. When the transcript is missing or cannot be read, one
-    `transcript` anomaly stands for it, so Reconcile never passes on missing evidence. Refs are
+    succeeded), failed agent-trace calls, failed reads, and a fail that the same call (the same tool and input) run
+    again within the next calls recovered, unless its label failed twice. The same call 3 or more times in a row
+    (polling) is `idle` too. When the transcript is missing or cannot be read, one `transcript` anomaly stands for
+    it, so Reconcile never passes on missing evidence. Refs are
     `tx-<session8>-<kind>-<HHMMSS UTC>` (`gap` for an idle gap, `idle` for polling), stable across runs of `show`.
     """
     if not SESSION_NAME.match(sid):

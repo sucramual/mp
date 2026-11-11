@@ -104,6 +104,7 @@ def _run(
     drop: str | None = None,
     timeout: int | None = None,
     state_dir: Path | None = None,
+    options_last: bool = False,
 ):
     fake = tmp_path / "fake"
     fake.mkdir(parents=True)
@@ -126,10 +127,11 @@ def _run(
         "WATCH_PR_POLL_SECONDS": "0",
         "WATCH_PR_STATE_DIR": str(state_dir or tmp_path / "state"),
     }
-    args = ["bash", str(SCRIPT)]
+    options: list[str] = []
     if timeout is not None:
-        args += ["--timeout", str(timeout)]
-    result = subprocess.run([*args, "o/r", "7"], env=env, capture_output=True, text=True, timeout=20, check=False)
+        options += ["--timeout", str(timeout)]
+    args = ["bash", str(SCRIPT), "o/r", "7", *options] if options_last else ["bash", str(SCRIPT), *options, "o/r", "7"]
+    result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=20, check=False)
     polls = len((fake / "polls").read_text().splitlines())
     return result, polls
 
@@ -293,3 +295,41 @@ def test_the_agents_own_posts_do_not_end_the_wait(tmp_path: Path) -> None:
     base = {"graphql": pr(state="MERGED"), "repos_o_r_pulls_7_comments": reply, "repos_o_r_issues_7_reactions": thumbs}
     result, _ = _run(tmp_path / "second", {}, change_at=999, base=base, state_dir=state, timeout=1)
     assert _events(result) == ["event: timeout"]
+
+
+def test_mergeable_going_unknown_and_back_does_not_report_ready_again(tmp_path: Path) -> None:
+    # Bug (/matrix run retro, 2026-11-05): when main moved, GitHub set a parked ready PR to mergeable UNKNOWN
+    # while it recomputed. The watcher counted that as "not ready", so the next MERGEABLE read fired "ready"
+    # again on an unchanged PR, and the worker restarted the watcher in a loop.
+    state = tmp_path / "state"
+    green = [check("backend", "SUCCESS")]
+    ready = {"graphql": pr(review="APPROVED", checks=green)}
+    unknown = {"graphql": pr(review="APPROVED", mergeable="UNKNOWN", checks=green)}
+    result, _ = _run(tmp_path / "first", {}, change_at=999, base=ready, state_dir=state)
+    assert "event: ready" in _events(result)
+
+    result, _ = _run(tmp_path / "second", {}, change_at=999, base=unknown, state_dir=state, timeout=1)
+    assert _events(result) == ["event: timeout"]
+
+    result, polls = _run(tmp_path / "third", {}, change_at=999, base=ready, state_dir=state, timeout=1)
+    assert _events(result) == ["event: timeout"]
+    assert polls >= 2, "the run should have read the PR more than once before it timed out"
+
+
+def test_mergeable_unknown_then_conflicting_still_reports_the_conflict(tmp_path: Path) -> None:
+    # Bug a careless fix makes: carrying the old mergeable value forward forever would hide a real conflict.
+    green = [check("backend", "SUCCESS")]
+    base = {"graphql": pr(review="APPROVED", mergeable="UNKNOWN", checks=green)}
+    after = {"graphql": pr(review="APPROVED", mergeable="CONFLICTING", checks=green)}
+    result, _ = _run(tmp_path, after, change_at=2, base=base, state_dir=tmp_path / "seeded")
+    assert "event: conflict" not in _events(result), "the first read sees no conflict yet"
+    result, _ = _run(tmp_path / "second", after, change_at=2, base=base, state_dir=tmp_path / "seeded")
+    assert _events(result) == ["event: conflict"]
+
+
+def test_options_after_the_pr_arguments_work(tmp_path: Path) -> None:
+    # Bug (/matrix run retro, 2026-11-05): the /neo example put --timeout after OWNER/REPO PR, and the watcher
+    # exited with its usage line, so the worker had no wake source.
+    result, polls = _run(tmp_path, {}, change_at=999, timeout=1, options_last=True)
+    assert _events(result) == ["event: timeout"]
+    assert polls >= 2, "the run should have read the PR more than once before it timed out"

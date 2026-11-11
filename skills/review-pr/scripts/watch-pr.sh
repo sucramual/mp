@@ -10,6 +10,8 @@
 #   conflict | ready | merged | closed
 #   timeout                           --timeout SECONDS passed with no change
 # "ready" means open, approved or no review required, every required check passed, and mergeable.
+# A mergeable UNKNOWN read, which GitHub gives while it recomputes after the base moves, counts as no
+# change: the watcher keeps the last known mergeable and ready values until GitHub decides.
 #
 # It ignores comments from the bots in IGNORED_AUTHORS, whose status comments never need action, the
 # agent's own comments, reviews, and reactions (the `gh` login), and the "eyes" reaction that a reviewer
@@ -25,17 +27,31 @@
 # because Claude Code's worktree guard refuses an inline loop in a worktree-isolated agent.
 set -uo pipefail
 
-timeout=""
-if [ "${1:-}" = "--timeout" ]; then
-  timeout=${2:?--timeout needs SECONDS}
-  shift 2
-fi
-[ $# -eq 2 ] || {
+usage() {
   echo "usage: watch-pr.sh [--timeout SECONDS] OWNER/REPO PR" >&2
   exit 2
 }
-repo=$1
-pr=$2
+# Options may come before or after OWNER/REPO PR.
+timeout=""
+positional=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    --timeout)
+      [ $# -ge 2 ] || usage
+      timeout=$2
+      shift 2
+      ;;
+    -*) usage ;;
+    *)
+      positional+=("$1")
+      shift
+      ;;
+  esac
+done
+[ ${#positional[@]} -eq 2 ] || usage
+case $timeout in '' | *[!0-9]*) [ -z "$timeout" ] || usage ;; esac
+repo=${positional[0]}
+pr=${positional[1]}
 
 # REST logins keep the [bot] suffix. github-actions[bot] posts the bundle-size report and review triggers.
 IGNORED_AUTHORS='"nx-cloud[bot]", "github-actions[bot]"'
@@ -70,7 +86,9 @@ CONDITIONS_JQ='.data.repository.pullRequest as $p
   "review \($p.reviewDecision // "NONE")",
   "head \($p.headRefOid)",
   "ready \(if $p.state == "OPEN" and (($p.reviewDecision // "APPROVED") == "APPROVED")
-             and $p.mergeable == "MERGEABLE" and all($checks[]; .bucket == "pass") then "yes" else "no" end)",
+               and all($checks[]; .bucket == "pass")
+             then (if $p.mergeable == "MERGEABLE" then "yes" elif $p.mergeable == "UNKNOWN" then "unknown" else "no" end)
+             else "no" end)",
   ($checks[] | "check \($p.headRefOid) \(.bucket) \(.name)")'
 
 conditions() {
@@ -89,6 +107,21 @@ activity() {
 }
 
 field() { printf '%s\n' "$1" | sed -n "s/^$2 //p" | head -n 1; }
+
+# Prints the PR state $2 with an undecided mergeable UNKNOWN replaced by the last known values in $1.
+settle() {
+  local before=$1 now=$2 mergeable ready
+  if [ "$(field "$now" mergeable)" != UNKNOWN ]; then
+    printf '%s\n' "$now"
+    return
+  fi
+  mergeable=$(field "$before" mergeable)
+  ready=$(field "$now" ready)
+  if [ "$ready" = unknown ]; then
+    ready=$(field "$before" ready)
+  fi
+  printf '%s\n' "$now" | sed -e "s/^mergeable .*/mergeable ${mergeable:-UNKNOWN}/" -e "s/^ready .*/ready ${ready:-no}/"
+}
 
 # Prints an event line for each change in the PR state from $1 (before) to $2 (now).
 condition_events() {
@@ -132,12 +165,16 @@ read_failed() {
 }
 
 me=$(gh api user --jq .login) || read_failed
+before=$(cat "$state_file" 2>/dev/null || true)
 now=$(conditions) || read_failed
+now=$(settle "$before" "$now")
 activity_now=$(activity) || read_failed
 start_head=$(field "$now" head)
-before=$(cat "$state_file" 2>/dev/null || true)
 activity_before=$(printf '%s\n' "$before" | grep -E '^(comment|review|reaction) ' || true)
-[ -z "$before" ] && activity_before=$activity_now
+if [ -z "$before" ]; then
+  activity_before=$activity_now
+fi
+
 events=$(
   condition_events "$before" "$now"
   activity_events "$activity_before" "$activity_now"
@@ -155,6 +192,7 @@ while sleep "${WATCH_PR_POLL_SECONDS:-30}"; do
   before=$now
   activity_before=$activity_now
   now=$(conditions) || read_failed
+  now=$(settle "$before" "$now")
   activity_now=$(activity) || read_failed
   events=$(
     condition_events "$before" "$now"
@@ -162,7 +200,7 @@ while sleep "${WATCH_PR_POLL_SECONDS:-30}"; do
     head=$(field "$now" head)
     [ "$head" != "$start_head" ] && echo "event: head $head"
   )
-  record "$now
+    record "$now
 $activity_now" || { echo "state write failed" >&2; exit 1; }
   if [ -n "$events" ]; then
     printf '%s\n' "$events"

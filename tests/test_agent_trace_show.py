@@ -275,7 +275,7 @@ def test_idle_gap_is_one_column_in_every_row_and_labelled(env: dict[str, str]) -
     assert len(bars[0]) == 60
     text = "\n".join(fence(out))
     assert "┆ 2h20m idle" in text
-    assert "09:00" in text and "12:00" in text
+    assert "09:00Z" in text and "12:00Z" in text
 
 
 def test_error_retry_and_wait_markers(env: dict[str, str]) -> None:
@@ -765,7 +765,7 @@ def test_narrow_width_moves_the_idle_label_to_a_footnote(env: dict[str, str]) ->
     write_store(state_of(env), scenario())
     _, out, _ = gantt(env, "--work", "RUN-1", "--offline", "--width", "20")
     assert {len(r["bar"]) for r in rows(out)} == {20}
-    assert "┆ = 2h20m idle (09:20–11:40)" in fence(out)
+    assert "┆ = 2h20m idle (09:20Z–11:40Z)" in fence(out)
 
 
 def test_collected_native_spans_join_emitted_agent_spans(env: dict[str, str]) -> None:
@@ -820,6 +820,10 @@ def test_default_output_is_short_gaps_first_and_utc(env: dict[str, str], tmp_pat
     assert fence(out)[0].startswith("RUN-3  10-29 08:00Z → ")
     assert "GAPS (cost = wait time)" in lines
     assert any(line.startswith("  … ") and "more" in line for line in fence(out))
+    # The chart is in the fence, but only its first rows: the rest are behind --gantt.
+    chart = rows(out)
+    assert chart[0]["name"] == "run RUN-3" and len(chart) <= 16
+    assert any(line.startswith("… ") and "--gantt" in line for line in fence(out))
     assert not any("TURN" in line or "Transcript timeline" in line or line.startswith("session ") for line in lines)
     times = re.findall(r"\b\d\d:\d\d\b(?!Z)", "\n".join(lines))
     assert times == [], times
@@ -967,3 +971,23 @@ def test_native_recovery_needs_a_real_success_and_two_fails_are_a_gap(env: dict[
         ("d000000000000304", "block"),
         ("d000000000000207", "fail"),
     ]
+
+
+# Protects D7: the default output, and so the run log that Close posts, carries the span chart again, with UTC axis
+# labels, above SESSIONS. `--gantt` still prints the whole chart alone.
+# Bug caught: the chart is only behind --gantt, so the Linear run log loses the picture of the run; or its axis
+# shows local clock times beside the UTC times of the rest of the output.
+def test_default_output_carries_the_chart_in_utc(env: dict[str, str]) -> None:
+    write_store(state_of(env), scenario())
+    local = {**env, "TZ": "America/Los_Angeles"}
+    code, out, err = show(local, "--work", "RUN-1", "--offline")
+    assert code == 0, err
+    _, chart, _ = gantt(local, "--work", "RUN-1", "--offline")
+    assert [(r["name"], r["dur"], r["status"]) for r in rows(out)] == [
+        (r["name"], r["dur"], r["status"]) for r in rows(chart)
+    ]
+    lines = fence(out)
+    axis = next(line for line in lines if "09:00Z" in line)
+    assert "12:00Z" in axis
+    assert lines.index(axis) < lines.index("SESSIONS")
+    assert "Reconcile:" in out.splitlines()

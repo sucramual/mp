@@ -15,10 +15,10 @@ the program only.
 Every idle gap longer than GAP_ANOMALY that no wait span covers is `idle`.
 
 Output. One `text` fence: the run window and totals, the wall time and span coverage, GAPS (grouped by kind and
-key, most costly first), RUN SHAPE (agent spans), and SESSIONS. Then Reconcile (gaps that no note answers), PRs
-(with GitHub state unless --offline), and Parks. Every time is UTC. `--gantt` prints the bar chart of spans
-instead, and `--timeline` the transcript timeline of each session. Prompts, command text past the program, and
-identity attributes are never printed.
+key, most costly first), RUN SHAPE (the bar chart of spans, its first SHAPE_ROWS rows), and SESSIONS. Then
+Reconcile (gaps that no note answers), PRs (with GitHub state unless --offline), and Parks. Every time is UTC.
+`--gantt` prints the whole bar chart alone instead, and `--timeline` the transcript timeline of each session.
+Prompts, command text past the program, and identity attributes are never printed.
 
 Exit 0 when anything matched, 1 when nothing matched, 2 for a usage error.
 """
@@ -45,7 +45,7 @@ NOTE_BEFORE = 2 * MIN
 NOTE_AFTER = 10 * MIN
 NAME_LIMIT = 32
 GAP_ROWS = 15  # rows of the GAPS list before "… N more"
-SHAPE_ROWS = 15  # agent span rows of RUN SHAPE
+SHAPE_ROWS = 16  # chart rows of RUN SHAPE, the run row included
 SESSION_ROWS = 8
 RECOVER_WINDOW = 3  # a fail is recovered when one of this many next calls of the same tool and program succeeds
 READS = {"cat", "ls", "grep", "rg", "head", "tail"}  # a failed read is a lookup, never a gap
@@ -69,11 +69,6 @@ def fmt_duration(ns: int) -> str:
         return f"{minutes}m"
     hours, minutes = divmod(minutes, 60)
     return f"{hours}h{minutes:02d}m"
-
-
-def clock(ns: int) -> str:
-    """UTC hours and minutes, for the chart axis, which has room for 5 characters only."""
-    return datetime.fromtimestamp(ns / 1e9, UTC).strftime("%H:%M")
 
 
 def utc(ns: int) -> str:
@@ -550,14 +545,14 @@ def axis_lines(layout: Layout, t0: int, t1: int, width: int) -> list[str]:
             used[at + offset] = True
         return True
 
-    place(clock(t0), 0)
-    place(clock(t1), width - 5)
+    place(utc(t0), 0)
+    place(utc(t1), width - 6)
     footnotes = []
     for start, end, column in layout.gaps:
         label = f"┆ {fmt_duration(end - start)} idle"
         if not place(label + " ", column) and not place(label, column):
             cells[column] = "┆"
-            footnotes.append(f"┆ = {fmt_duration(end - start)} idle ({clock(start)}–{clock(end)})")
+            footnotes.append(f"┆ = {fmt_duration(end - start)} idle ({utc(start)}–{utc(end)})")
     return ["".join(cells).rstrip(), *footnotes]
 
 
@@ -877,8 +872,12 @@ def gantt_lines(
     activity: list[Interval],
     waits_all: list[Interval],
     width: int,
+    limit: int | None = None,
 ) -> list[str]:
-    """The bar chart of `--gantt`: one row per agent span and per session with native spans, then the axis."""
+    """The bar chart: one row per agent span and per session with native spans, then the axis.
+
+    With `limit`, only the first `limit` rows print, then one line that names the rest; `--gantt` prints them all.
+    """
     layout = build_layout(t0, t1, activity, width)
 
     def span_interval(span: AgentSpan) -> Interval:
@@ -937,6 +936,8 @@ def gantt_lines(
         duration=t1 - t0,
     )
     rows.insert(0, root)
+    hidden = len(rows) - limit if limit is not None and len(rows) > limit else 0
+    rows = rows[: len(rows) - hidden]
     name_width = min(NAME_LIMIT, max(len(row.name) for row in rows))
     out = []
     for row in rows:
@@ -945,7 +946,7 @@ def gantt_lines(
         out.append(line + (f" {row.status}" if row.status else ""))
     axis = axis_lines(layout, t0, t1, len(layout.columns))
     out.append(" " * (name_width + 2) + axis[0])
-    return out + axis[1:]
+    return out + axis[1:] + ([f"… {hidden} more rows (--gantt)"] if hidden else [])
 
 
 def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: list[dict[str, Any]]) -> list[str]:
@@ -1001,44 +1002,6 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
     if len(ranked) > GAP_ROWS:
         out.append(f"  … {len(ranked) - GAP_ROWS} more")
     return out or ["  none"]
-
-
-def shape_lines(spans: list[AgentSpan], t1: int) -> list[str]:
-    """RUN SHAPE: the agent spans as a tree, one line each, in UTC."""
-    by_ident = {(span.scope, span.ident): span for span in spans}
-    depth_of: dict[int, int] = {}
-
-    def depth(span: AgentSpan, seen: frozenset[int] = frozenset()) -> int:
-        parent = by_ident.get((span.scope, span.parent)) if span.parent else None
-        if parent is None or parent is span or id(parent) in seen:
-            return 0
-        return 1 + depth(parent, seen | {id(span)})
-
-    ordered: list[AgentSpan] = []
-    children: dict[int, list[AgentSpan]] = {}
-    for span in spans:
-        depth_of[id(span)] = depth(span)
-        parent = by_ident.get((span.scope, span.parent)) if span.parent else None
-        if depth_of[id(span)] and parent is not None:
-            children.setdefault(id(parent), []).append(span)
-
-    def walk(span: AgentSpan) -> None:
-        ordered.append(span)
-        for child in children.get(id(span), []):
-            walk(child)
-
-    for span in spans:
-        if not depth_of[id(span)]:
-            walk(span)
-    out = []
-    for span in ordered[:SHAPE_ROWS]:
-        end = span.end if span.end is not None else t1
-        until = utc(span.end) if span.end is not None else "…"
-        name = "  " * depth_of[id(span)] + span.name
-        out.append(f"  {name}  {utc(span.start)}–{until}  {fmt_duration(max(0, end - span.start))}  {span.status}")
-    if len(ordered) > SHAPE_ROWS:
-        out.append(f"  … {len(ordered) - SHAPE_ROWS} more spans (--gantt)")
-    return out or ["  no agent spans"]
 
 
 def run(args: argparse.Namespace) -> int:
@@ -1193,7 +1156,7 @@ def run(args: argparse.Namespace) -> int:
         "GAPS (cost = wait time)",
         *gap_lines(anomalies, notes, friction),
         "RUN SHAPE",
-        *shape_lines(spans, t1),
+        *gantt_lines(label, spans, sessions, t0, t1, activity, waits_all, width, limit=SHAPE_ROWS),
         "SESSIONS",
     ]
     tools = {data.sid: data.tool for data in sessions}
@@ -1213,7 +1176,7 @@ def run(args: argparse.Namespace) -> int:
         out.append("  " + "  ".join(parts))
     if len(ordered) > SESSION_ROWS:
         out.append(f"  … {len(ordered) - SESSION_ROWS} more sessions")
-    out += ["more: --timeline (transcript events of each session) | --gantt (bar chart of spans)", "```", ""]
+    out += ["more: --timeline (transcript events of each session) | --gantt (the whole chart alone)", "```", ""]
 
     if unanswered:
         out.append("Reconcile:")

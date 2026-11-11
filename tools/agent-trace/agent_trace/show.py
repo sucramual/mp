@@ -662,15 +662,18 @@ def transcript_fallback(sid: str) -> list[str]:
     return [f"Transcript timeline for {sid}:", *stdout.rstrip("\n").splitlines()]
 
 
-# The fix target of each wait cause, by the start of the cause: where a change would shorten that wait.
+# The fix target of each wait, by its cause and ask class: where a change would shorten that wait. The first row
+# whose cause starts the wait's cause wins, so a row with a class comes before the row of its cause alone.
 FIX_TARGETS = (
-    ("wait on merge", "Marcus merges sooner, or a merge grant at intake"),
-    ("wait on Marcus: merge", "Marcus merges sooner, or a merge grant at intake"),
-    ("wait on Marcus", "ask at intake (neo, matrix)"),
-    ("wait on router", "the router answers sooner (matrix)"),
-    ("wait on another session", "the router heartbeat (matrix)"),
-    ("background task", "a wait span around the watch (neo)"),
-    ("context compaction", "the harness: no fix in the skills"),
+    ("wait on merge", "Marcus merge step"),
+    ("wait on Marcus: merge", "merge rule: the PR parks for Marcus"),
+    ("wait on Marcus: access", "intake grants the access"),
+    ("wait on Marcus: scope", "brief or ticket names the scope"),
+    ("wait on Marcus", "brief or ticket names the default"),
+    ("wait on router", "matrix: router answers or sets a decision default"),
+    ("wait on another session", "matrix: router heartbeat"),
+    ("background task", "neo: wait span around the watch"),
+    ("context compaction", "harness"),
 )
 WAIT_CAUSES = {
     "peer": "wait on router",
@@ -680,27 +683,33 @@ WAIT_CAUSES = {
 }
 
 
+def fix_target(cause: str) -> str:
+    """The fix target of a wait cause, from FIX_TARGETS, or "" when the cause has none."""
+    return next((fix for prefix, fix in FIX_TARGETS if cause.startswith(prefix)), "")
+
+
 def gap_cause(gap: dict[str, Any], start: int, merges: list[Merge]) -> tuple[str, str]:
     """The cause of a transcript gap and the words that it matched: ("", "") when the gap stays unexplained.
 
     In order: the time between a park and the merge of its PR; a message that Marcus typed; an ask in the last
-    assistant text, matched by words and marked so; then the event that ended the gap. A park whose merge time is
-    unknown, such as offline, keeps the gap unexplained, so the merge time is never guessed.
+    assistant text, matched by words and marked so; then the event that ended the gap. `merges` holds only parks
+    whose merge time is known: transcript_anomalies handles a park with an unknown merge time.
     """
     for parked, merged in merges:
-        if parked <= start and (merged is None or start < merged):
-            return ("wait on merge", "") if merged is not None else ("", "")
+        if merged is not None and parked <= start < merged:
+            return "wait on merge", ""
     ask = gap.get("ask") if isinstance(gap.get("ask"), dict) else None
     words = ""
     if ask:
-        words = f'"{ask.get("who")}"' + (f' + "{ask.get("word")}"' if ask.get("word") else "")
+        words = 'matched "' + str(ask.get("who")) + '"' + (f' + "{ask.get("word")}"' if ask.get("word") else "")
     ended = str(gap.get("ended_by"))
     if ended == "user":
         return f"wait on Marcus: {ask.get('class') if ask else 'reply'}", words
     if ask:
         who = "Marcus" if "marcus" in str(ask.get("who")).lower() else "router"
         return f"wait on {who}: {ask.get('class')} (by words)", words
-    return WAIT_CAUSES.get(ended, ""), ""
+    woke = str(gap.get("woke_by") or "")
+    return WAIT_CAUSES.get(ended, ""), (f"from {woke}" if woke else "")
 
 
 def transcript_anomalies(
@@ -779,6 +788,7 @@ def transcript_anomalies(
         end = iso_ns(loop.get("last")) or start
         detail = f"{program(str(loop.get('label') or '?'))} x{loop.get('count')} (polling)"
         found.append(Anomaly(f"{prefix}-idle-{hms(start)}", "idle", start, end, sid, detail))
+    used: set[int] = set()  # the parks with an unknown merge time that a gap already stands for
     for gap in report.get("gaps") or []:
         start, end = iso_ns(gap.get("start")), iso_ns(gap.get("end"))
         if not start or not end:
@@ -791,6 +801,15 @@ def transcript_anomalies(
         if gap.get("cause") == "permission":
             detail = f"{fmt_duration(end - start)} idle (permission wait)"
             found.append(Anomaly(f"{prefix}-gap-{hms(start)}", "idle", start, end, sid, detail))
+            continue
+        unknown = next((p for p, merged in merges or [] if merged is None and p <= start and p not in used), None)
+        if unknown is not None:
+            # The first gap after a park whose merge time is unknown (offline, gh failed, or not merged) may be the
+            # wait on that merge: it stays unexplained, so the merge time is never guessed.
+            used.add(unknown)
+            found.append(
+                Anomaly(f"{prefix}-gap-{hms(start)}", "idle", start, end, sid, f"{fmt_duration(end - start)} idle")
+            )
             continue
         cause, words = gap_cause(gap, start, merges or [])
         kind, detail = ("wait", cause) if cause else ("idle", f"{fmt_duration(end - start)} idle")
@@ -1056,10 +1075,10 @@ def gap_lines(anomalies: list[Anomaly], notes: list[dict[str, Any]], friction: l
     for group in groups.values():
         group[1] = measure(group[1])
         if group[3]:
-            # The words that matched, so that Marcus can judge a cause that comes from words: at most two.
-            group[2] += ", matched " + "; ".join(group[3][:2]) + (" …" if len(group[3]) > 2 else "")
+            # The words that matched, or the session that the wait ended on: at most two, so Marcus can judge them.
+            group[2] += ", " + "; ".join(group[3][:2]) + (" …" if len(group[3]) > 2 else "")
     for (kind, key), group in groups.items():
-        target = next((fix for cause, fix in FIX_TARGETS if key.startswith(cause)), None) if kind == "wait" else None
+        target = fix_target(key) if kind == "wait" else ""
         if target:
             group[2] += f" → {target}"
     ranked = sorted(groups.items(), key=lambda item: (-item[1][1], -item[1][0], item[0][0], item[1][2]))
@@ -1076,13 +1095,13 @@ def park_merges(spans: list[AgentSpan], prs: list[dict[str, Any]], offline: bool
     """The (park, merge) times of each session's parked PRs, found by the SHA in the park note.
 
     The merge time comes from the hook record of the merge, else from GitHub `mergedAt` of the run's PR that has
-    that commit. Offline, a park with no hook record has an unknown merge time (None). Online, a park whose SHA is in
-    no PR of the run is left out.
+    that commit. Offline or when a gh call failed, a park with no hook record has an unknown merge time (None), and
+    so has a PR that has not merged. Online, a park whose SHA is in no PR of the run is left out.
     """
     urls = list(dict.fromkeys(str(attrs_of(r).get("agent_trace.pr_url") or "") for r in prs))
     found: dict[str, list[Merge]] = {}
     for span in spans:
-        sha = re.search(r"\b[0-9a-f]{7,40}\b", span.note)
+        sha = re.search(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b", span.note)
         if span.status != "parked" or span.end is None or not span.session or sha is None:
             continue
         merged = next(
@@ -1095,9 +1114,11 @@ def park_merges(spans: list[AgentSpan], prs: list[dict[str, Any]], offline: bool
             None,
         )
         known = merged is not None
+        failed = False  # a gh call failed, so the PR of this park may be among the PRs it did not answer for
         if not known and not offline:
             for url in (u for u in urls if u.startswith("https://github.com/")):
                 answer = gh_view(url)
+                failed = failed or not answer.startswith("{")
                 data = json.loads(answer) if answer.startswith("{") else {}
                 commits = data.get("commits")
                 oids = (
@@ -1108,7 +1129,7 @@ def park_merges(spans: list[AgentSpan], prs: list[dict[str, Any]], offline: bool
                 if any(oid.startswith(sha.group(0)) for oid in oids):
                     merged, known = iso_ns(data.get("mergedAt")), True
                     break
-        if known or offline:
+        if known or offline or failed:
             found.setdefault(span.session, []).append((span.end, merged))
     return found
 

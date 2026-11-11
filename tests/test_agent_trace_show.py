@@ -15,8 +15,10 @@ Wait for CI (kind wait) 11:51-11:54 parked; Deploy from 11:56, never ended (open
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -1013,15 +1015,19 @@ def causes_transcript(projects: Path) -> None:
         return {"type": role, "timestamp": when, "sessionId": CA, "message": {"role": role, "content": text}}
 
     lines = [
-        said("user", "2026-10-29T10:00:00Z", "go"),
+        said("user", "2026-10-29T10:00:00Z", "<system-reminder> Linked sessions now: ch2 = local_ab-1 (working)"),
         said("assistant", "2026-10-29T10:00:05Z", "Waiting for CI."),
         said("user", "2026-10-29T10:20:05Z", "<task-notification><summary>CI done</summary></task-notification>"),
         said("assistant", "2026-10-29T10:20:10Z", "CI passed. The PR stays parked for you to queue."),
         said("user", "2026-10-29T10:40:10Z", "<task-notification><summary>watcher</summary></task-notification>"),
         said("assistant", "2026-10-29T10:40:15Z", "I sent my report."),
-        said("user", "2026-10-29T11:00:15Z", '<cross-session-message from="r">ok</cross-session-message>'),
+        said(
+            "user",
+            "2026-10-29T11:00:15Z",
+            '<cross-session-message from="r" from-name="Matrix R">ok</cross-session-message>',
+        ),
         said("assistant", "2026-10-29T11:00:20Z", "Noted."),
-        said("user", "2026-10-29T11:20:20Z", "<system-reminder> Linked sessions now (status): x </system-reminder>"),
+        said("user", "2026-10-29T11:20:20Z", "<system-reminder> Linked sessions now: ch2 = local_ab-1 (done, PR #7)"),
         said("assistant", "2026-10-29T11:20:25Z", "Shall I drop the old branch? Marcus decides the scope."),
         said("user", "2026-10-29T11:40:25Z", "yes, drop it"),
         said("assistant", "2026-10-29T11:40:30Z", "Dropped."),
@@ -1030,6 +1036,7 @@ def causes_transcript(projects: Path) -> None:
         said("assistant", "2026-10-29T12:20:35Z", "Resuming."),
         said("assistant", "2026-10-29T12:25:35Z", "Parked."),
         said("assistant", "2026-10-29T12:50:40Z", "Merged, verifying."),
+        said("user", "2026-10-29T13:10:40Z", "looks good"),
     ]
     folder = projects / "-Users-x-repo"
     folder.mkdir(parents=True, exist_ok=True)
@@ -1063,19 +1070,21 @@ def test_idle_gaps_get_a_cause_from_the_event_that_ends_them(env: dict[str, str]
     code, out, err = show({**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}, "--work", "RUN-4", "--offline")
     assert code == 0, err
     gaps = section(out, "GAPS (cost = wait time)")
-    assert "wait     1×  20m  background task (CI or watcher) → a wait span around the watch (neo)" in gaps
+    router = "→ matrix: router answers or sets a decision default"
+    assert "wait     1×  20m  background task (CI or watcher) → neo: wait span around the watch" in gaps
+    assert f'wait     1×  20m  wait on router: merge (by words), matched "parked for you" + "queue" {router}' in gaps
+    # The peer and the linked session that ended a gap are named: the sender, or the session whose state changed.
+    assert f"wait     1×  20m  wait on router, from Matrix R {router}" in gaps
+    assert "wait     1×  20m  wait on another session, from ch2 (done, PR #7) → matrix: router heartbeat" in gaps
     assert (
-        'wait     1×  20m  wait on router: merge (by words), matched "parked for you" + "queue"'
-        " → the router answers sooner (matrix)"
+        'wait     1×  20m  wait on Marcus: scope, matched "Marcus decides" + "decides"'
+        " → brief or ticket names the scope"
     ) in gaps
-    assert "wait     1×  20m  wait on router → the router answers sooner (matrix)" in gaps
-    assert "wait     1×  20m  wait on another session → the router heartbeat (matrix)" in gaps
-    assert (
-        'wait     1×  20m  wait on Marcus: scope, matched "Marcus decides" + "decides" → ask at intake (neo, matrix)'
-    ) in gaps
-    assert "wait     1×  20m  context compaction → the harness: no fix in the skills" in gaps
+    assert "wait     1×  20m  context compaction → harness" in gaps
     # The gap that the agent ended by itself has no cause. Offline, the gap after the park has no merge time, so
-    # it is not guessed: both stay unexplained and in Reconcile, and no wait is.
+    # it is not guessed: both stay unexplained and in Reconcile, and no wait is. The park holds only the first gap
+    # after it: the later gap that Marcus ended still has its cause.
+    assert "wait     1×  20m  wait on Marcus: reply → brief or ticket names the default" in gaps
     assert "idle     2×  45m  unexplained" in gaps
     assert [(e[0], e[2]) for e in reconcile(out)] == [
         ("tx-cccccccc-gap-120035", "idle"),
@@ -1098,26 +1107,24 @@ def test_gap_between_a_park_and_its_merge_is_a_wait_on_merge(
         "state": "MERGED",
         "headRefOid": "abc1234" + "0" * 33,
         "mergeCommit": {"oid": MERGE},
-        "mergedAt": "2026-10-29T13:00:00Z",
+        "mergedAt": "2026-10-29T12:50:00Z",
         "commits": [{"oid": "0" * 40}, {"oid": "abc1234" + "0" * 33}],
     }
     fake_exe("gh", f"""printf '%s\\n' "$*" >>"$HOME/gh.log"\nprintf '%s' '{json.dumps(data)}'\n""")
     code, out, err = show(penv, "--work", "RUN-4")
     assert code == 0, err
     gaps = section(out, "GAPS (cost = wait time)")
-    assert "wait     1×  25m  wait on merge → Marcus merges sooner, or a merge grant at intake" in gaps
+    assert "wait     1×  25m  wait on merge → Marcus merge step" in gaps
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
     # One gh call for the PR, shared by the PR list and the park lookup.
     assert len((isolated_env.home / "gh.log").read_text().splitlines()) == 1
 
     # Offline, the hook record of the merge gives the merge time instead.
-    merged = pr("merge", ns("2026-10-29T13:00:00Z"), head="abc1234" + "0" * 33)
+    merged = pr("merge", ns("2026-10-29T12:50:00Z"), head="abc1234" + "0" * 33)
     merged["attrs"].update({"run.ticket": "RUN-4", "agent_trace.scope": "RUN-4", "session.id": CA})
     causes_store(env, merged)
     _, out, _ = show(penv, "--work", "RUN-4", "--offline")
-    assert "wait     1×  25m  wait on merge → Marcus merges sooner, or a merge grant at intake" in section(
-        out, "GAPS (cost = wait time)"
-    )
+    assert "wait     1×  25m  wait on merge → Marcus merge step" in section(out, "GAPS (cost = wait time)")
     assert [e[0] for e in reconcile(out)] == ["tx-cccccccc-gap-120035"]
 
 
@@ -1129,8 +1136,32 @@ def test_ask_span_is_a_wait_on_marcus_with_its_class(env: dict[str, str]) -> Non
     end = agent("ask-1", "end", at(10, 45), **{"agent_trace.status": "ok"})
     write_store(state_of(env), [*scenario(), start, end])
     _, out, _ = show(env, "--work", "RUN-1", "--offline")
-    assert "wait     1×  45m  wait on Marcus: merge → Marcus merges sooner, or a merge grant at intake" in section(
+    assert "wait     1×  45m  wait on Marcus: merge → merge rule: the PR parks for Marcus" in section(
         out, "GAPS (cost = wait time)"
     )
     assert sid("RUN-1", "ask-1") not in [e[0] for e in reconcile(out)]
     assert reconcile(out)
+
+
+# Protects G10 part (c): every wait cause and ask class has its fix target, from one table.
+# Bug caught: a new cause or class prints no "→" target, so its GAPS line names no fix.
+@pytest.mark.parametrize(
+    ("cause", "target"),
+    [
+        ("wait on merge", "Marcus merge step"),
+        ("wait on Marcus: merge", "merge rule: the PR parks for Marcus"),
+        ("wait on Marcus: access (by words)", "intake grants the access"),
+        ("wait on Marcus: scope", "brief or ticket names the scope"),
+        ("wait on Marcus: info", "brief or ticket names the default"),
+        ("wait on Marcus: reply", "brief or ticket names the default"),
+        ("wait on router: info (by words)", "matrix: router answers or sets a decision default"),
+        ("wait on router", "matrix: router answers or sets a decision default"),
+        ("wait on another session", "matrix: router heartbeat"),
+        ("background task (CI or watcher)", "neo: wait span around the watch"),
+        ("context compaction", "harness"),
+    ],
+)
+def test_each_wait_cause_has_a_fix_target(cause: str, target: str) -> None:
+    sys.path.insert(0, str(REPO_ROOT / "tools" / "agent-trace"))
+    show_module = importlib.import_module("agent_trace.show")
+    assert show_module.fix_target(cause) == target

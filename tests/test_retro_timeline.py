@@ -464,3 +464,31 @@ def test_a_call_with_the_same_label_but_other_input_does_not_recover_a_fail(tmp_
 
     assert fail["label"] == "Bash(python3 -m)"
     assert fail["recovered"] is False
+
+
+def local_line(role: str, when: str, text: str) -> str:
+    return json.dumps(
+        {"type": role, "timestamp": when, "sessionId": "s-ask", "message": {"role": role, "content": text}}
+    )
+
+
+# Protects the ask of a gap: only words that name a wait on a person count, and a reply ends the ask.
+# Bug caught: "until you install jq" reads as a wait on the router; or an ask that Marcus already answered still
+# explains a later gap, so that gap leaves Reconcile on old words.
+def test_gap_ask_needs_a_wait_on_a_person_and_a_reply_ends_it(tmp_path: Path) -> None:
+    path = tmp_path / "s-ask.jsonl"
+    lines = [
+        local_line("user", "2026-10-29T10:00:00Z", "go"),
+        local_line("assistant", "2026-10-29T10:00:05Z", "Tests will keep failing until you install jq."),
+        local_line("user", "2026-10-29T10:20:05Z", "<task-notification>done</task-notification>"),
+        local_line("assistant", "2026-10-29T10:20:10Z", "Waiting for Marcus to merge."),
+        local_line("user", "2026-10-29T10:40:10Z", "merged"),
+        local_line("user", "2026-10-29T11:00:10Z", "<task-notification>watch</task-notification>"),
+    ]
+    path.write_text("\n".join(lines) + "\n")
+    gaps = report(path)["gaps"]
+    assert [(g["ended_by"], g["ask"]) for g in gaps] == [
+        ("background", None),
+        ("user", {"class": "merge", "who": "Waiting for Marcus", "word": "merge"}),
+        ("background", None),
+    ]

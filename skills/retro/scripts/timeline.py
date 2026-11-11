@@ -52,7 +52,8 @@ DENIED_REASON_RE = re.compile(r"Reason: \[([^\]]+)\]")
 HOOK_RE = re.compile(r"^(?:\w+:\w+ )?hook error: (?:\[([^\]]*)\]|([^:\n]+)):")
 # The words of an ask: a sentence that says the session waits on Marcus, the router, or "you" (its reader).
 ASK_WHO_RE = re.compile(
-    r"\b(?:wait(?:s|ing)?\s+(?:for|on)|parked\s+(?:for|to|with)|until)\s+(?:the\s+)?(Marcus|router|you)\b"
+    r"\b(?:wait(?:s|ing)?\s+(?:for|on)|parked\s+(?:for|to|with))\s+(?:the\s+)?(Marcus|router|you)\b"
+    r"|\buntil\s+(?:the\s+)?(Marcus|router)\b"
     r"|\b(Marcus|router)\s+(?:decides|has to|must|needs to|confirms|chooses)\b",
     re.IGNORECASE,
 )
@@ -67,6 +68,9 @@ ASK_CLASSES = (
     ("info", re.compile(r"\b(?:confirms?|answer|reply|approve|decline)\b|\?", re.IGNORECASE)),
 )
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+# One session in a linked-sessions reminder: its name and its state, such as `ch2 = local_ab12 (done, PR #7)`.
+LINKED_RE = re.compile(r"([\w.-]+) = local_[\w-]+ \(([^)]*)\)")
+PEER_RE = re.compile(r'<cross-session-message[^>]*\bfrom-name="([^"]*)"')
 
 
 class InputError(Exception):
@@ -334,10 +338,10 @@ def ended_by(event: Event) -> str | None:
     text = (user_text(event) or "").lstrip()
     if not text:
         return None
+    if "<cross-session-message" in text:
+        return "peer"  # A message from another session, alone or after a linked-sessions reminder.
     if text.startswith("<task-notification>"):
         return "background"
-    if text.startswith("<cross-session-message"):
-        return "peer"
     if text.startswith("<system-reminder>") and "Linked sessions now" in text[:200]:
         return "linked"
     if text.startswith("This session is being continued"):
@@ -345,6 +349,24 @@ def ended_by(event: Event) -> str | None:
     if text.startswith(("<", "[")):
         return None  # Other harness text, such as a command or a reminder.
     return "user"
+
+
+def linked_states(text: str) -> dict[str, str]:
+    """The state of each session in a linked-sessions reminder, by session name; empty for other text."""
+    return dict(LINKED_RE.findall(text)) if "Linked sessions now" in text[:300] else {}
+
+
+def woke_by(event: Event, kind: str | None, linked: dict[str, str]) -> str:
+    """Who the event that ended a gap came from: the peer session's name, or the linked sessions whose state changed
+    since the last reminder (`linked`). Empty when the event does not say."""
+    text = user_text(event) or ""
+    if kind == "peer":
+        peer = PEER_RE.search(text)
+        return peer.group(1) if peer else ""
+    if kind == "linked":
+        now = linked_states(text)
+        return "; ".join(f"{name} ({state})" for name, state in now.items() if linked.get(name) != state)
+    return ""
 
 
 def ask_of(text: str) -> dict[str, str] | None:
@@ -415,6 +437,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
     in_turn = False
     previous: Event | None = None
     said = ""  # the last assistant text so far: the ask that a gap after it waits on
+    linked: dict[str, str] = {}  # the session states of the last linked-sessions reminder
 
     for index, event in enumerate(events):
         if previous is not None:
@@ -433,6 +456,7 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                         and any(block.get("type") == "tool_use" for block in content_blocks(previous)),
                         "quote": describe(previous),
                         "ended_by": ended_by(event),
+                        "woke_by": woke_by(event, ended_by(event), linked),
                         "ask": ask_of(said),
                     }
                 )
@@ -518,6 +542,10 @@ def analyse(events: list[Event], session: str, gap_minutes: float) -> Report:
                 }
             )
         said = assistant_text(event).strip() or said
+        if ended_by(event) in ("user", "peer"):
+            said = ""  # A reply answered the ask, so a later gap does not wait on it.
+        if event.kind == "user":
+            linked = linked_states(user_text(event) or "") or linked
         previous = event
 
     flush_run()

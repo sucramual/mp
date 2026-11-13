@@ -621,6 +621,23 @@ def test_fallback_anomalies_need_answers_before_reconcile_none(env: dict[str, st
     assert "Reconcile: none" in out.splitlines()
 
 
+# Protects the answer step for transcript items: `note none` through the CLI takes a `tx-` ref, so a run whose sessions
+# have only transcripts can reach `Reconcile: none`.
+# Bug caught: the ref pattern took only native span ids, so the CLI rejected every `tx-` ref, and the tests above
+# missed it because they write the note record directly.
+def test_cli_note_none_answers_transcript_items_to_reconcile_none(env: dict[str, str], tmp_path: Path) -> None:
+    projects = tmp_path / "projects"
+    fallback_transcript(projects)
+    penv = {**env, "AGENT_TRACE_CLAUDE_PROJECTS": str(projects)}
+    fallback_store(env)
+    answer = run(
+        ["note", "none", "--work", "RUN-3", *[f"--ref={ref}" for ref in FB_REFS]], {**env, "AGENT_TRACE_SESSION": FB}
+    )
+    assert answer.returncode == 0, answer.stderr
+    _, out, _ = show(penv, "--work", "RUN-3", "--offline")
+    assert "Reconcile: none" in out.splitlines()
+
+
 def test_fallback_gap_inside_a_wait_span_is_not_an_anomaly(env: dict[str, str], tmp_path: Path) -> None:
     projects = tmp_path / "projects"
     fallback_transcript(projects)

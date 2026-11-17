@@ -18,7 +18,7 @@ When Marcus granted queue authority for a PR at intake, its worker parks the PR 
 
 1. Read the PR state from GitHub. Check that the head is the reviewed SHA and that the ready check holds on it.
 2. Check that each person that the PR needs has signed off, with the link in the plan file. When a link is missing, ask Marcus. Do not assume agreement.
-3. Queue the PR with the pinned call that the merge rules name for the repository. Tell the worker, so that it starts its checks after the merge.
+3. Queue the PR with the pinned call that the merge rules name for the repository. A `gh stack` PR refuses GraphQL `enqueuePullRequest`, so queue it with `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/merge-async -f sha=<reviewed SHA> -f merge_action=merge_queue`. A 202 means accepted only, so confirm `isInMergeQueue`. Tell the worker, so that it starts its checks after the merge.
 
 A grant counts only in a repository whose employer overlay merge rule accepts it. In every other repository, the PR parks for Marcus. A grant does not cover a Spacelift confirm, a head that changed after review, or a PR whose files grew beyond its PR brief. Send those to Marcus.
 

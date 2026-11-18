@@ -48,25 +48,50 @@ ALLOWED_REVIEWER_KEYS = {"login", "retrigger", "doneReaction", "doneComment", "t
 REACTIONS = {"+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"}
 
 
+def _check_reviewer_entry(repo: str, entry: object) -> None:
+    # An entry is one reviewer, or a list when several reviewers review the repository.
+    reviewers = entry if isinstance(entry, list) else [entry]
+    assert reviewers, f"{repo} should name at least one reviewer"
+    logins = [reviewer.get("login") for reviewer in reviewers if isinstance(reviewer, dict)]
+    assert len(set(logins)) == len(reviewers), f"{repo} should list each reviewer once, as an object"
+    for reviewer in reviewers:
+        assert set(reviewer) <= ALLOWED_REVIEWER_KEYS, f"{repo} should use only known keys"
+        assert isinstance(reviewer.get("login"), str) and reviewer["login"], f"{repo} should name a login"
+        if "retrigger" in reviewer:
+            assert isinstance(reviewer["retrigger"], str) and reviewer["retrigger"]
+        if "doneReaction" in reviewer:
+            assert reviewer["doneReaction"] in REACTIONS
+        if "threadRepliesOnly" in reviewer:
+            assert isinstance(reviewer["threadRepliesOnly"], bool), f"{repo} threadRepliesOnly should be a boolean"
+        if "doneComment" in reviewer:
+            # Without {head}, a comment about an older head would count as coverage of the new one.
+            assert isinstance(reviewer["doneComment"], str) and "{head}" in reviewer["doneComment"], (
+                f"{repo} doneComment should name the head with {{head}}"
+            )
+
+
 def test_reviewers_file_has_the_shape_the_ready_check_reads() -> None:
     # A bad file names no reviewer, so every PR ends ready with gaps, or a reaction never counts as coverage.
     reviewers = json.loads(REVIEWERS.read_text(encoding="utf-8"))
     assert isinstance(reviewers, dict) and reviewers, "reviewers.json should be a non-empty object"
     for repo, entry in reviewers.items():
         assert repo.count("/") == 1, f"{repo} should be an owner/repo key"
-        assert set(entry) <= ALLOWED_REVIEWER_KEYS, f"{repo} should use only known keys"
-        assert isinstance(entry.get("login"), str) and entry["login"], f"{repo} should name a login"
-        if "retrigger" in entry:
-            assert isinstance(entry["retrigger"], str) and entry["retrigger"]
-        if "doneReaction" in entry:
-            assert entry["doneReaction"] in REACTIONS
-        if "threadRepliesOnly" in entry:
-            assert isinstance(entry["threadRepliesOnly"], bool), f"{repo} threadRepliesOnly should be a boolean"
-        if "doneComment" in entry:
-            # Without {head}, a comment about an older head would count as coverage of the new one.
-            assert isinstance(entry["doneComment"], str) and "{head}" in entry["doneComment"], (
-                f"{repo} doneComment should name the head with {{head}}"
-            )
+        _check_reviewer_entry(repo, entry)
+
+
+def test_reviewer_entry_can_list_several_reviewers() -> None:
+    # A repository that two bots review must be able to name both, so the ready check waits for each.
+    _check_reviewer_entry(
+        "acme/widgets",
+        [
+            {"login": "claude[bot]", "retrigger": "@claude review"},
+            {"login": "chatgpt-codex-connector[bot]", "doneReaction": "+1", "retrigger": "@codex review"},
+        ],
+    )
+    with pytest.raises(AssertionError):
+        _check_reviewer_entry("acme/widgets", [])
+    with pytest.raises(AssertionError):
+        _check_reviewer_entry("acme/widgets", [{"login": "a[bot]"}, {"login": "a[bot]"}])
 
 
 @pytest.mark.parametrize(
@@ -161,6 +186,10 @@ def test_reviewer_mode_has_no_separate_reference() -> None:
             "only the reviewer's own comment about this exact head may count as coverage",
         ),
         (
+            "The head is covered only when each configured reviewer covers it.",
+            "a second reviewer, such as Codex, must cover the head before ready",
+        ),
+        (
             "An agent never merges a PR that is `ready with gaps`.",
             "a PR without reviewer coverage or CI on its head must not merge",
         ),
@@ -229,3 +258,20 @@ SUMMARY_SHAPE = (
 def test_skill_inlines_the_round_summary_shape(line: str) -> None:
     assert_contains(SKILL, line, "the publish step should show the summary shape inline")
     assert_contains(ROUND_SUMMARY, line, "the inline shape should match the round-summary reference")
+
+
+def test_readme_says_an_entry_can_list_several_reviewers() -> None:
+    assert_contains(
+        README,
+        "An entry is one reviewer object, or a list of them when several reviewers review the repository.",
+        "the config, not a skill line, names each reviewer that the ready check waits for",
+    )
+
+
+def test_neo_names_no_reviewer_bot() -> None:
+    # The reviewer list in config/review-pr names the bots. A bot named in a skill line covers one caller only.
+    assert_not_contains(
+        REPO_ROOT / "skills" / "neo" / "SKILL.md",
+        "Where Codex reviews the repository",
+        "neo should read reviewers from the config",
+    )

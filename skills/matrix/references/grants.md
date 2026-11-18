@@ -8,6 +8,7 @@ In one run, two grants could never be used, because their PRs touched paths that
 
 1. Map each planned PR's files to the overlay's reserved paths and to the merge rule's conditions on paths, replies, and comments (conditions 3 to 5 of the employer merge policy).
 2. Ask once for each PR that a grant can cover, Spacelift PRs included. The Spacelift confirm stays with Marcus.
+   A grant never covers a PR that condition 3 hands off, such as a change under `.github/` or `scripts/ci/`, although the overlay lists those paths as reserved. Mark such a PR as parked for Marcus in its brief, and do not ask for its grant. In one run, a granted `.github/` PR waited 42 minutes for Marcus to queue it.
 3. Ask also for a standing grant on fix PRs inside a granted chain, which the plan cannot name yet.
 4. In each question, say which conditions still hand the PR off to Marcus, so he does not grant what the rule cannot use.
 5. Name the reply and comment conditions in each PR brief that carries a grant.

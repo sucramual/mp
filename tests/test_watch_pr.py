@@ -1,10 +1,11 @@
 """Runs the PR watcher, `skills/review-pr/scripts/watch-pr.sh`, against a fake `gh`.
 
 The watcher is the one wait for an open PR. It must end the wait on each state change that needs the
-worker, and print which one: a required check finishes, the review decision changes, a comment, review,
-or reaction arrives, the head moves, a merge conflict appears, the PR becomes ready, or it merges or
-closes. It must not end the wait on comments from bots that never need action. A failed read ends the
-wait with an error, so the agent reads again and stops on the failure instead of waiting blind.
+worker, and print which one: a required check fails, every required check has passed, the review
+decision changes, a comment, review, or reaction arrives, the head moves, a merge conflict appears, the PR
+becomes ready, or it merges or closes. A single passing check while others still run needs no worker.
+It must not end the wait on comments from bots that never need action. A failed read ends the wait with an
+error, so the agent reads again and stops on the failure instead of waiting blind.
 """
 
 from __future__ import annotations
@@ -170,16 +171,32 @@ def test_a_failed_read_ends_the_wait_with_an_error(tmp_path: Path) -> None:
     assert polls == 1, "the wait should stop at the first read"
 
 
-def test_a_finished_required_check_ends_the_wait_with_its_result(tmp_path: Path) -> None:
-    # Bug: Auto-fix wakes the run on a failure, not on a pass, so a green PR waited with nothing awake.
-    passed = pr(checks=[check("backend", "SUCCESS")])
-    result, polls = _run(tmp_path, {"graphql": passed}, change_at=3)
-    assert _events(result) == ["event: check-finished pass backend"]
+def test_a_failed_required_check_ends_the_wait_at_once(tmp_path: Path) -> None:
+    # Bug: a watcher that waits for every check to finish leaves a red PR unfixed while slow checks run.
+    base = {"graphql": pr(checks=[check("backend", None), check("e2e", None)])}
+    failed = pr(checks=[check("backend", "FAILURE"), check("e2e", None)])
+    result, polls = _run(tmp_path, {"graphql": failed}, change_at=3, base=base)
+    assert _events(result) == ["event: check-finished fail backend"]
     assert polls == 3
 
-    failed = pr(checks=[check("backend", "FAILURE")])
-    result, _ = _run(tmp_path / "second", {"graphql": failed}, change_at=2)
-    assert _events(result) == ["event: check-finished fail backend"]
+
+def test_a_pass_while_other_required_checks_run_does_not_end_the_wait(tmp_path: Path) -> None:
+    # Bug (/matrix run, 2026-11-19): the watcher woke a /neo worker on each of 22 passing checks. Each wake
+    # cost a turn, and Claude Code posted a "waiting on its own background work" notice to the coordinator.
+    base = {"graphql": pr(checks=[check("backend", None), check("e2e", None)])}
+    one_passed = pr(checks=[check("backend", "SUCCESS"), check("e2e", None)])
+    result, polls = _run(tmp_path, {"graphql": one_passed}, change_at=2, base=base, timeout=1)
+    assert _events(result) == ["event: timeout"]
+    assert polls >= 2, "the wait should have seen the passed check before it timed out"
+
+
+def test_the_last_required_check_passing_ends_the_wait(tmp_path: Path) -> None:
+    # Bug: Auto-fix wakes the run on a failure, not on a pass, so a green PR waited with nothing awake.
+    base = {"graphql": pr(checks=[check("backend", "SUCCESS"), check("e2e", None)])}
+    all_passed = pr(checks=[check("backend", "SUCCESS"), check("e2e", "SUCCESS")])
+    result, polls = _run(tmp_path, {"graphql": all_passed}, change_at=3, base=base)
+    assert _events(result) == ["event: checks-passed"]
+    assert polls == 3, "the first read sees e2e still running, so the wait goes on until it passes"
 
 
 def test_a_check_that_is_not_required_does_not_end_the_wait(tmp_path: Path) -> None:
@@ -255,7 +272,21 @@ def test_a_change_between_two_runs_ends_the_next_run_at_once(tmp_path: Path) -> 
 
     finished = {"graphql": pr(checks=[check("backend", "SUCCESS")])}
     result, polls = _run(tmp_path / "second", {}, change_at=999, base=finished, state_dir=state)
-    assert _events(result) == ["event: check-finished pass backend"]
+    assert _events(result) == ["event: checks-passed"]
+    assert polls == 1, "the run should end on its first read"
+
+
+def test_checks_that_pass_on_a_new_head_between_two_runs_end_the_next_run(tmp_path: Path) -> None:
+    # Bug a careless fix makes: comparing only "all passed" before and now hides a new head whose checks
+    # all passed while the worker was busy, because the old head had also passed.
+    state = tmp_path / "state"
+    green_old = {"graphql": pr(checks=[check("backend", "SUCCESS")])}
+    result, _ = _run(tmp_path / "first", {}, change_at=999, base=green_old, state_dir=state)
+    assert _events(result) == ["event: checks-passed"]
+
+    green_new = {"graphql": pr(head="def", checks=[check("backend", "SUCCESS")])}
+    result, polls = _run(tmp_path / "second", {}, change_at=999, base=green_new, state_dir=state, timeout=1)
+    assert _events(result) == ["event: checks-passed"]
     assert polls == 1, "the run should end on its first read"
 
 

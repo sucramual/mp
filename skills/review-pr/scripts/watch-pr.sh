@@ -3,12 +3,15 @@
 #
 # Polls the PR every 30 seconds (WATCH_PR_POLL_SECONDS) and exits 0 on the first change that needs the
 # agent. It prints one `event: <kind> [detail]` line for each change it saw in that poll:
-#   check-finished pass|fail <name>   a required check finished on the current head
+#   check-finished fail <name>        a required check failed on the current head
+#   checks-passed                     every required check on the current head has passed
 #   review-decision APPROVED|CHANGES_REQUESTED
 #   comment | review | reaction       a new or edited comment, a review, or a reaction
 #   head <sha>                        the head moved
 #   conflict | ready | merged | closed
 #   timeout                           --timeout SECONDS passed with no change
+# A passing check does not end the wait while another required check still runs: the worker has nothing to
+# do until the last one passes. A failure ends it at once.
 # "ready" means open, approved or no review required, every required check passed, and mergeable.
 # A mergeable UNKNOWN read, which GitHub gives while it recomputes after the base moves, counts as no
 # change: the watcher keeps the last known mergeable and ready values until GitHub decides.
@@ -145,8 +148,22 @@ condition_events() {
   if [ "$(field "$now" ready)" = yes ] && [ "$(field "$before" ready)" != yes ]; then
     echo "event: ready"
   fi
-  printf '%s\n' "$now" | grep -E '^check [^ ]+ (pass|fail) ' | grep -Fxv -f <(printf '%s\n' "$before") |
-    sed -E 's/^check [^ ]+ ([a-z]+) (.*)$/event: check-finished \1 \2/'
+  printf '%s\n' "$now" | grep -E '^check [^ ]+ fail ' | grep -Fxv -f <(printf '%s\n' "$before") |
+    sed -E 's/^check [^ ]+ fail (.*)$/event: check-finished fail \1/'
+  if [ "$(checks "$now")" = passed ] &&
+    { [ "$(checks "$before")" != passed ] || [ "$(field "$now" head)" != "$(field "$before" head)" ]; }; then
+    echo "event: checks-passed"
+  fi
+}
+
+# Prints "passed" when the PR state $1 has required checks on its head and every one passed.
+checks() {
+  local head lines
+  head=$(field "$1" head)
+  lines=$(printf '%s\n' "$1" | grep -E "^check $head " || true)
+  if [ -n "$lines" ] && ! printf '%s\n' "$lines" | grep -qvE "^check $head pass "; then
+    echo passed
+  fi
 }
 
 # Prints an event line for each kind of new or edited item from $1 (start) to $2 (now).

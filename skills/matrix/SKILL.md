@@ -15,7 +15,7 @@ Send Marcus one message:
 - **Split.** The PR plan from [Split](#split), with each PR's dependencies and its worker.
 - **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set. Name it again only if it changes during the run.
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
-- **Access.** Do the Dependencies, Access, and Merge rules steps of the `neo` intake once here, for every repository and login that the plan needs. Set the `auth-helper` horizon to the whole plan, including the checks after the last merge. Stop on each login that is not `ok`, and handle it as [Logins](references/intake.md#logins) says. List the mutating acceptance commands for scoped allow rules, as [Allow rules](references/intake.md#allow-rules) says. Name each missing item. Do not start a worker until Marcus fixes it.
+- **Access.** Do the Dependencies, Access, and Merge rules steps of the `neo` intake once here, for every repository and login that the plan needs. Set the `auth-helper` horizon to the whole plan, including the checks after the last merge. Stop on each login that is not `ok`, and handle it as [Logins](references/intake.md#logins) says. List the mutating acceptance commands and the read-only live commands for scoped allow rules, as [Allow rules](references/intake.md#allow-rules) says. Name each missing item. Do not start a worker until Marcus fixes it.
 - **Grants.** Ask once for each authority that the plan needs, because each later ask waits for Marcus.
   - Merges: ask only in a repository whose employer overlay merge rule accepts a written grant. Map each PR's files to that rule first, then ask once for each PR it lets a grant cover, Spacelift PRs and in-chain fix PRs included, as [Intake grants](references/grants.md#intake-grants) says. Write his answer word for word in the plan file.
   - Sign-offs: name each person outside the run whose agreement a PR needs, and where the link to that agreement goes.
@@ -89,8 +89,8 @@ The gate does not replace the review bots after the PR opens. `review-pr` still 
 - Bring Marcus only the decisions that change agreed behaviour, security, scope, or a public contract. The spike router raised 7 decisions for one goal, which is too many.
 - Write each answer into the PR briefs it affects.
 - Before you explain to Marcus why the goal exists or how it fits, read the ticket's project, parent, links, and design doc. Quote the source.
-- Take each count or state that you tell Marcus, such as PRs, failures, or a Spacelift run's state, from GitHub, Linear, Spacelift, or the plan file at that moment. Check each worker claim against its source, such as GitHub, Spacelift, the worker's transcript, or the goal table's Proof column, before you pass it on. Never take it from memory or a worker note.
-- Label each estimate as an estimate, and give its basis.
+- Take each count or state that you tell Marcus, such as PRs, failures, or a Spacelift run's state, from GitHub, Linear, Spacelift, or the plan file at that moment. Check each worker claim against its source, such as GitHub, Spacelift, the worker's transcript, or the goal table's Proof column, before you pass it on. Never take it from memory or a worker note. Label each estimate as an estimate, and give its basis.
+- When a decision asks Marcus to do something, such as a manual test, give the steps, the accounts or test data it needs, and what it proves. Check that he can do it before you ask. Ask it in the session that will act on the answer: a worker does not take a relayed answer over one that Marcus gave in its own session.
 
 ## Integration
 

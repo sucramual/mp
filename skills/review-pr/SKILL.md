@@ -17,7 +17,7 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
 - Stop immediately when asked to stop background review. Make no further edits or GitHub writes.
 - Work in a clean worktree on the PR branch. Stop when it cannot fast-forward to the remote head.
 - Read with REST (`gh api repos/...`). Cloud sessions block GraphQL, which `gh pr view` uses.
-- When the repository's reviewer entry sets `threadRepliesOnly: true`, follow [Thread replies only](#thread-replies-only). It overrides every PR post in the loop.
+- When a reviewer of the repository sets `threadRepliesOnly: true`, follow [Thread replies only](#thread-replies-only). It overrides every PR post in the loop.
 
 ## Loop
 
@@ -25,7 +25,7 @@ Handle received feedback and the CI failures that this PR caused, with `gh` and 
    - **Cloud session:** subscribe to PR activity and end the turn. The next event wakes you.
    - **Claude Code, local:** the harness blocks a foreground sleep, also a chain of short sleeps. Run the PR watcher, `bash <skill-dir>/scripts/watch-pr.sh --timeout 900 <o>/<r> <pr>`, with `run_in_background: true`, then end the turn. `<skill-dir>` is the folder of this `SKILL.md`. Its exit wakes you. Do not write the loop inline: the worktree guard refuses it in an isolated agent. It prints one `event:` line for each change: a required check failed, every required check passed, the review decision changed, a new or edited comment, a review, a reaction, a new head, a conflict, ready, merged, or closed. It ignores bot status comments and your own posts, and prints `event: timeout` after 15 minutes. Exit 1 means a failed read. On any exit, read again (step 2). Never run a wait in the foreground.
    - **Codex, local:** Codex allows a foreground wait. Run `perl -e 'alarm 600; exec @ARGV' gh pr checks <pr> --watch`. macOS has no `timeout`. When you wait only for the reviewer, run `perl -e 'sleep 30'`, then read again (step 2).
-2. **Read** the head (`gh api repos/<o>/<r>/pulls/<pr> --jq .head.sha`), the review comments (`pulls/<pr>/comments`), the reviews, the issue comments, and the failing checks (`gh run view <run-id> --log-failed`). Skip your own posts and progress notices. When the reviewer in `config/review-pr/reviewers.json` (or, for a work repository, `~/.config/review-pr/work-reviewers.json`) has not covered the head after 15 minutes, post its `retrigger` text once.
+2. **Read** the head (`gh api repos/<o>/<r>/pulls/<pr> --jq .head.sha`), the review comments (`pulls/<pr>/comments`), the reviews, the issue comments, and the failing checks (`gh run view <run-id> --log-failed`). Skip your own posts and progress notices. When a reviewer in `config/review-pr/reviewers.json` (or, for a work repository, `~/.config/review-pr/work-reviewers.json`) has not covered the head after 15 minutes, post its `retrigger` text once.
    - An edit to the Nx Cloud bot's status comment is not a review event. End that wake with no work and no reply, and act only on the check-run result.
    - The `copilot-pull-request-reviewer` check is not the PR's. When it fails with HTTP 402, "You have exceeded your monthly quota", say once in a PR comment that it is a quota failure. Do not investigate or re-run it, and do not let it block ready.
 3. **Judge each claim.**

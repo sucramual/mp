@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  Run debrief template. SKILL.md in this directory gives the content contract.
+  Replace each SAMPLE value. Keep the section ids: problem, run, results, learned, concepts, questions, sources.
+  Self-contained: no scripts or fonts load from a network.
+  Lane bars: one row per PR. Name the PR in .lane-name, because short bars cannot hold a label. Set left and width as percentages of the run's wall-clock span.
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TICKET debrief</title>
+<style>
+  :root {
+    --bg: #fefdfb; --bg-2: #f6f4f0; --bg-3: #ebe9e6; --fg: #121715; --fg-2: #485450; --fg-3: #717d79;
+    --line: #00000014; --brand: #0c8c5e; --brand-bg: #0c8c5e1a; --caution: #b45309; --caution-bg: #b453091a;
+    --error: #c2410c; --error-bg: #c2410c1a; --muted-bg: #71717a1a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a0b0f; --bg-2: #121715; --bg-3: #1e2422; --fg: #faf8f5; --fg-2: #d9d7d4; --fg-3: #a3aba8;
+      --line: #ffffff1a; --brand: #18e299; --brand-bg: #18e2991a; --caution: #f59e0b; --caution-bg: #f59e0b1f;
+      --error: #fb923c; --error-bg: #fb923c1f; --muted-bg: #a1a1aa1f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0b0f; --bg-2: #121715; --bg-3: #1e2422; --fg: #faf8f5; --fg-2: #d9d7d4; --fg-3: #a3aba8;
+    --line: #ffffff1a; --brand: #18e299; --brand-bg: #18e2991a; --caution: #f59e0b; --caution-bg: #f59e0b1f;
+    --error: #fb923c; --error-bg: #fb923c1f; --muted-bg: #a1a1aa1f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 4px 0 8px; }
+  h2 { font-size: 18px; margin: 40px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 15px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--brand); }
+  code { font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
+  .eyebrow { color: var(--fg-3); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+  .lede { color: var(--fg-2); font-size: 16px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+  .stats li { background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; color: var(--fg-2); }
+  .stats b { color: var(--fg); font-size: 15px; margin-right: 4px; }
+  nav.toc { margin: 20px 0 0; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .theme { float: right; background: var(--bg-2); color: var(--fg-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--fg-3); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .pass { background: var(--brand-bg); color: var(--brand); }
+  .partial { background: var(--caution-bg); color: var(--caution); }
+  .fail { background: var(--error-bg); color: var(--error); }
+  .info { background: var(--muted-bg); color: var(--fg-2); }
+  /* Lane timeline: one row per PR, grouped by chain; bars positioned by percentage of the run. */
+  .lanes { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg-2); }
+  .chain { font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: .05em; margin: 10px 0 2px; }
+  .chain:first-child { margin-top: 0; }
+  .lane { display: grid; grid-template-columns: 210px 1fr; gap: 10px; align-items: center; padding: 6px 0; }
+  .lane + .lane { border-top: 1px dashed var(--line); }
+  .lane-name { font-size: 13px; color: var(--fg-2); }
+  .track { position: relative; height: 28px; }
+  .bar { position: absolute; top: 2px; height: 24px; border-radius: 6px; font-size: 12px; line-height: 24px; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-decoration: none; min-width: 6px; }
+  .bar.merged { background: var(--brand-bg); color: var(--brand); border: 1px solid var(--brand); }
+  .bar.fix { background: var(--caution-bg); color: var(--caution); border: 1px solid var(--caution); }
+  .bar.throwaway { background: var(--muted-bg); color: var(--fg-2); border: 1px dashed var(--fg-3); }
+  .axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--fg-3); margin: 6px 0 0 220px; }
+  .legend { font-size: 12px; color: var(--fg-3); margin-top: 8px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--bg-2); }
+  .card p { font-size: 14px; color: var(--fg-2); margin: 0 0 6px; }
+  .card .here { color: var(--fg); }
+  .decision { border-left: 3px solid var(--brand); padding: 4px 0 4px 12px; margin: 0 0 14px; }
+  .decision p { margin: 0 0 2px; font-size: 14px; }
+  .who { font-size: 12px; color: var(--fg-3); }
+  .lesson { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; }
+  .lesson dl { display: grid; grid-template-columns: 96px 1fr; gap: 2px 10px; margin: 6px 0 0; font-size: 14px; }
+  .lesson dt { color: var(--fg-3); }
+  .lesson dd { margin: 0; }
+  blockquote { margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--fg-3); color: var(--fg-2); font-style: italic; }
+  .q { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; }
+  .q .kind { font-size: 12px; color: var(--fg-3); }
+  .q details { margin-top: 8px; }
+  .q summary { cursor: pointer; color: var(--fg-3); font-size: 13px; }
+  .q summary:focus-visible, .theme:focus-visible, a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .q ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .note { background: var(--caution-bg); border-radius: 8px; padding: 8px 12px; font-size: 14px; margin: 0 0 12px; }
+  .sources li { font-size: 14px; }
+  @media (max-width: 560px) {
+    .lane { grid-template-columns: 1fr; gap: 2px; }
+    .axis { margin-left: 0; }
+    .lesson dl { grid-template-columns: 1fr; }
+  }
+  @media print { .theme, nav.toc { display: none; } details { display: block; } }
+</style>
+</head>
+<body>
+<main>
+  <button class="theme" type="button" aria-label="Switch light or dark theme">Theme</button>
+  <div class="eyebrow">Run debrief · SAMPLE-1 · YYYY-MM-DD</div>
+  <h1>SAMPLE ticket title, as the owner would say it</h1>
+  <p class="lede">One sentence: what now works that did not work before the run.</p>
+  <ul class="stats">
+    <li><b>0</b>PRs merged</li>
+    <li><b>0</b>throwaway PRs</li>
+    <li><b>0 / 0</b>goal checks pass</li>
+    <li><b>0h00m</b>wall clock</li>
+    <li><b>0m</b>waited on you</li>
+  </ul>
+  <nav class="toc" aria-label="Sections">
+    <a href="#problem">Problem</a><a href="#run">What the run did</a><a href="#results">Results</a>
+    <a href="#learned">What was learned</a><a href="#concepts">Key concepts</a><a href="#questions">Questions</a><a href="#sources">Sources</a>
+  </nav>
+
+  <section id="problem">
+    <h2>1. Problem</h2>
+    <p>SAMPLE: the problem in two or three sentences, in the owner's terms.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>The ticket said</th><th>Main showed</th></tr></thead>
+      <tbody><tr><td>SAMPLE</td><td>SAMPLE, with <code>path/to/file.ts:12</code></td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section id="run">
+    <h2>2. What the run did and why</h2>
+    <div class="lanes" role="img" aria-label="SAMPLE: timeline of PRs per chain">
+      <div class="chain">CH-1 SAMPLE</div>
+      <div class="lane"><div class="lane-name">#1 SAMPLE (P1)</div><div class="track"><a class="bar merged" style="left:0%;width:40%" href="#" title="00:00–00:00"></a></div></div>
+      <div class="lane"><div class="lane-name">#2 SAMPLE fix</div><div class="track"><a class="bar fix" style="left:45%;width:20%" href="#" title="00:00–00:00"></a></div></div>
+      <div class="chain">CH-2 SAMPLE</div>
+      <div class="lane"><div class="lane-name">#3 SAMPLE acceptance</div><div class="track"><a class="bar throwaway" style="left:30%;width:25%" href="#" title="00:00–00:00"></a></div></div>
+      <div class="axis"><span>00:00</span><span>00:00</span></div>
+      <div class="legend"><span>Solid: planned PR, merged</span><span>Amber: fix found during the run</span><span>Dashed: throwaway, never merged</span></div>
+    </div>
+    <h3 style="margin-top:20px">Decisions</h3>
+    <div class="decision">
+      <p><b>SAMPLE choice.</b> Why it won, in one sentence.</p>
+      <p>Rejected: the strongest alternative, and the fact that sank it.</p>
+      <p class="who">Settled by Marcus · "verbatim words" · or · Settled by the router, with evidence</p>
+    </div>
+  </section>
+
+  <section id="results">
+    <h2>3. Results</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Check</th><th>Verdict</th><th>Proof</th><th>Does not cover</th></tr></thead>
+      <tbody>
+        <tr><td>G1 SAMPLE</td><td><span class="tag pass">PASS · live</span></td><td>SAMPLE</td><td>SAMPLE</td></tr>
+        <tr><td>G2 SAMPLE</td><td><span class="tag partial">PASS · unit only</span></td><td>SAMPLE</td><td>SAMPLE</td></tr>
+      </tbody>
+    </table></div>
+    <h3 style="margin-top:16px">Open items</h3>
+    <ul><li>SAMPLE</li></ul>
+  </section>
+
+  <section id="learned">
+    <h2>4. What was learned</h2>
+    <div class="lesson">
+      <h3>SAMPLE lesson title</h3>
+      <dl>
+        <dt>Assumed</dt><dd>SAMPLE</dd>
+        <dt>Happened</dt><dd><blockquote>verbatim error, at most 20 words</blockquote></dd>
+        <dt>Found by</dt><dd>SAMPLE: test, live check, reviewer, or Marcus</dd>
+        <dt>Fix</dt><dd><a href="#">#0</a> SAMPLE</dd>
+        <dt>Lesson</dt><dd><b>SAMPLE general lesson in one sentence.</b></dd>
+      </dl>
+    </div>
+  </section>
+
+  <section id="concepts">
+    <h2>5. Key concepts</h2>
+    <div class="cards">
+      <div class="card"><h3>SAMPLE concept</h3><p>Plain definition.</p><p class="here">In this run: how it mattered.</p></div>
+    </div>
+  </section>
+
+  <section id="questions">
+    <h2>6. Closed-book questions</h2>
+    <p class="note">Answer these in chat before you open the criteria. The agent grades each answer and names the link you missed.</p>
+    <div class="q">
+      <div class="kind">Q1 · Why this shape</div>
+      <p><b>SAMPLE question?</b></p>
+      <details><summary>Answer criteria</summary><ul>
+        <li><b>Weak:</b> SAMPLE</li><li><b>Pass:</b> SAMPLE</li><li><b>Strong:</b> SAMPLE</li>
+        <li>Reread: <a href="#run">section 2</a>, SAMPLE source</li>
+      </ul></details>
+    </div>
+  </section>
+
+  <section id="sources">
+    <h2>7. Sources</h2>
+    <ul class="sources">
+      <li><a href="#">SAMPLE-1</a>: ticket, intake comment, close comment</li>
+      <li>Not read: SAMPLE, and why</li>
+    </ul>
+  </section>
+</main>
+<script>
+  // The toggle sets data-theme; with no choice, the page follows the system setting.
+  const root = document.documentElement;
+  document.querySelector('.theme').addEventListener('click', () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+  });
+</script>
+</body>
+</html>

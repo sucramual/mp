@@ -17,7 +17,8 @@ Auto mode denies mutating commands that an acceptance step needs. Marcus then ha
 
 - List each read-only live command that the checks need, such as `kubectl get` or `kubectl logs` in one namespace, or a cloud CLI `describe`.
 - List each mutating command that the acceptance steps need, such as `kubectl create job --from=cronjob/<name>` in one namespace, a one-off read-only pod, a sandbox apply, a push to a throwaway branch, a ChatOps comment, or resolving review threads on the run's own PRs.
-- Ask Marcus once, in the intake message, to grant a scoped allow rule for each listed command. Scope each rule to the command, the namespace or repository, and the run.
+- When the mutating acceptance steps need five or fewer prompts, do not ask for allow rules for them. Propose that Marcus approves them by hand in the worker's session, and list them. In one run, allow rules for one throwaway PR grew into three dotfiles PRs that were all closed, and Marcus then approved four prompts in seconds.
+- For every other listed command, ask Marcus once, in the intake message, to grant a scoped allow rule. Scope each rule to the command, the namespace or repository, and the run. Never put employer names, tickets, or repositories in a rule or PR of the public dotfiles repository.
 - Add the granted rules through `dotfiles-pr sync` before the workers start. Name each rule in the PR briefs that use it.
 
 ## Ticket
@@ -27,4 +28,6 @@ The goal table gives each goal check its Proof column: the evidence that the che
 - When the ticket does not have a goal table, draft the ticket again in that format: one row for each goal check, with its pass/fail check, its Proof column, and its coverage boundary.
 - Put the draft in the intake message. Update the ticket only after Marcus says OK.
 - For each live proof, name the event it observes and how the run makes that event happen, such as a throwaway draft PR. Put both in the PR brief. In two runs a live check had no event to observe, and the run stopped to ask Marcus.
+- For each live proof, name who runs it and with what access. A page behind a sign-in proxy needs Marcus in a signed-in browser, or a granted service-account identity: no worker has a signed-in browser. Ask for that at intake.
+- When several checks read one throwaway PR or its preview, the PR brief names the worker that closes it, and says to close it only after every check that reads it has passed, including checks that Marcus or another worker runs. In one run, the throwaway closed before the last check, and the run needed a second one.
 - Copy the Proof column word for word into every PR brief and acceptance brief that covers the check.

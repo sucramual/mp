@@ -51,7 +51,7 @@ Each PR brief has:
 
 - One PR has exactly one `/neo` for its whole life. One `/neo` can own several PRs in its chain.
 - A `/neo` never starts another `/neo`. Only you start workers.
-- Start each `/neo` in its own session, or in a background agent with its own worktree. In the Claude desktop app, start a session for each chain. Brief it: "Run /neo with the PR brief at `<path>`. It owns `<PR list>`."
+- Start each `/neo` in its own session, with its own worktree: in the Claude desktop app, one session for each chain; in a terminal, a separate `claude` session. Do not start a worker as a teammate or background agent of your own session. Its background-task notices then reach your session, not the worker, so its waits never wake it: in one run this cost about 3.5 hours. When the harness offers no other way, forward each worker's `<task-notification>` to that worker with `SendMessage`. Brief it: "Run /neo with the PR brief at `<path>`. It owns `<PR list>`."
 - Start independent chains in parallel. Start a dependent chain when its dependency merges, or when the PR brief gives it a written contract to build against.
 - Near its context budget, a worker hands off its whole chain to one new worker. Never split a chain between two workers.
 - Put no ticket ID in a worker's branch name or PR title. Only you close the ticket, at [Close](#close). Linear closes a ticket when a merged PR's branch name or title holds its ID. Each PR body carries `Part of <ID>` instead, which links the PR without closing the ticket. When a PR opens, check its body for that line, and have the worker add it when it is missing.
@@ -62,7 +62,7 @@ Each PR brief has:
 
 A worker can end its turn with nothing left to wake it. The router is idle while it waits for worker notes, so it cannot see the stall either.
 
-- While any chain has work that is not parked on Marcus, keep one heartbeat: a background wake of about 30 minutes. When every open item waits on Marcus, or on a background wait of your own, such as a merge-queue wait, stop it and start it again when that ends. A wake with nothing to check costs a turn.
+- Start the heartbeat in the same turn that starts the first worker, such as with `CronCreate` in Claude Code. In one run it was not started, and Marcus found a stalled worker before the router did. While any chain has work that is not parked on Marcus, keep one heartbeat: a background wake of about 30 minutes. When every open item waits on Marcus, or on a background wait of your own, such as a merge-queue wait, stop it and start it again when that ends. A wake with nothing to check costs a turn.
 - On each wake, run the login check in [Logins](references/intake.md#logins). Then check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
 - Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Never merge or enqueue a PR yourself: the worker owns the ready check and the merge. The only exception is a PR under [Granted merges](references/grants.md#granted-merges), which you queue.
 - Keep each worker session until the ticket closes. The app can archive a session when its PR merges. If that happens, restore it with `unarchive_session`.

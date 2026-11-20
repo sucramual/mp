@@ -9,3 +9,5 @@ Rules from run retros. Each line names the retro finding that it came from.
 ## Waits
 
 - To wait for an external state, such as a Spacelift run or a deploy, use a background wait script or Monitor with an until-loop. Never use `sleep N; cmd`: the harness blocks it. (Retro 2026-11-05, finding 13.)
+- To wait for a ChatOps result, such as a preview build, wait for the bot's reply that names your head SHA. Do not wait for the newest workflow run of the comment event: the bot's own comments start skipped runs, and a skipped run can match first. (Retro 2026-11-20, finding 5: a result was read 49 minutes late.)
+- Close a throwaway PR only after every check that reads it or its preview has passed, including checks that Marcus or another worker runs. Closing it starts the cleanup that deletes the preview. (Retro 2026-11-20, finding 3.)

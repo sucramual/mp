@@ -95,12 +95,14 @@ def heredoc_reader(kept: list[str], lines: list[str], index: int) -> str:
     return "\n".join(reader)
 
 
-def guarded_body_lines(body: list[str]) -> list[str]:
+def guarded_body_lines(body: list[str], expands: bool) -> list[str]:
     """Return the body lines that may hold a guarded command, for a body that only a non-shell command reads.
 
     A line that names no guarded word is data. A line that names one is kept, so a script written now and run
     later is still checked. A kept line that shlex cannot split is prose, such as "Don't run `gh pr merge`",
     unless it starts with a guarded word: then it stays, and bad quoting fails closed.
+    In an unquoted heredoc (expands is true) the shell runs `$(...)` and backticks in the body,
+    so a line with either one stays too, and bad quoting fails closed.
     """
     lines: list[str] = []
     for line in body:
@@ -109,7 +111,8 @@ def guarded_body_lines(body: list[str]) -> list[str]:
         try:
             split_segments(line)
         except ValueError:
-            if not GUARDED_WORD.match(UNQUOTE.sub("", line.lstrip())):
+            runs_code = expands and ("$(" in line or "`" in line)
+            if not runs_code and not GUARDED_WORD.match(UNQUOTE.sub("", line.lstrip())):
                 continue
         lines.append(line)
     return lines
@@ -143,7 +146,7 @@ def strip_heredocs(command: str) -> str:
                 reader = UNQUOTE.sub("", heredoc_reader(kept, lines, start))
                 if SHELL_READER.search(reader) or GUARDED_WORD.search(reader):
                     return command
-                kept.extend(guarded_body_lines(body))
+                kept.extend(guarded_body_lines(body, expands=not match.group(2)))
             index += 1
     return "\n".join(kept)
 

@@ -12,7 +12,9 @@ It reads the hook JSON on stdin and checks each simple command in a Bash tool ca
 
 Allow: exit 0 with no output. Block: exit 2 with the reason on stderr; both agents read this as a block.
 A heredoc body is input, so its quoting is not checked, unless a body names gh, spacectl, graphql, or a merge mutation.
-Then the whole call is checked as written, and bad quoting fails closed.
+Then, when a shell or a guarded command reads the body, the whole call is checked as written, and bad quoting fails
+closed. When another command reads it, such as `cat > file`, only the body lines that may hold a guarded command
+are checked, so a prose line such as "Don't run `gh pr merge`" does not block the call.
 `command -v` and `command -V` only look a name up, so the guard does not check the name as a command.
 It fails closed: bad input or any error blocks the call.
 It is a guardrail against mistakes, not a security boundary: shell tricks such as eval or variables get past it.
@@ -42,6 +44,9 @@ HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
 UNQUOTE = re.compile(r"[\\'\"]")
 # A heredoc body with one of these words may hold a command, so the guard keeps the whole call.
 GUARDED_WORD = re.compile(r"\b(gh|spacectl|graphql|mergePullRequest|enqueuePullRequest|enablePullRequestAutoMerge)\b")
+# A command that may run a heredoc body as shell code. With one of these, the guard keeps the whole call.
+# A dot or a dash before or after the name means a file name, such as run.sh, not the command.
+SHELL_READER = re.compile(r"(?<![\w.-])(bash|sh|zsh|ssh|eval|source|xargs)(?![\w.-])")
 MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge/?")
 # gh api flags that take a value. Every other flag is a switch.
 GH_API_VALUE_FLAGS = {
@@ -74,12 +79,61 @@ class BadInput(Exception):
     """The hook input is not what Claude Code or Codex sends."""
 
 
+def heredoc_reader(kept: list[str], lines: list[str], index: int) -> str:
+    """Return the command line that holds a heredoc operator, with the lines before and after that it continues.
+
+    kept ends with the operator line, and lines[index] is the line after it.
+    """
+    reader = [kept[-1]]
+    for line in reversed(kept[:-1]):
+        if not line.endswith("\\"):
+            break
+        reader.insert(0, line)
+    while reader[-1].endswith("\\") and index < len(lines):
+        reader.append(lines[index])
+        index += 1
+    return "\n".join(reader)
+
+
+def guarded_body_lines(body: list[str], expands: bool) -> list[str]:
+    """Return the body lines that may hold a guarded command, for a body that only a non-shell command reads.
+
+    A line that names no guarded word is data. A line that names one is kept, so a script written now and run
+    later is still checked. A kept line that shlex cannot split is prose, such as "Don't run `gh pr merge`",
+    unless it starts with a guarded word: then it stays, and bad quoting fails closed.
+    In an unquoted heredoc (expands is true) the shell runs `$(...)` and backticks in the body,
+    so a line with either one stays too, and bad quoting fails closed.
+    A body that shlex splits as one unit is a script, since its quotes balance across lines. The whole body stays,
+    so a quote that spans lines cannot hide a command on its last line.
+    """
+    try:
+        split_segments("\n".join(body))
+    except ValueError:
+        pass
+    else:
+        return list(body)
+    lines: list[str] = []
+    for line in body:
+        if not GUARDED_WORD.search(UNQUOTE.sub("", line)):
+            continue
+        try:
+            split_segments(line)
+        except ValueError:
+            runs_code = expands and ("$(" in line or "`" in line)
+            if not runs_code and not GUARDED_WORD.match(UNQUOTE.sub("", line.lstrip())):
+                continue
+        lines.append(line)
+    return lines
+
+
 def strip_heredocs(command: str) -> str:
-    """Remove each heredoc body and its end line, unless a body names gh, spacectl, graphql, or a merge mutation.
+    """Remove each heredoc body and its end line, except the body lines that may hold a guarded command.
 
     A body is input, not shell syntax, so an apostrophe in a PR comment must not break the split.
-    A body with a guarded word may be run by a shell, so then the command is returned unchanged.
+    When a shell, or a command that names gh, spacectl, or graphql, reads a body with a guarded word,
+    the command is returned unchanged, so the whole call is checked and bad quoting fails closed.
     So is a command with a delimiter that has no end line.
+    Another reader, such as `cat > file`, keeps only the body lines that guarded_body_lines returns.
     """
     lines = command.split("\n")
     kept: list[str] = []
@@ -93,8 +147,14 @@ def strip_heredocs(command: str) -> str:
             start = index
             while index < len(lines) and (lines[index].lstrip("\t") if strip_tabs else lines[index]) != delimiter:
                 index += 1
-            if index == len(lines) or GUARDED_WORD.search(UNQUOTE.sub("", "\n".join(lines[start:index]))):
+            if index == len(lines):
                 return command
+            body = lines[start:index]
+            if GUARDED_WORD.search(UNQUOTE.sub("", "\n".join(body))):
+                reader = UNQUOTE.sub("", heredoc_reader(kept, lines, start))
+                if SHELL_READER.search(reader) or GUARDED_WORD.search(reader):
+                    return command
+                kept.extend(guarded_body_lines(body, expands=not match.group(2)))
             index += 1
     return "\n".join(kept)
 

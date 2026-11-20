@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "mcp__069a8b2b-41b8-4b84-9364-af5b44bf7cad__save_comment"
+      "mcp__069a8b2b-41b8-4b84-9364-af5b44bf7cad__save_comment",
+      "Bash(git push -u origin docs-preview-g1-throwaway)",
+      "Bash(git push origin docs-preview-g1-throwaway)",
+      "Bash(gh pr create --draft --head docs-preview-g1-throwaway:*)",
+      "Bash(gh pr comment docs-preview-g1-throwaway --body /preview)",
+      "Bash(gh pr close docs-preview-g1-throwaway:*)"
     ]
   }
 }

@@ -105,6 +105,12 @@ fi
 # A failure only means a missing rule, so install.sh warns and continues.
 python3 "$DOTFILES_DIR/config/claude/add_allow_rules.py" "$DOTFILES_DIR/config/claude/settings.allow.json" \
   ~/.claude/settings.json || echo "  WARNING: allow rules not added to ~/.claude/settings.json"
+# The overlay can add work allow rules, which must stay out of this public repo.
+work_allow="$work_overlay_dir/config/claude/settings.allow.json"
+if [ -f "$work_allow" ]; then
+  python3 "$DOTFILES_DIR/config/claude/add_allow_rules.py" "$work_allow" ~/.claude/settings.json \
+    || echo "  WARNING: work allow rules not added to ~/.claude/settings.json"
+fi
 
 # The guard_irreversible PreToolUse hook blocks unpinned PR merges and Spacelift writes in Claude Code and Codex.
 # It merges one hook entry and keeps every other key. It is a safety guard, so a failure stops install.sh.

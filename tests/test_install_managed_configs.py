@@ -590,6 +590,30 @@ def test_install_adds_tracked_allow_rules(isolated_env: IsolatedEnv, fake_exe: C
     assert settings["model"] == "opus", "install.sh should keep the owner's keys"
 
 
+# Protects: install.sh also adds the work overlay's allow rules, so a private rule stays out of the public repo.
+# Bug caught: install.sh reads only the public settings.allow.json, so an overlay rule never reaches a machine.
+def test_install_adds_the_work_overlay_allow_rules(
+    isolated_env: IsolatedEnv, fake_exe: Callable[..., Path], run_tool: RunTool
+):
+    seed_settings(isolated_env.home)
+    fake_exe("bun", "exit 0\n")
+    fake_exe("npx", "exit 0\n")
+    fake_exe("uname", "echo Linux\n")
+    work_rule = "Bash(git push origin work-throwaway)"
+    overlay = isolated_env.root / "work-overlay-allow"
+    (overlay / "config" / "claude").mkdir(parents=True)
+    (overlay / "config" / "claude" / "settings.allow.json").write_text(
+        json.dumps({"permissions": {"allow": [work_rule]}})
+    )
+    isolated_env.env["DOTFILES_WORK_DIR"] = str(overlay)
+
+    checkout, _ = run_copied_installer(isolated_env, run_tool, isolated_env.env["PATH"])
+
+    tracked = json.loads((checkout / "config/claude/settings.allow.json").read_text())["permissions"]["allow"]
+    settings = json.loads((isolated_env.home / ".claude/settings.json").read_text())
+    assert settings["permissions"]["allow"] == [*tracked, work_rule], "install.sh should add the overlay rules too"
+
+
 # ---- guard_irreversible hook ----------------------------------------------------------------------
 
 GUARD_NAME = "guard_irreversible.py"

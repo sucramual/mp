@@ -1646,6 +1646,35 @@ def test_sync_adds_tracked_allow_rules(world: World) -> None:
     assert settings["model"] == "opus"
 
 
+# Protects: sync also adds the work overlay's allow rules, so a private rule stays out of the public repo.
+# Bug caught: sync reads only the public settings.allow.json, so an overlay rule never reaches a machine.
+def test_sync_adds_the_work_overlay_allow_rules(world: World) -> None:
+    world.new_case("allow-work")
+    settings_path = world.iso.home / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps({"permissions": {"allow": ["Bash"]}}))
+    seed = world.root / "allow-work-seed"
+    (seed / "config" / "claude").mkdir(parents=True, exist_ok=True)
+    for name in ("add_allow_rules.py", "settings.allow.json"):
+        shutil.copy(REPO_ROOT / "config" / "claude" / name, seed / "config" / "claude" / name)
+    world.git(seed, "add", "config")
+    world.git(seed, "commit", "-qm", "feat: allow rules")
+    world.git(seed, "push", "-q", "origin", "main")
+    overlay = world.root / "work-overlay-allow"
+    (overlay / "config" / "claude").mkdir(parents=True)
+    work_rule = "Bash(git push origin work-throwaway)"
+    (overlay / "config" / "claude" / "settings.allow.json").write_text(
+        json.dumps({"permissions": {"allow": [work_rule]}})
+    )
+
+    result = world.run_sync("allow-work", DOTFILES_WORK_DIR=str(overlay))
+
+    assert result.returncode == 0, f"sync should succeed\n{result.stderr}"
+    tracked = json.loads((REPO_ROOT / "config" / "claude" / "settings.allow.json").read_text())["permissions"]["allow"]
+    allow = json.loads(settings_path.read_text())["permissions"]["allow"]
+    assert allow == ["Bash", *tracked, work_rule], "sync should add the public rules, then the overlay rules"
+
+
 # --- sync: ro -----------------------------------------------------------------------------
 
 RO_REVIEWERS = '{"reviewers": []}\n'

@@ -103,7 +103,15 @@ def guarded_body_lines(body: list[str], expands: bool) -> list[str]:
     unless it starts with a guarded word: then it stays, and bad quoting fails closed.
     In an unquoted heredoc (expands is true) the shell runs `$(...)` and backticks in the body,
     so a line with either one stays too, and bad quoting fails closed.
+    A body that shlex splits as one unit is a script, since its quotes balance across lines. The whole body stays,
+    so a quote that spans lines cannot hide a command on its last line.
     """
+    try:
+        split_segments("\n".join(body))
+    except ValueError:
+        pass
+    else:
+        return list(body)
     lines: list[str] = []
     for line in body:
         if not GUARDED_WORD.search(UNQUOTE.sub("", line)):

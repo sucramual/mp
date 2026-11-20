@@ -190,6 +190,7 @@ HEREDOC_BLOCKED = [
     ("cat > run.sh <<'EOF'\ngh pr comment 1 --body 'it's'\nEOF", "could not split"),
     ("cat > run.sh <<'EOF'\nThe router's script:\ngh pr merge 12 --squash\nEOF", PIN_REASON),
     ("gh pr comment 1 --body-file - <<'EOF'\nDon't gh pr merge it.\nEOF", "could not split"),
+    ("cat > run.sh <<'EOF'\necho 'It\nworks'; gh pr merge 12 --squash --admin\nEOF\nbash run.sh", PIN_REASON),
     ("cat > notes.md <<EOF\nIt's $(gh pr merge 12 --squash)\nEOF", "could not split"),
     ("cat > notes.md <<EOF\nIt's `gh pr merge 12 --squash`\nEOF", "could not split"),
 ]

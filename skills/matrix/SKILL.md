@@ -45,7 +45,7 @@ Each PR brief has:
 - **Grants.** Marcus's merge grant for this PR, word for word, when he gave one.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
-- **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one, with the line `Part of <ID>` that the PR body must carry.
+- **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one, with the line `Part of <ID>` that the PR body must carry. Add your session ID and an inbox folder in your scratch directory, where the worker writes each message that `SendMessage` cannot deliver, so Marcus does not relay it.
 
 ## Workers
 
@@ -62,9 +62,9 @@ Each PR brief has:
 
 A worker can end its turn with nothing left to wake it. The router is idle while it waits for worker notes, so it cannot see the stall either.
 
-- Start the heartbeat in the same turn that starts the first worker, such as with `CronCreate` in Claude Code. In one run it was not started, and Marcus found a stalled worker before the router did. While any chain has work that is not parked on Marcus, keep one heartbeat: a background wake of about 30 minutes. When every open item waits on Marcus, or on a background wait of your own, such as a merge-queue wait, stop it and start it again when that ends. A wake with nothing to check costs a turn.
-- On each wake, run the login check in [Logins](references/intake.md#logins). Then check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
-- Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Never merge or enqueue a PR yourself: the worker owns the ready check and the merge. The only exception is a PR under [Granted merges](references/grants.md#granted-merges), which you queue.
+- Start the heartbeat in the same turn that starts the first worker, such as with `CronCreate` in Claude Code. In one run it was not started, and Marcus found a stalled worker before the router did. While any chain has work that is not parked on Marcus, keep one heartbeat: a background wake of about 30 minutes. When every open item waits on Marcus, or on a background wait of your own, such as a merge-queue wait, stop it and start it again when that ends. A worker's watcher is not your own wait: keep the heartbeat while a worker waits on CI or a dependency PR, because a failed turn can drop the watcher's wake. A wake with nothing to check costs a turn.
+- On each wake, run the login check in [Logins](references/intake.md#logins). Read each new file in your inbox folder. Then check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
+- Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. When `SendMessage` cannot reach the worker, ask Marcus to send the nudge in that session. Never merge or enqueue a PR yourself: the worker owns the ready check and the merge. The only exception is a PR under [Granted merges](references/grants.md#granted-merges), which you queue.
 - Keep each worker session until the ticket closes. The app can archive a session when its PR merges. If that happens, restore it with `unarchive_session`.
 
 ## Review gate

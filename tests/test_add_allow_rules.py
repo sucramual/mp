@@ -97,3 +97,33 @@ def test_tracked_rules_apply(tmp_path: Path) -> None:
     result = run(TRACKED, target)
     assert result.returncode == 0, result.stderr
     assert json.loads(target.read_text())["permissions"]["allow"] == rules
+
+
+# Protects: tracked ask rules reach the live settings, so a command that an allow rule matches still prompts
+# when it also matches an ask rule (Claude Code applies ask before allow). Local ask rules stay.
+# Bug caught: a sync that reads only "allow", so the guard for a risky flag never reaches a machine and the
+# allow rule runs the command with no prompt.
+def test_adds_ask_rules_and_keeps_local_ones(tmp_path: Path) -> None:
+    target = write_json(tmp_path / "settings.json", {"permissions": {"allow": ["Bash"], "ask": ["Bash(rm *)"]}})
+    rules = write_json(
+        tmp_path / "settings.allow.json",
+        {"permissions": {"allow": ["Bash(kubectl get pods *)"], "ask": ["Bash(kubectl * --kubeconfig *)"]}},
+    )
+    result = run(rules, target)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(target.read_text())["permissions"] == {
+        "allow": ["Bash", "Bash(kubectl get pods *)"],
+        "ask": ["Bash(rm *)", "Bash(kubectl * --kubeconfig *)"],
+    }
+
+
+# Protects: the standing kubectl read rules never run a kubeconfig that a command names. kubectl runs the exec
+# credential plugin of a kubeconfig, so a kubeconfig file in a repository could run any command with no prompt.
+# Bug caught: a kubectl allow rule shipped without the ask rules that make --kubeconfig and KUBECONFIG prompt.
+def test_tracked_kubectl_rules_ask_on_a_named_kubeconfig() -> None:
+    permissions = json.loads(TRACKED.read_text())["permissions"]
+    kubectl_allow = [rule for rule in permissions["allow"] if rule.startswith("Bash(kubectl ")]
+    assert kubectl_allow, "this test guards the tracked kubectl allow rules, so they must exist"
+    ask = permissions.get("ask", [])
+    for rule in ("Bash(kubectl * --kubeconfig *)", "Bash(kubectl * --kubeconfig=*)", "Bash(KUBECONFIG=*)"):
+        assert rule in ask, f"missing ask rule {rule}"

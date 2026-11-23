@@ -10,6 +10,11 @@
       "Bash(kubectl get deployments *)",
       "Bash(signadot sandbox get *)",
       "Bash(signadot sandbox list *)"
+    ],
+    "ask": [
+      "Bash(kubectl * --kubeconfig *)",
+      "Bash(kubectl * --kubeconfig=*)",
+      "Bash(KUBECONFIG=*)"
     ]
   }
 }

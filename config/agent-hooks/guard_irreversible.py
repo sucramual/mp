@@ -5,7 +5,8 @@ It reads the hook JSON on stdin and checks each simple command in a Bash tool ca
 
   - `gh pr merge` must pin the reviewed head with a literal `--match-head-commit <40-hex SHA>`.
     `--admin` and `--auto` are always blocked.
-  - `gh api` to `repos/<owner>/<repo>/pulls/<n>/merge` with a method other than GET needs `-f sha=<40-hex SHA>`.
+  - `gh api` to `repos/<owner>/<repo>/pulls/<n>/merge` or `.../merge-async` with a method other than GET
+    needs `-f sha=<40-hex SHA>`. `bypass_rules` is always blocked.
   - `gh api graphql` with `mergePullRequest` or `enqueuePullRequest` needs `expectedHeadOid`.
     `enablePullRequestAutoMerge` is always blocked.
   - `spacectl` may run only read commands (READ_ONLY_SPACECTL).
@@ -42,7 +43,7 @@ HEREDOC = re.compile(r"(?<!<)<<(-?)(?!<)[ \t]*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
 UNQUOTE = re.compile(r"[\\'\"]")
 # A heredoc body with one of these words may hold a command, so the guard keeps the whole call.
 GUARDED_WORD = re.compile(r"\b(gh|spacectl|graphql|mergePullRequest|enqueuePullRequest|enablePullRequestAutoMerge)\b")
-MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge/?")
+MERGE_ENDPOINT = re.compile(r"(?:https://api\.github\.com)?/?repos/[^/]+/[^/]+/pulls/[^/]+/merge(?:-async)?/?")
 # gh api flags that take a value. Every other flag is a switch.
 GH_API_VALUE_FLAGS = {
     "-X": "method", "--method": "method",
@@ -233,13 +234,24 @@ def check_gh_api(args: list[str], command: str, cwd: Path) -> None:
     method = method or ("POST" if fields or inputs else "GET")
     if method == "GET":
         return
-    if any(key == "sha" and SHA.fullmatch(value) for key, value in fields):
-        return
+    if "?" in endpoint:
+        raise Blocked(
+            f"gh api {method} {endpoint} carries a query string, which can hold merge options the guard cannot "
+            "check. Pass each option as an -f field."
+        )
+    if any(key.startswith("bypass_rules") and value.lower() != "false" for key, value in fields):
+        raise Blocked(
+            f"gh api {method} {endpoint} with bypass_rules skips the repository rules that review the merge. "
+            "Drop bypass_rules, and ask Marcus when a rule blocks the merge."
+        )
+    # With --input, gh sends the file as the body, so an inline sha does not prove what GitHub reads.
     if inputs:
         raise Blocked(
             "a REST merge from an --input file cannot show the pinned head: pass -f sha=<sha> inline "
             "with the full 40-character head SHA you reviewed."
         )
+    if any(key == "sha" and SHA.fullmatch(value) for key, value in fields):
+        return
     raise Blocked(
         f"gh api {method} {endpoint} must pin the head you reviewed: "
         "add -f sha=<full 40-character head SHA you reviewed>."

@@ -26,6 +26,7 @@ ADMIN_REASON = "--admin"
 AUTO_REASON = "--auto"
 REST_REASON = "-f sha=<full 40-character head SHA you reviewed>"
 REST_INPUT_REASON = "pass -f sha=<sha> inline"
+BYPASS_REASON = "bypass_rules"
 GRAPHQL_REASON = 'expectedHeadOid: "<sha>"'
 AUTO_MERGE_REASON = "enablePullRequestAutoMerge"
 SPACELIFT_REASON = "Spacelift is read-only for agents"
@@ -62,6 +63,17 @@ BLOCKED = [
     ("gh api -X PUT repos/o/r/pulls/12/merge", REST_REASON),
     ("gh api repos/o/r/pulls/12/merge -f merge_method=squash", REST_REASON),
     ("gh api --method=PUT /repos/o/r/pulls/12/merge --input body.json", REST_INPUT_REASON),
+    ("gh api -X PUT repos/o/r/pulls/12/merge-async -f merge_action=merge_queue", REST_REASON),
+    ("gh api -X PUT /repos/o/r/pulls/12/merge-async", REST_REASON),
+    (f"gh api -X PUT repos/o/r/pulls/12/merge-async -f sha={SHA} -F bypass_rules=true", BYPASS_REASON),
+    (f"gh api -X PUT repos/o/r/pulls/12/merge -f sha={SHA} -F bypass_rules=true", BYPASS_REASON),
+    (f"gh api -X PUT repos/o/r/pulls/12/merge-async -f sha={SHA} -F bypass_rules=True", BYPASS_REASON),
+    (f"gh api -X PUT repos/o/r/pulls/12/merge-async -f sha={SHA} --raw-field bypass_rules=1", BYPASS_REASON),
+    (f"gh api -X PUT repos/o/r/pulls/12/merge-async -f sha={SHA} -f 'bypass_rules[]=true'", BYPASS_REASON),
+    (f"gh api -X PUT 'repos/o/r/pulls/12/merge-async?bypass_rules=true' -f sha={SHA}", "query string"),
+    (f"gh api -X PUT repos/o/r/pulls/12/merge-async -f sha={SHA} --input body.json", REST_INPUT_REASON),
+    (f"gh api -X PUT repos/o/r/pulls/12/merge -f sha={SHA} --input body.json", REST_INPUT_REASON),
+    ("gh api -X PUT https://api.github.com/repos/o/r/pulls/12/merge-async/ -f sha=0000", REST_REASON),
     (
         "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"X\"}) { clientMutationId } }'",
         GRAPHQL_REASON,
@@ -117,6 +129,11 @@ ALLOWED = [
     "gh pr merge --help",
     f"gh api -X PUT repos/o/r/pulls/12/merge -f sha={SHA}",
     "gh api repos/o/r/pulls/12/merge",
+    f"gh api -X PUT repos/o/r/pulls/12/merge-async -f sha={SHA} -f merge_action=merge_queue",
+    "gh api repos/o/r/pulls/12/merge-async/0f3a9c4e-7b1d-4e2a-9c55-1a2b3c4d5e6f",
+    "gh api -X GET repos/o/r/pulls/12/merge-async/0f3a9c4e-7b1d-4e2a-9c55-1a2b3c4d5e6f",
+    f"gh api -X PUT https://api.github.com/repos/o/r/pulls/12/merge-async/ -f sha={SHA}",
+    f"gh api -X PUT repos/o/r/pulls/12/merge-async -f sha={SHA} -F bypass_rules=false",
     'gh api graphql -f query=\'mutation { mergePullRequest(input: {pullRequestId: "X", '
     f'expectedHeadOid: "{SHA}"}}) {{ clientMutationId }} }}\'',
     'gh api graphql -f query=\'mutation { enqueuePullRequest(input: {pullRequestId: "X", '

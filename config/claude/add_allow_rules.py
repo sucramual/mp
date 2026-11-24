@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Add the tracked allow and ask rules to a Claude Code settings file, and keep every rule and key it already has.
+"""Add the tracked allow rules to a Claude Code settings file, and keep every rule and key it already has.
 
 Usage:
   add_allow_rules.py <settings.allow.json> <~/.claude/settings.json>
 
 install.sh seeds settings.json from the template only once, so a later template change never reaches a machine.
 install.sh and `dotfiles-pr sync` run this script on every run, so a rule merged into settings.allow.json
-goes live on each machine. Claude Code applies an ask rule before an allow rule, so a tracked ask rule makes
-a risky form of an allowed command prompt again. It only adds rules. To remove a rule, delete it from
-settings.json by hand as well.
+goes live on each machine. It only adds rules. To remove a rule, delete it from settings.json by hand as well.
 
   - It leaves a missing settings file missing, so install.sh can still seed it from the template.
   - It writes atomically, and only when a rule is missing.
@@ -32,15 +30,11 @@ def read_object(path: Path) -> dict:
     return data
 
 
-SYNCED_KEYS = ("allow", "ask")
-
-
-def add_allow_rules(target: dict, tracked: dict[str, list[str]]) -> dict:
+def add_allow_rules(target: dict, rules: list[str]) -> dict:
     permissions = dict(target.get("permissions") or {})
-    for key, rules in tracked.items():
-        current = list(permissions.get(key) or [])
-        current += [rule for rule in rules if rule not in current]
-        permissions[key] = current
+    allow = list(permissions.get("allow") or [])
+    allow += [rule for rule in rules if rule not in allow]
+    permissions["allow"] = allow
     return {**target, "permissions": permissions}
 
 
@@ -53,9 +47,7 @@ def main(argv: list[str]) -> int:
         print(f"  {target_path} does not exist yet (allow rules not added)")
         return 0
     try:
-        tracked_permissions = read_object(rules_path)["permissions"]
-        rules = {"allow": list(tracked_permissions["allow"])}
-        rules.update({key: list(tracked_permissions[key]) for key in SYNCED_KEYS[1:] if key in tracked_permissions})
+        rules = read_object(rules_path)["permissions"]["allow"]
         current = read_object(target_path)
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"add_allow_rules.py: {error}", file=sys.stderr)

@@ -1,20 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "mcp__069a8b2b-41b8-4b84-9364-af5b44bf7cad__save_comment",
-      "Bash(kubectl logs *)",
-      "Bash(kubectl describe *)",
-      "Bash(kubectl get pods *)",
-      "Bash(kubectl get jobs *)",
-      "Bash(kubectl get events *)",
-      "Bash(kubectl get deployments *)",
-      "Bash(signadot sandbox get *)",
-      "Bash(signadot sandbox list *)"
-    ],
-    "ask": [
-      "Bash(kubectl * --kubeconfig *)",
-      "Bash(kubectl * --kubeconfig=*)",
-      "Bash(KUBECONFIG=*)"
+      "mcp__069a8b2b-41b8-4b84-9364-af5b44bf7cad__save_comment"
     ]
   }
 }

@@ -56,7 +56,9 @@ Before each `wrap_up`, and before you end any turn, check that one of these hold
 - Each open PR has a running PR watcher, or a PR-activity subscription in a cloud session. A parked PR keeps its watcher too, so the run wakes when Marcus merges it.
 - The ticket is finished: Close is done.
 
-A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready.
+A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready, except the heartbeat below.
+
+When a wait can last more than 30 minutes, such as a wait for a dependency PR to merge, also keep a heartbeat in your own session, such as a `CronCreate` wake every 30 minutes that reads the PR state again. Stop it when the wait ends. A watcher's wake is lost when the turn it starts ends in an API error: in one run that left a worker idle 5 hours after its dependency merged.
 
 ### Run state
 

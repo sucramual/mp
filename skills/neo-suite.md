@@ -70,9 +70,19 @@ The hard limits apply at every step:
 
 ## Release notes
 
-When a version changes a neo suite part, its release notes get a change map, placed after the first paragraph.
-Use the format of `open-pr`'s [change map reference](open-pr/references/change-map.md): base the map on the diagram above, colour each part as new, changed, or unchanged since the last version, and check it with `open-pr`'s `scripts/check-mermaid.sh`.
-GitHub release pages do not render Mermaid. Render the map to a PNG with `npx -p @mermaid-js/mermaid-cli mmdc -i <file>.mmd -o change-map.png -s 2 -b white`, upload it with `gh release upload <tag> change-map.png`, and embed it as an image from `https://github.com/sucramual/mp/releases/download/<tag>/change-map.png`.
+Release notes have four sections, in this order:
+
+1. `### CHANGE MAP`, only when a version changes a neo suite part.
+2. `### NEW` for a new skill, tool, command, or file.
+3. `### CHANGED` for a change to existing behaviour.
+4. `### FIXED` for a bug fix.
+
+Write each item as one bullet that ends with its PR numbers, such as `(#92)` or `(#71, #72)`. Cover every PR merged since the last version. Leave out an empty section.
+
+For the change map, use the format of `open-pr`'s [change map reference](open-pr/references/change-map.md): base the map on the diagram above, colour each part as new, changed, or unchanged since the last version, and check it with `open-pr`'s `scripts/check-mermaid.sh`.
+GitHub release pages do not render Mermaid. Render the map to a PNG with `npx -p @mermaid-js/mermaid-cli mmdc -i <file>.mmd -o change-map.png -s 2 -b white`.
+Upload the PNG with "Attach files" on the release edit page in Chrome, and embed the `https://github.com/user-attachments/assets/<id>` URL that GitHub writes into the description.
+Do not embed a `releases/download/<tag>/` URL: it shows a broken image until the release is published.
 The map goes in the release notes, not in this file, because its colours describe one version only.
 
 ## neo and rogue

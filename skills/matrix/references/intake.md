@@ -15,11 +15,12 @@ A login that expires during the run stops the run while Marcus is away. In one r
 
 Auto mode denies mutating commands that an acceptance step needs. Marcus then has to approve each one in the worker's own session, and the router cannot approve it for him. A worker also asks before a read-only command against a live system when no rule covers it: one run asked Marcus 7 times for read-only cluster and sandbox reads.
 
-- List each read-only live command that the checks need, such as `kubectl get` or `kubectl logs` in one namespace, or a cloud CLI `describe`.
+- Never edit `settings.json` by hand during a run. The auto-mode classifier denied that edit in six runs, and Marcus then approved the prompts in each worker's session.
+- List each read-only live command that the checks need, such as `kubectl get` or `kubectl logs` in one namespace, or a cloud CLI `describe`. Do not ask for a standing rule with a wildcard after a CLI verb: it also admits flags that write files or change identity, such as `--kubeconfig` or `--profile-output`.
 - List each mutating command that the acceptance steps need, such as `kubectl create job --from=cronjob/<name>` in one namespace, a one-off read-only pod, a sandbox apply, a push to a throwaway branch, a ChatOps comment, or resolving review threads on the run's own PRs.
 - When the mutating acceptance steps need five or fewer prompts, do not ask for allow rules for them. Propose that Marcus approves them by hand in the worker's session, and list them. In one run, allow rules for one throwaway PR grew into three dotfiles PRs that were all closed, and Marcus then approved four prompts in seconds.
 - For every other listed command, ask Marcus once, in the intake message, to grant a scoped allow rule. Scope each rule to the command, the namespace or repository, and the run. Never put employer names, tickets, or repositories in a rule or PR of the public dotfiles repository.
-- Add the granted rules through `dotfiles-pr sync` before the workers start. Name each rule in the PR briefs that use it.
+- Marcus adds the granted rules himself, before the workers start. Name each rule in the PR briefs that use it.
 
 ## Ticket
 

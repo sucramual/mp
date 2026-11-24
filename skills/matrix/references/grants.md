@@ -12,10 +12,13 @@ In one run, two grants could never be used, because their PRs touched paths that
 3. Ask also for a standing grant on fix PRs inside a granted chain, which the plan cannot name yet.
 4. In each question, say which conditions still hand the PR off to Marcus, so he does not grant what the rule cannot use.
 5. Name the reply and comment conditions in each PR brief that carries a grant.
+6. Keep Marcus's answers word for word in the plan file, and add one table under them: each planned PR, its grant (granted, parked for Marcus, or not asked), and the condition that decides it. Add a row for each fix PR that the standing grant covers.
 
 ## Granted merges
 
 When Marcus granted queue authority for a PR at intake, its worker parks the PR to you with its reviewed SHA when the ready check passes. You queue it, because the grant is in your session: a permission check can refuse an approval that one session relays to another.
+
+Before you hand any merge to Marcus, read the grant table in the plan file. When the table says granted, queue the PR yourself, after steps 1 to 3 below and within the limits after them. In one run, Marcus queued two PRs by hand that the intake grant already covered.
 
 1. Read the PR state from GitHub. Check that the head is the reviewed SHA and that the ready check holds on it.
 2. Check that each person that the PR needs has signed off, with the link in the plan file. When a link is missing, ask Marcus. Do not assume agreement.

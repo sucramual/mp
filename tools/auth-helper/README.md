@@ -90,7 +90,7 @@ Spacelift is `error` when another profile is current, with the login command as 
 | `observed` | The last refresh plus the shortest observed lifetime, from the [login history](#login-history). | any provider with observations |
 | `unknown` | No source has an expiry. | |
 
-For Spacelift, the tool reads `profiles.<team profile>.credentials.access_token` from `config.json` in `$SPACELIFT_CONFIG_DIR`, else in `~/.spacelift`, where spacectl 1.26.0 keeps it. The token is a JWT. The tool base64url-decodes only its middle segment, the payload, and keeps only `exp`. When the file, the profile, the JWT format, or `exp` is missing, the expiry is `unknown`, and the check does not fail.
+For Spacelift, the tool reads `profiles.<team profile>.credentials.access_token` from `config.json` in `$SPACELIFT_CONFIG_DIR`, else in `~/.spacelift`, where spacectl 1.26.0 keeps it. The token is a JWT. The tool base64url-decodes only its middle segment, the payload, and keeps only `exp`. When the file, the profile, the JWT format, or `exp` is missing, the expiry is `unknown`, and the check does not fail. The Spacelift browser login reuses the Spacelift web session in Chrome, so a new token keeps that session's expiry. When `refresh` logs in and the token expiry does not move, it says to sign out of Spacelift in Chrome and run `refresh` again. Without that hint, one run asked Marcus to log in twice with no change.
 
 The other logins have no readable expiry: their lifetime comes from org policy. The gcloud access token renews itself, so its one-hour expiry says nothing about the login. For these logins, the tool learns lifetimes by observation.
 

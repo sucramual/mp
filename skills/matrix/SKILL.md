@@ -45,7 +45,7 @@ Each PR brief has:
 - **Grants.** Marcus's merge grant for this PR, word for word, when he gave one.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
-- **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one, with the line `Part of <ID>` that the PR body must carry.
+- **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one, with the line `Part of <ID>` that the PR body must carry. Also the router inbox, `<plan file folder>/inbox/<chain ID>.md`. Create it empty.
 
 ## Workers
 
@@ -63,7 +63,7 @@ Each PR brief has:
 A worker can end its turn with nothing left to wake it. The router is idle while it waits for worker notes, so it cannot see the stall either.
 
 - Start the heartbeat in the same turn that starts the first worker, such as with `CronCreate` in Claude Code. In one run it was not started, and Marcus found a stalled worker before the router did. While any chain has work that is not parked on Marcus, keep one heartbeat: a background wake of about 30 minutes. When every open item waits on Marcus, or on a background wait of your own, such as a merge-queue wait, stop it and start it again when that ends. A wake with nothing to check costs a turn.
-- On each wake, run the login check in [Logins](references/intake.md#logins). Then check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
+- On each wake, read each file in `<plan file folder>/inbox/`: a worker writes there when it cannot reach you. Run the login check in [Logins](references/intake.md#logins). Then check every open chain. Look for an open PR that passes the ready check but is not merged or in the merge queue. Look for a worker whose session is idle while its chain has an open PR that is not parked, or a next PR that nothing blocks.
 - Send each such worker a nudge that names the PR and what you saw, and asks it to confirm that a background wait runs for each open PR. Never merge or enqueue a PR yourself: the worker owns the ready check and the merge. The only exception is a PR under [Granted merges](references/grants.md#granted-merges), which you queue.
 - Keep each worker session until the ticket closes. The app can archive a session when its PR merges. If that happens, restore it with `unarchive_session`.
 
@@ -90,7 +90,7 @@ The gate does not replace the review bots after the PR opens. `review-pr` still 
 - Write each answer into the PR briefs it affects.
 - Before you explain to Marcus why the goal exists or how it fits, read the ticket's project, parent, links, and design doc. Quote the source.
 - Take each count or state that you tell Marcus, such as PRs, failures, or a Spacelift run's state, from GitHub, Linear, Spacelift, or the plan file at that moment. Check each worker claim against its source, such as GitHub, Spacelift, the worker's transcript, or the goal table's Proof column, before you pass it on. Never take it from memory or a worker note. Label each estimate as an estimate, and give its basis.
-- When a decision asks Marcus to do something, such as a manual test, give the steps, the accounts or test data it needs, and what it proves. Check that he can do it before you ask. Ask it in the session that will act on the answer: a worker does not take a relayed answer over one that Marcus gave in its own session.
+- When a decision asks Marcus to do something, such as a manual test, give the steps, the accounts or test data it needs, and what it proves. Check that he can do it before you ask. Ask it in the session that will act on the answer: a worker does not take a relayed answer over one that Marcus gave in its own session. When a worker or another router that you started asks Marcus a question, do not offer to answer it for him: give him the link to that session.
 
 ## Integration
 

@@ -1021,6 +1021,23 @@ def login_failure(code: int | None) -> str:
     return f" - login command failed ({'not installed' if code is None else f'exit {code}'})"
 
 
+SPACELIFT_WEB_SESSION_HINT = (
+    " - the token expiry did not move: the browser login reused the Spacelift web session in Chrome."
+    " Sign out of Spacelift in Chrome, then run this refresh again"
+)
+
+
+def web_session_hint(name: str, code: int | None, after: Login, token_before: datetime | None) -> str:
+    """Why a Spacelift browser login that succeeded still left the login short, when the token did not change.
+
+    spacectl's browser login reuses the Spacelift web session in Chrome, so the new token keeps that session's
+    expiry. Logging in again does not help until Marcus signs out there (seen with spacectl 1.26.0).
+    """
+    if name != "spacelift" or code != 0 or after.status == "ok" or token_before is None:
+        return ""
+    return SPACELIFT_WEB_SESSION_HINT if after.expires_at == token_before else ""
+
+
 def cmd_refresh(args: argparse.Namespace) -> int:
     # Validate every argument before any login runs.
     names = split_names(args.providers, PROVIDERS, "provider") or PROVIDERS
@@ -1059,11 +1076,16 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             print_login(rule.check(name), f" - {fix_for(name)}")
             exit_code = 1
             continue
+        token_before = (
+            spacelift_token_expiry(CONFIG.spacelift_profile)
+            if name == "spacelift" and CONFIG.spacelift_profile
+            else None
+        )
         if command not in login_codes:
             login_codes[command] = run_interactive(command)
         code = login_codes[command]
         after = rule.check_renewed(name, code)
-        print_login(after, login_failure(code))
+        print_login(after, login_failure(code) or web_session_hint(name, code, after, token_before))
         # A failed login fails refresh even when the old credential still works: it was not renewed.
         if code != 0 or after.status != "ok":
             exit_code = 1

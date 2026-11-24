@@ -258,6 +258,10 @@ case "$1 $2" in
     exit 0 ;;
   "profile login")
     echo ok >"$state/spacectl.mode"
+    # A browser login that gets a new session writes a new token. Without this file, the token stays the same.
+    if [[ -e "$state/spacelift-config-after-login" ]]; then
+      cat "$state/spacelift-config-after-login" >"$HOME/.spacelift/config.json"
+    fi
     echo "${@: -1}" >"$state/spacectl.profile"
     exit 0 ;;
 esac
@@ -2006,3 +2010,32 @@ def test_default_team_config_path(run: RunTool, isolated_env: IsolatedEnv, use_x
     assert data["ok"] is True
     assert provider(data, "spacelift")["account"] == "acmeholdings"
     assert {entry["name"] for entry in data["probes"]} == TEAM_PROBES
+
+
+# Protects: when a Spacelift browser login leaves the token expiry where it was, refresh says why and what to do.
+# The browser login reuses the Spacelift web session in Chrome, so the new token keeps that session's expiry.
+# Bug caught: refresh prints only "expiring" after each login, so Marcus logs in again and again with no change.
+def test_refresh_names_the_web_session_when_spacelift_expiry_does_not_move(
+    run: RunTool, fakes: Fakes, isolated_env: IsolatedEnv
+):
+    soon = int((now_seconds() + timedelta(hours=2)).timestamp())
+    token = team_token(soon)
+    write_spacelift_config(isolated_env.home / ".spacelift", {"acmeholdings": token})
+
+    same = run("refresh", "--horizon", "8h", "spacelift")
+
+    assert same.returncode == 1, same.stdout + same.stderr
+    assert len(login_calls(fakes, "spacectl")) == 1
+    assert re.search(r"^spacelift: expiring\b", same.stdout, re.MULTILINE), same.stdout
+    assert "Sign out of Spacelift in Chrome" in same.stdout, same.stdout
+    assert leaked_parts(token, same) == []
+
+    later = isolated_env.root / "later"
+    write_spacelift_config(later, {"acmeholdings": team_token(soon + 3600)})
+    (fakes.state / "spacelift-config-after-login").write_text((later / "config.json").read_text())
+
+    moved = run("refresh", "--horizon", "8h", "spacelift")
+
+    assert moved.returncode == 1, moved.stdout + moved.stderr
+    assert re.search(r"^spacelift: expiring\b", moved.stdout, re.MULTILINE), moved.stdout
+    assert "Sign out of Spacelift in Chrome" not in moved.stdout, moved.stdout

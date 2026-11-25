@@ -8,6 +8,8 @@
 
 My personal setup for macOS, a work devbox, and Claude Code cloud sessions. It holds shell, terminal, and Git configuration, Claude Code and Codex preferences and hooks, personal agent skills and guidance, and command-line tools.
 
+Only want the agent skills, such as the neo suite? Skip this page and follow [skills/README.md](skills/README.md). The `install.sh` below sets up the whole machine and replaces your `~/.zshrc`.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -136,8 +138,4 @@ brew bundle check --no-upgrade --file Brewfile --verbose
 brew bundle cleanup --file Brewfile </dev/null
 ```
 
-**Third-party skills.** `skills/third-party.txt` holds pointers to skills from other repositories, not copies. The `skills` CLI cannot pin a version, so each install gets the latest. See [skills/README.md](skills/README.md#third-party-skills).
-
-- After you install or remove a third-party skill, run `python3 scripts/third_party_skills.py export`. Then ship the change as a PR.
-- To find drift between the list and this machine, run `python3 scripts/third_party_skills.py check`.
-- To install every listed skill, run `python3 scripts/third_party_skills.py install`. Add `--dry-run` to print the commands only.
+**Third-party skills.** After you install or remove one, follow [skills/MAINTAINING.md](skills/MAINTAINING.md#third-party-skills) to update `skills/third-party.txt`.

@@ -7,6 +7,7 @@ Usage:
   python3 reports.py [--dir DIR] patterns [--last N] [--json]
 
 The store is `--dir`, else `$RETRO_DIR`, else `.retro/` in the dotfiles main checkout (gitignored).
+`patterns` also reads the other machine's reports that agent-runs-sync copied to $AGENT_RUNS_DIR/remotes/*/retro.
 references/report-format.md gives the format. Exits 1 on a malformed report and names it.
 """
 
@@ -145,24 +146,43 @@ def save(source: Path, store: Path) -> Path:
     return target
 
 
+def remote_stores() -> list[tuple[str, Path]]:
+    """The copies of other machines' report stores that agent-runs-sync wrote, as (machine, folder)."""
+    value = os.environ.get("AGENT_RUNS_DIR")
+    base = Path(value).expanduser() if value else Path.home() / ".local" / "state" / "agent-runs"
+    remotes = base / "remotes"
+    return [(machine.name, machine / "retro") for machine in sorted(remotes.iterdir())] if remotes.is_dir() else []
+
+
 def patterns(store: Path, last: int) -> list[dict[str, Any]]:
-    """Group the findings of the newest `last` reports by target and kind, most-repeated first."""
+    """Group the findings of the newest `last` reports by target and kind, most-repeated first.
+
+    Reports copied from another machine count too, labelled `<machine>:<file>`. A local report wins over a copy
+    with the same file name, so one report never counts twice.
+    """
+    sources = [("", store), *remote_stores()]
     loaded = []
-    for path in sorted(store.glob("*.md")) if store.is_dir() else []:
-        try:
-            loaded.append((path, parse_report(path.read_text(encoding="utf-8"))))
-        except ValueError as exc:
-            raise ValueError(f"{path.name}: {exc}") from exc
-    loaded.sort(key=lambda item: (item[1]["created"], item[0].name), reverse=True)
+    seen: set[str] = set()
+    for machine, folder in sources:
+        for path in sorted(folder.glob("*.md")) if folder.is_dir() else []:
+            if path.name in seen:
+                continue
+            seen.add(path.name)
+            label = f"{machine}:{path.name}" if machine else path.name
+            try:
+                loaded.append((label, parse_report(path.read_text(encoding="utf-8"))))
+            except ValueError as exc:
+                raise ValueError(f"{label}: {exc}") from exc
+    loaded.sort(key=lambda item: (item[1]["created"], item[0]), reverse=True)
 
     groups: dict[tuple[str, str], dict[str, Any]] = {}
-    for path, report in loaded[:last]:
+    for label, report in loaded[:last]:
         for finding in report["findings"]:
             key = (finding["target"], finding["kind"])
             group = groups.setdefault(key, {"target": key[0], "kind": key[1], "reports": [], "findings": []})
-            if path.name not in group["reports"]:
-                group["reports"].append(path.name)
-            group["findings"].append({"report": path.name, "created": report["created"], **finding})
+            if label not in group["reports"]:
+                group["reports"].append(label)
+            group["findings"].append({"report": label, "created": report["created"], **finding})
     result = []
     for group in groups.values():
         group["runs"] = len(group["reports"])

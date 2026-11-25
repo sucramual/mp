@@ -31,6 +31,8 @@ Under `AGENT_TRACE_DIR` (default `~/.local/state/agent-trace`; directories 0700,
 | `sessions/<session-id>.ticket` | The work ID bound to a session. |
 | `collect.log` | Output of a collect that `--ensure` started. |
 
+`show` also reads the copy of this layout from the other machine, which [agent-runs-sync](../agent-runs-sync/README.md) writes to `$AGENT_RUNS_DIR/remotes/<machine>/agent-trace/`. It finds a transcript there too when the local folders do not have it.
+
 ## Environment
 
 | Variable | Use |
@@ -43,6 +45,7 @@ Under `AGENT_TRACE_DIR` (default `~/.local/state/agent-trace`; directories 0700,
 | `TRACEPARENT` | W3C trace context. Sets the trace id and the default parent span. |
 | `AGENT_TRACE_CLAUDE_PROJECTS` | Root of Claude Code transcripts for the `show` wall time and fallback. Default `~/.claude/projects`. |
 | `AGENT_TRACE_CODEX_SESSIONS` | Root of Codex transcripts for the `show` wall time. Default `~/.codex/sessions`. |
+| `AGENT_RUNS_DIR` | Where `show` finds the other machine's copy. Default `~/.local/state/agent-runs`. |
 
 ## Install
 

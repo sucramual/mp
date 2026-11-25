@@ -8,6 +8,9 @@ Layout under AGENT_TRACE_DIR (default ~/.local/state/agent-trace):
   collect.log              output of a collect that `collect --ensure` started
 
 Directories are mode 0700 and files 0600, because native spans hold the user's email address.
+
+The readers also take the other machine's copy of this layout, which agent-runs-sync writes to
+$AGENT_RUNS_DIR/remotes/<machine>/agent-trace (default ~/.local/state/agent-runs). Writers never touch a copy.
 """
 
 from __future__ import annotations
@@ -27,6 +30,21 @@ SESSION_FILE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 def state_dir() -> Path:
     value = os.environ.get("AGENT_TRACE_DIR")
     return Path(value).expanduser() if value else Path.home() / ".local" / "state" / "agent-trace"
+
+
+def runs_dir() -> Path:
+    value = os.environ.get("AGENT_RUNS_DIR")
+    return Path(value).expanduser() if value else Path.home() / ".local" / "state" / "agent-runs"
+
+
+def remote_dirs(name: str) -> list[Path]:
+    """The folder `name` (such as agent-trace or claude-projects) in each machine copy of agent-runs-sync."""
+    remotes = runs_dir() / "remotes"
+    try:
+        machines = sorted(path for path in remotes.iterdir() if path.is_dir())
+    except OSError:
+        return []
+    return [machine / name for machine in machines if (machine / name).is_dir()]
 
 
 def ensure_dir(path: Path) -> None:
@@ -68,8 +86,10 @@ def read_jsonl(path: Path) -> Iterator[dict[str, Any]]:
 
 
 def read_all(base: Path) -> list[dict[str, Any]]:
-    """Every stored record: spans/*.jsonl in name order, then fallback.jsonl."""
-    files = sorted((base / "spans").glob("*.jsonl")) + [base / "fallback.jsonl"]
+    """Every stored record: spans/*.jsonl in name order, then fallback.jsonl, here and then in each machine copy."""
+    files = []
+    for folder in [base, *remote_dirs("agent-trace")]:
+        files += sorted((folder / "spans").glob("*.jsonl")) + [folder / "fallback.jsonl"]
     return [record for path in files for record in read_jsonl(path)]
 
 
@@ -98,10 +118,12 @@ def write_ticket(base: Path, session: str, ticket: str) -> None:
 
 
 def sessions_bound_to(base: Path, ticket: str) -> list[str]:
-    """The session ids whose sessions/<id>.ticket names this work ID, in name order."""
-    folder = base / "sessions"
-    try:
-        paths = sorted(folder.glob("*.ticket"))
-    except OSError:
-        return []
-    return [path.stem for path in paths if read_ticket(base, path.stem) == ticket]
+    """The session ids whose sessions/<id>.ticket names this work ID, here or in a machine copy, in name order."""
+    found: set[str] = set()
+    for folder in [base, *remote_dirs("agent-trace")]:
+        try:
+            paths = sorted((folder / "sessions").glob("*.ticket"))
+        except OSError:
+            continue
+        found.update(path.stem for path in paths if read_ticket(folder, path.stem) == ticket)
+    return sorted(found)

@@ -623,7 +623,7 @@ def pr_lines(records: list[dict[str, Any]], offline: bool) -> tuple[list[str], l
 def run_timeline(sid: str, *extra: str) -> tuple[str | None, str]:
     """Run the retro timeline on a session's Claude Code transcripts: (stdout, "") or (None, a reason)."""
     root = Path(os.environ.get("AGENT_TRACE_CLAUDE_PROJECTS") or Path.home() / ".claude" / "projects")
-    files = sorted(root.glob(f"*/{sid}.jsonl"))
+    files = claude_transcripts(root, sid)
     if not files:
         return None, f"no transcript found for {sid} under {root}"
     try:
@@ -749,11 +749,24 @@ def transcript_files(sid: str) -> tuple[str, list[Path]]:
     if not SESSION_NAME.match(sid):
         return "session", []
     claude_root = Path(os.environ.get("AGENT_TRACE_CLAUDE_PROJECTS") or Path.home() / ".claude" / "projects")
-    files = sorted(claude_root.glob(f"*/{sid}.jsonl"))
+    files = claude_transcripts(claude_root, sid)
     if files:
         return "claude", files
     codex_root = Path(os.environ.get("AGENT_TRACE_CODEX_SESSIONS") or Path.home() / ".codex" / "sessions")
-    return "codex", sorted(codex_root.glob(f"**/rollout-*{sid}.jsonl"))
+    for root in [codex_root, *store.remote_dirs("codex-sessions")]:
+        files = sorted(root.glob(f"**/rollout-*{sid}.jsonl"))
+        if files:
+            return "codex", files
+    return "codex", []
+
+
+def claude_transcripts(root: Path, sid: str) -> list[Path]:
+    """A session's Claude Code transcript files under root, else in the first machine copy that has them."""
+    for folder in [root, *store.remote_dirs("claude-projects")]:
+        files = sorted(folder.glob(f"*/{sid}.jsonl"))
+        if files:
+            return files
+    return []
 
 
 def transcript_window(sid: str) -> tuple[str, Interval] | None:

@@ -171,12 +171,17 @@ HEREDOC_ALLOWED = [
     "cat <<-EOF > notes.md\n\tIt's indented.\n\tEOF",
     "cat <<EOF\n$(date) it's fine\nEOF",
     GRAPHQL_MERGE % ', expectedHeadOid: \\"' + "a" * 40 + '\\"',
+    "B=body.md\ncat > $B <<'EOF'\nIt adds the overlay's rules for `gh pr create --draft`.\nEOF\n"
+    "gh pr create --body-file $B",
+    "cat > notes.md <<'EOF'\nDon't run `gh pr merge` by hand.\nEOF",
 ]
 
 
 # Protects: a heredoc body is input to its command, so its quoting does not block the call.
 # Bug caught: shlex read an apostrophe in a PR comment body as an open quote and blocked with "could not split"
 # (3 failures in 3 /matrix sessions, 2026-11-02). A body that only feeds a file is data, not a command.
+# Bug caught again (2026-11-20, and in 4 retros): a PR body written with `cat > file` named `gh pr create` in prose
+# and held an apostrophe, so the whole call was split and blocked. Only a body line that may be a command is checked.
 @pytest.mark.parametrize("command", HEREDOC_ALLOWED)
 def test_allows_heredoc_bodies_with_any_quoting(command: str, tmp_path: Path):
     result = run_guard(bash(command, tmp_path), tmp_path)
@@ -199,6 +204,12 @@ HEREDOC_BLOCKED = [
     ("cat <<EOF\n`gh pr merge 12 --squash`\nEOF", PIN_REASON),
     ("cat <<EOF\n$(echo $(gh pr merge 12 --squash))\nEOF", PIN_REASON),
     (GRAPHQL_MERGE % "", "must pin the head"),
+    ("cat > run.sh <<'EOF'\ngh pr comment 1 --body 'it's'\nEOF", "could not split"),
+    ("cat > run.sh <<'EOF'\nThe router's script:\ngh pr merge 12 --squash\nEOF", PIN_REASON),
+    ("gh pr comment 1 --body-file - <<'EOF'\nDon't gh pr merge it.\nEOF", "could not split"),
+    ("cat > run.sh <<'EOF'\necho 'It\nworks'; gh pr merge 12 --squash --admin\nEOF\nbash run.sh", PIN_REASON),
+    ("cat > notes.md <<EOF\nIt's $(gh pr merge 12 --squash)\nEOF", "could not split"),
+    ("cat > notes.md <<EOF\nIt's `gh pr merge 12 --squash`\nEOF", "could not split"),
 ]
 
 

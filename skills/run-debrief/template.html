@@ -3,36 +3,37 @@
 <!--
   Run debrief template. SKILL.md in this directory gives the content contract.
   Replace each SAMPLE value. Keep the section ids: problem, run, results, learned, concepts, questions, sources.
-  Self-contained: no scripts or fonts load from a network. The IBM Plex faces apply when they are installed;
-  otherwise the system fonts in each stack apply.
+  No scripts load from a network. The fonts load from Google Fonts, the one font host that a Claude artifact allows.
+  Offline, the system fonts in each stack apply. Do not use a face that is not on Google Fonts: in an artifact it falls back silently.
   Lane bars: one row per PR. Name the PR in .lane-name, because short bars cannot hold a label. Set left and width as percentages of the run's wall-clock span.
 -->
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>TICKET debrief</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-  /* Layout: one reading column. Stats, then numbered sections, each opened by a heavy rule. Cool neutrals, one teal accent. */
+  /* Layout: one reading column. Stats, then numbered sections, each opened by a heavy rule. Warm neutral greys, one indigo accent. */
   :root {
-    --bg: #f6f7f8; --bg-2: #ffffff; --bg-3: #eef1f4; --fg: #16202a; --fg-2: #3d4a56; --fg-3: #5b6875;
-    --line: #d9dee3; --brand: #0f6e7a; --brand-bg: #e2f1f2; --ok: #1d7a43; --ok-bg: #e3f3e8;
-    --caution: #9a5b00; --caution-bg: #fbefd9; --error: #b3361b; --error-bg: #fbe5df; --muted-bg: #eef1f4;
-    --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
-    --f-body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --bg: #faf8f5; --bg-2: #fffefc; --bg-3: #f2efea; --fg: #1a1c22; --fg-2: #3f4350; --fg-3: #5f6470;
+    --line: #e6e2db; --brand: #4f46e5; --brand-bg: #eef0fe; --ok: #1d7a43; --ok-bg: #e3f3e8;
+    --caution: #9a5b00; --caution-bg: #fbefd9; --error: #b3361b; --error-bg: #fbe5df; --muted-bg: #f2efea;
+    --f-display: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0f151b; --bg-2: #161e26; --bg-3: #1d2731; --fg: #e3e9ee; --fg-2: #c2ccd4; --fg-3: #93a1ad;
-      --line: #2a3541; --brand: #5cc3cf; --brand-bg: #15343a; --ok: #6fcf94; --ok-bg: #173426;
-      --caution: #f0b45c; --caution-bg: #3a2b14; --error: #f2876b; --error-bg: #3d1f17; --muted-bg: #1d2731;
+      --bg: #151412; --bg-2: #1c1a18; --bg-3: #24221f; --fg: #e6e8ee; --fg-2: #c3c7d1; --fg-3: #9aa0ad;
+      --line: #302d29; --brand: #8b85ff; --brand-bg: #1e1c3a; --ok: #6fcf94; --ok-bg: #173426;
+      --caution: #f0b45c; --caution-bg: #3a2b14; --error: #f2876b; --error-bg: #3d1f17; --muted-bg: #24221f;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #0f151b; --bg-2: #161e26; --bg-3: #1d2731; --fg: #e3e9ee; --fg-2: #c2ccd4; --fg-3: #93a1ad;
-    --line: #2a3541; --brand: #5cc3cf; --brand-bg: #15343a; --ok: #6fcf94; --ok-bg: #173426;
-    --caution: #f0b45c; --caution-bg: #3a2b14; --error: #f2876b; --error-bg: #3d1f17; --muted-bg: #1d2731;
+    --bg: #151412; --bg-2: #1c1a18; --bg-3: #24221f; --fg: #e6e8ee; --fg-2: #c3c7d1; --fg-3: #9aa0ad;
+    --line: #302d29; --brand: #8b85ff; --brand-bg: #1e1c3a; --ok: #6fcf94; --ok-bg: #173426;
+    --caution: #f0b45c; --caution-bg: #3a2b14; --error: #f2876b; --error-bg: #3d1f17; --muted-bg: #24221f;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }

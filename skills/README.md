@@ -1,159 +1,71 @@
-# Personal Skills
+# Skills
 
-This directory is the source of truth for Marcus's personal, global, harness-agnostic skills.
-
-```text
-dotfiles/skills/*
-  -> skill tooling / harness adapters
-  -> ~/.agents/skills, ~/.claude/skills, ~/.cursor/skills, or other runtime locations
-```
-
-| Source | Use For |
-|---|---|
-| `dotfiles/skills/*` | Personal cognition, recall, and workflow skills that should follow Marcus across harnesses |
-| [`third-party.txt`](third-party.txt) | Pointers to third-party skills installed from other repositories; no copies |
-| Harness caches | Install targets only; do not author skills there |
-
-Author skills in neutral language where possible. Let `npx skills` or other adapters handle each harness's expected install location.
-
-## How the neo suite works
-
-[How the neo suite works](neo-suite.md) describes the skills and tools that take written work to a merged and verified result while you are away.
+Agent skills for Claude Code, Codex, and Cursor. The main set is the **neo suite**: you give it a Linear ticket and answer one intake message. It comes back with merged PRs that pass the ticket's checks.
 
 ## Install
 
-Skills in this repository are symlinks to the live checkout. `scripts/link_skills.py` creates them.
-`install.sh` and `dotfiles-pr sync` (and so `dotfiles-pr start`) run it. A merged skill change is live after `dotfiles-pr sync`.
+You need Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), `gh` signed in, and Claude Code or Codex with the Linear MCP connected.
 
-```bash
-# Link the selected skills (all of them when there is no selection file). Add --dry-run to preview.
-# Run it in the main checkout: it refuses a scratch worktree, whose links would dangle after a prune.
-python3 scripts/link_skills.py
-# Choose the skills for this machine in a terminal checklist, then link them.
-python3 scripts/link_skills.py --pick
-# Show each skill, whether it is selected, and its description.
-python3 scripts/link_skills.py --list
-```
+1. Clone the repository. Do not run its `./install.sh`: that installs Marcus's whole machine setup and replaces your `~/.zshrc`.
 
-### Choose skills per machine
+   ```bash
+   git clone https://github.com/sucramual/mp.git ~/mp && cd ~/mp
+   ```
 
-The selection file is `~/.config/dotfiles/skills.txt`, or `$XDG_CONFIG_HOME/dotfiles/skills.txt` when `XDG_CONFIG_HOME` is set. Git does not track it.
-It holds one skill name per line. A `#` starts a comment.
-When the file is missing, the script links every skill. When it exists, the script links only the names it lists. So a skill that a later PR adds stays unlinked until you pick it.
-For a skill that is not selected, the script removes only its own links. A real directory or another link at that name stays.
-A name that is not a skill in `skills/` gets a warning, and the script exits 1. It still links the other names.
+2. Choose your skills in a checklist, and link them into `~/.claude/skills` and `~/.agents/skills`:
 
-`--pick` needs a terminal and `uv`. It runs `scripts/pick_skills.py`, a [questionary](https://github.com/tmbo/questionary) checklist, through `uv run --script`, so `link_skills.py` stays stdlib-only.
-Type to filter by name. Use up and down to move, space to toggle, ctrl-a to toggle all, and ctrl-i (tab) to invert.
-Enter saves the file and links. Ctrl-C cancels and changes nothing. `--pick --dry-run` writes no file and prints what would change.
+   ```bash
+   python3 scripts/link_skills.py --pick
+   ```
 
-For each selected skill in `skills/` (a folder with a `SKILL.md`), the script makes `~/.agents/skills/<name>` a link to `~/dotfiles/skills/<name>`, and `~/.claude/skills/<name>` an absolute link to that entry.
-It moves a real file or directory at either path aside before it links. It does not compare the copy with the skill.
-It leaves any other link alone, and warns.
+   To see each skill and its description first, run `python3 scripts/link_skills.py --list`.
 
-Moved entries go to `~/.local/state/dotfiles/skill-backups/{agents,claude}/<name>.<UTC timestamp>`.
-Use `$XDG_STATE_HOME/dotfiles/skill-backups` when `XDG_STATE_HOME` is set. To restore an edit, copy it back from there.
-Each run deletes backups older than 30 days. It ignores entries that do not match that name pattern.
+   **For the neo suite**, skip the checklist and select its seven skills directly:
 
-The script handles only the skills in `skills/`. It never touches a real directory at any other name, so third-party skills stay with the skills CLI and `third-party.txt`.
-When a skill leaves `skills/`, the script removes the dangling link to it, and the matching Claude link.
+   ```bash
+   mkdir -p ~/.config/dotfiles
+   printf '%s\n' neo matrix perf open-pr review-pr verify retro > ~/.config/dotfiles/skills.txt
+   python3 scripts/link_skills.py
+   ```
 
-Do not run `npx skills add ~/dotfiles`. It replaces the links with snapshot copies. The next sync turns them back into links.
-With `--full-depth`, it also installs skills from scratch worktrees under `.claude/worktrees/`.
+3. Link the tools (`agent-trace`, `auth-helper`, and others) into `~/bin`, and put `~/bin` on your `PATH`:
 
-On a machine without a dotfiles checkout, install from GitHub. These copies do not update on sync.
+   ```bash
+   python3 scripts/link_tools.py
+   ```
 
-```bash
-npx --yes skills@latest add sucramual/mp -g --skill '*' -a claude-code codex cursor -y --full-depth
-```
+4. Add the hooks. They block unpinned merges and Spacelift writes, and record each run's trace:
 
-Install only to Claude Code, Codex, and Cursor. `--all` means every skill *and* every agent the CLI supports (79 on 2026-09-30), which scatters links into dozens of unused tools' folders.
+   ```bash
+   python3 config/agent-hooks/install_hooks.py ~/.claude/settings.json ~/.codex/hooks.json
+   ```
 
-Use `npx skills list` to check what is installed and `npx skills update` to pull newer versions of installed copies.
+5. Restart Claude Code or Codex.
 
-## Self-contained skills
+To update, run `git pull` in `~/mp`. The links point at your clone, so the change is live at once.
 
-Each skill must work when it is installed alone from GitHub, on a machine without a dotfiles checkout.
-A skill does not refer to a file outside its own folder by a relative path or by a dotfiles path such as `~/dotfiles/` or `~/.agent-guidance/guides/`.
-It uses the raw URL of the file on `main`: `https://raw.githubusercontent.com/sucramual/mp/main/<repo path>`.
-The skill reads such a rule with `curl -fsSL` or `gh api`, not a web-fetch tool, because a web-fetch tool returns a summary. When a missing rule gates a merge, the skill parks the PR.
+## Use
 
-- GitHub caches raw files for about 5 minutes, so a merged change can take that long to reach a run.
-- A rule change on a branch is not seen until the PR merges, because the URL names `main`.
-- `scripts/check_guidance_links.py` checks every Markdown file in `skills/<name>/`, except `node_modules`: a relative link must stay in the skill's folder, a repository URL must name a file in the working tree, and a dotfiles checkout path fails.
+| You have | Type | You get |
+| --- | --- | --- |
+| One ticket | `/neo ABC-123` | Merged PRs that pass each ticket check |
+| A goal too large for one PR | `/matrix <goal>` | The goal split across several `neo` workers, with one decision queue for you |
+| An idea to test, such as a speed-up | `/perf <idea>` | A decision record from experiments. It merges nothing. |
+| Finished runs | `/retro last 5 runs` | Suggested fixes to skills and tools |
 
-## Third-party skills
+A run starts with one intake message. It gives a pass/fail check for each requirement and names each login that will expire before the run ends, with the command to fix it. Answer it, then leave. The run ends with one message that lists the merged PRs and each item it parked for you.
 
-`third-party.txt` lists the skills installed from other repositories, such as `paulnsorensen/easy-cheese`.
-It holds pointers only: one source per line, then its skill names. The skill files stay in their source repositories.
-`scripts/third_party_skills.py` writes and checks it against the `skills` CLI lock.
-The lock is `$XDG_STATE_HOME/skills/.skill-lock.json` when `XDG_STATE_HOME` is set, else `~/.agents/.skill-lock.json`. Use `--lock` to read another file.
+The skills name Marcus as the person who answers intake and merges parked PRs. Read that as you.
 
-```bash
-# After you install or remove a third-party skill: update the manifest, then ship it as a dotfiles PR
-python3 scripts/third_party_skills.py export
+A run never does these things:
 
-# Find drift between the manifest and this machine
-python3 scripts/third_party_skills.py check
+- Merge a guarded change: data, migrations, infra, auth, secrets, or CI workflows. It parks the PR for you with the merge command.
+- Merge a commit other than the one it reviewed.
+- Write to Spacelift.
+- Call the work done before each ticket check passes on the merged result.
 
-# On a new machine (install.sh runs this when npx is available)
-python3 scripts/third_party_skills.py install --dry-run
-python3 scripts/third_party_skills.py install
-```
+## More
 
-`install` does not read the lock. It runs one `npx skills add` command for each source, and the CLI handles skills that are already installed.
-The lock does not record which agents link each skill, so a skip could leave a skill missing for Claude Code.
-`export` accepts only GitHub sources, because the manifest stores only `owner/repo`. It stops with an error for any other source type.
-Installs always get the latest version. The CLI has no global restore command and cannot pin a skill to a hash.
-Skills from this repository are not third-party, so the script ignores them.
-
-## How each harness discovers the installs
-
-```text
-~/dotfiles/skills/<name>              ← source of truth (this repository)
-~/.agents/skills/<name>               ← symlink to the source (dotfiles-owned skills)
-  ├─ Claude Code: ~/.claude/skills/<name> → absolute symlink to the ~/.agents/skills entry
-  ├─ Cursor: reads ~/.agents/skills natively — NO extra link needed
-  └─ Codex ≥ 0.128: reads ~/.agents/skills natively — NO extra link needed
-                    (~/.codex/skills holds only Codex's own .system skills)
-
-~/.agents/skills/<name>               ← real copy made by the skills CLI (third-party skills)
-```
-
-Claude Code does not read `~/.agents/skills`, so the `~/.claude/skills` link is required. Verified 2026-10-09: a skill that existed only in `~/.agents/skills` was invisible to `claude -p`.
-Codex 0.157 follows a symlinked skill directory. Verified 2026-10-09.
-Cursor with symlinked skills is not verified.
-Third-party skills stay real directories from the skills CLI, which hash-locks them in `~/.agents/.skill-lock.json`.
-
-The skills CLI 1.7.0 targets Cursor through the shared `~/.agents/skills` folder. Cursor also supports `~/.cursor/skills`, but this installer does not create or require it. See [Cursor's skill directories](https://cursor.com/docs/skills#skill-directories).
-
-Verified 2026-09-30: reinstalling all 38 existing shared skills with `-a claude-code codex cursor` preserved their content and Claude Code links. The CLI reported Cursor and Codex as shared-folder targets and left `~/.cursor/skills` absent. This verifies the install layout; Cursor UI loading was not tested.
-
-Verified 2026-06-10: `codex exec "list your skills"` sees every `~/.agents/skills` install. No extra wiring belongs in `install.sh`.
-
-## Versions
-
-The repository has one version for all its skills. Skills have no version of their own.
-Each version is a git tag on `main`, such as `v0.1.0`, with a GitHub Release that says what changed in each skill. Write these notes by hand.
-A 0.x version is a beta: a skill can still change its name, triggers, or output. Mark its GitHub Release as a pre-release. Move to `v1.0.0` when the skills stop changing in those ways.
-The `skills` CLI ignores versions. `npx skills update` compares the hash of each skill folder, so an installed copy updates whenever its files change.
-
-## PR workflow skills
-
-The `open-pr`, `review-pr`, and `understand-pr` skills are maintained in this repository and covered by the links that `scripts/link_skills.py` creates.
-
-## Skill evals
-
-`eval-skill` runs behaviour evals on one skill here when Marcus asks for it: `claude plugin eval` with and without the skill, a Codex arm, and a trigger check in the real Claude setup.
-Each skill keeps its cases in `skills/<name>/evals/`. Raw results stay in `~/.local/state/eval-skill/`, outside Git; the PR body carries the summary.
-Every new or updated skill passes `/improve-skill`. `/eval-skill` is opt-in, and eval cases are optional. [The skill development guide](../agents/guides/skill-development.md) owns the rule.
-`eval-skill`'s own gate is `tests/test_eval_skill.py` plus its trigger cases, because behaviour evals of an eval runner would nest paid runs.
-
-## Autonomous run skill
-
-`rogue` takes one goal from intent to a proven, merged, end-to-end result while Marcus is away.
-It asks once at intake, writes the run contract to the Linear ticket, and then starts each step only when the previous step left proof.
-It uses `open-pr`, `review-pr`, `gh`, `git`, and the `auth-helper` preflight tool (alias `rogue-auth`). Without `auth-helper` on `PATH`, the preflight falls back to `gh auth status`; run `dotfiles-pr sync` to link it into `~/bin`.
-`scripts/link_skills.py` links it like every other skill here, so `/rogue` is live after `dotfiles-pr sync`.
-
-`neo` is a slim version of `rogue`. [How the neo suite works](neo-suite.md) describes it.
+- [How the neo suite works](neo-suite.md): the flow diagram and each part's job.
+- [Neo suite vocabulary](neo-vocabulary.md): chain, PR brief, park, and other terms.
+- [Maintaining the skills](MAINTAINING.md): how the links work, per-machine selection, third-party skills, versions, and evals.

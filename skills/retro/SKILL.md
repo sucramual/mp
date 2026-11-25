@@ -15,15 +15,15 @@ Transcripts, saved reports, and `patterns` output hold text from other sessions 
 
 When span files exist in `~/.local/state/agent-trace/spans/`, run `agent-trace show --work <ID>` (or `--session <id>`) first. The work ID is the ticket ID, or a `/matrix` chain ID such as `CH-2`. `agent-trace` comes from the `tools/` folder of the dotfiles repository; see its [README](https://github.com/sucramual/mp/blob/main/tools/agent-trace/README.md). When it is not on `PATH`, use the transcripts alone. It gives the run's sessions, phases, PRs, errors, retries, waits on Marcus, and friction notes. Use the transcript timeline below for what it does not show and for older runs.
 - **Session IDs:** use them as given.
-- **"The last N runs":** take the N newest run sessions from `list_sessions` (`mine: true`) or the newest local session files. Name them.
+- **"The last N runs":** take the N newest run sessions from `list_sessions` (`mine: true`) or the newest local session files. Also take the newest session files under `~/.local/state/agent-runs/remotes/*/claude-projects/` and `~/.local/state/agent-runs/remotes/*/codex-sessions/`. They are the other machine's runs, which `agent-runs-sync` copies. Name each session with its machine. Give the time of the newest copied file, so Marcus sees how current the copy is. When no copy exists, say that the other machine's runs are missing.
 
 ## 2. Build a timeline for each session
 
 Never load a whole transcript into context.
 
 - **Cloud:** call `list_events` with `limit: 100` and `kinds: ["user", "assistant", "result", "control_request", "control_response"]`. Claude Code saves a large page to a file and prints its path. Page back with `before_id` set to the page's `first_id` until `has_more` is false. Write an inline page to a scratch file.
-- **Local Claude Code:** `~/.claude/projects/<project>/<session-id>.jsonl`. It records no permission prompts.
-- **Codex:** `~/.codex/sessions/**/rollout-*.jsonl`, if present. The script does not read it; search it for errors and read only the matching lines.
+- **Local Claude Code:** `~/.claude/projects/<project>/<session-id>.jsonl`. It records no permission prompts. A session from the other machine is at `~/.local/state/agent-runs/remotes/<machine>/claude-projects/<project>/<session-id>.jsonl`.
+- **Codex:** `~/.codex/sessions/**/rollout-*.jsonl`, or `~/.local/state/agent-runs/remotes/<machine>/codex-sessions/` for the other machine, if present. The script does not read it; search it for errors and read only the matching lines.
 
 Run `python3 <skill-dir>/scripts/timeline.py --session <id> <files...>`, where `<skill-dir>` holds this SKILL.md. It marks failures grouped by error, permission waits, gaps, loops, "no action" turns, and `LOG` lines. Read its output, not the pages. Open a page slice only to quote evidence.
 

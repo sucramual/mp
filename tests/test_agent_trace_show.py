@@ -698,6 +698,32 @@ def test_wall_time_comes_from_the_transcripts_of_every_bound_session(env: dict[s
     assert any(line.startswith("spans 3h00m · active 32m") for line in fence(chart))
 
 
+def test_spans_bindings_and_transcripts_copied_from_the_other_machine_join_the_run(
+    env: dict[str, str], tmp_path: Path
+) -> None:
+    # Bug this guards: a /matrix run whose workers ran on the devbox shows only the laptop sessions.
+    write_store(state_of(env), scenario())
+    remote = tmp_path / "runs" / "remotes" / "devbox"
+    remote_spans = [
+        agent("devbox-phase", "start", at(10, 0), session=S2, name="Devbox phase", **{"agent_trace.kind": "phase"}),
+        agent("devbox-phase", "end", at(10, 20), session=S2, **{"agent_trace.status": "ok"}),
+    ]
+    write_store(remote / "agent-trace", remote_spans)
+    (remote / "agent-trace" / "sessions").mkdir()
+    (remote / "agent-trace" / "sessions" / f"{S2}.ticket").write_text("RUN-1\n")
+    claude_transcript(remote / "claude-projects", S2, "2026-10-30T10:00:00Z", "2026-10-30T10:30:00.000Z")
+    runs_env = {**env, "AGENT_RUNS_DIR": str(tmp_path / "runs")}
+
+    code, out, err = show(runs_env, "--work", "RUN-1", "--offline")
+
+    assert code == 0, err
+    assert "sessions 2" in fence(out)[0]
+    s2 = next(line for line in section(out, "SESSIONS") if line.startswith("claude bbbbbbbb"))
+    assert s2.startswith("claude bbbbbbbb  transcript 10-30 10:00Z → 10-30 10:30Z (30m)  spans 10-30 10:00Z")
+    _, chart, _ = gantt(runs_env, "--work", "RUN-1", "--offline")
+    assert "  Devbox phase" in [r["name"] for r in rows(chart)]
+
+
 def test_a_session_bound_to_a_later_work_id_does_not_leak_earlier_agent_spans(env: dict[str, str]) -> None:
     # Bug: bound sessions were passed as explicit selectors, so one session that served RUN-1 and then RUN-2
     # put the spans of both work IDs into the RUN-2 timeline.

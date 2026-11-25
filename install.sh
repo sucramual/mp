@@ -339,6 +339,8 @@ fi
 #   sync-job logs each change of outcome and shows a notification for a new failure.
 #   com.sucramual.agent-trace-collect keeps `agent-trace collect` running, the local receiver for the
 #   OTLP traces of Claude Code and Codex. See tools/agent-trace/README.md.
+#   com.sucramual.agent-runs-sync copies agent run data to and from the devbox every 15 minutes, only while the
+#   devbox runs, so a retro on either machine sees both. See tools/agent-runs-sync/README.md.
 load_launchd_job() {
   local label="$1" log_dir="$2" purpose="$3"
   local plist="$HOME/Library/LaunchAgents/$label.plist"
@@ -366,9 +368,11 @@ load_launchd_job() {
 if [ "$(uname -s)" = "Darwin" ]; then
   load_launchd_job com.sucramual.dotfiles-pr-sync "$HOME/Library/Logs/dotfiles-pr" "dotfiles-pr sync every 15 minutes"
   load_launchd_job com.sucramual.agent-trace-collect "$HOME/Library/Logs/agent-trace" "agent-trace collect on port 4318"
+  load_launchd_job com.sucramual.agent-runs-sync "$HOME/Library/Logs/agent-runs-sync" "agent run copy to and from the devbox every 15 minutes"
 else
   echo "  launchd sync job skipped (macOS only)"
   echo "  launchd agent-trace collect job skipped (macOS only)"
+  echo "  launchd agent-runs-sync job skipped (macOS only)"
 fi
 
 # On a devbox (a headless Linux workstation), link the devbox bootstrap and on-start hooks.

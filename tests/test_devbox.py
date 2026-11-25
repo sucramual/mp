@@ -395,6 +395,53 @@ def test_install_devbox_rerun_changes_nothing(devbox: Devbox):
     assert len(devbox.tmux_new_sessions()) == 1, "a second run should not start a second session"
 
 
+# The stock Ubuntu ~/.bashrc returns early in a non-interactive shell, such as `ssh devbox <cmd>` or a herdr pane.
+STOCK_BASHRC = """# ~/.bashrc: executed by bash(1) for non-login shells.
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+"""
+
+
+def _non_interactive_finds_local_bin_tool(home: Path) -> str:
+    """Source ~/.bashrc from a non-interactive bash with a bare PATH, then look up a tool in ~/.local/bin."""
+    script = '. "$HOME/.bashrc"; command -v herdr-test-tool'
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin"}
+    return subprocess.run(["/bin/bash", "-c", script], env=env, capture_output=True, text=True).stdout.strip()
+
+
+def test_install_devbox_puts_local_bin_on_path_for_non_interactive_shells(devbox: Devbox):
+    devbox.marker.mkdir()
+    (devbox.home / ".bashrc").write_text(STOCK_BASHRC)
+    tool = devbox.home / ".local/bin/herdr-test-tool"
+    tool.parent.mkdir(parents=True)
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    assert _non_interactive_finds_local_bin_tool(devbox.home) == "", "precondition: the stock bashrc hides ~/.local/bin"
+
+    result = devbox.install()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _non_interactive_finds_local_bin_tool(devbox.home) == str(tool)
+    assert STOCK_BASHRC in (devbox.home / ".bashrc").read_text(), "the existing bashrc content must stay"
+
+
+def test_install_devbox_creates_bashrc_with_local_bin_when_missing(devbox: Devbox):
+    devbox.marker.mkdir()
+    tool = devbox.home / ".local/bin/herdr-test-tool"
+    tool.parent.mkdir(parents=True)
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+
+    result = devbox.install()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _non_interactive_finds_local_bin_tool(devbox.home) == str(tool)
+
+
 def test_install_devbox_skips_off_a_devbox(devbox: Devbox):
     result = devbox.install()  # the marker directory does not exist
 

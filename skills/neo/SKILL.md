@@ -24,6 +24,7 @@ When `/matrix` starts you with a PR brief, the PR brief is your ticket, and thes
 - Own every PR that the PR brief assigns to you, in order. Never start another `/neo`.
 - Change only the files that the PR brief gives you. Report any other file as a contract change.
 - Triage the review gate's findings with the `matrix` skill's triage rule, by the method that its Review gate section names. Fix `before-merge` findings in this PR. Add `fix-forward` findings to the next PR in your chain. Send `decide` findings to `/matrix`.
+- Send each message to `/matrix`, including decisions, parks, and the close draft, with `SendMessage` to the `from` address of its last message to you. When no message from it has reached you, or the send fails, append the message to the router inbox that the PR brief names. Do not ask Marcus which session is the router.
 - Send every decision to `/matrix`, with a default. Never ask Marcus. The one exception is a guarded change from [Hard limits](#hard-limits): park it in this session, with the diff and the failing case, and keep working on items that it does not block. Tell `/matrix` about the park. Marcus approves it in this session, because a permission check refuses an approval that `/matrix` relays.
 - When the PR brief gives Marcus's merge grant for a PR, do not merge that PR. When its ready check passes, park it to `/matrix` with its reviewed SHA. The `matrix` skill's Granted merges section says when the grant counts.
 - Write to Linear only when the PR brief names a ticket.
@@ -55,7 +56,9 @@ Before each `wrap_up`, and before you end any turn, check that one of these hold
 - Each open PR has a running PR watcher, or a PR-activity subscription in a cloud session. A parked PR keeps its watcher too, so the run wakes when Marcus merges it.
 - The ticket is finished: Close is done.
 
-A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready.
+A status note, a merge note, a message to `/matrix`, or a `wrap_up` is not a stop point. When neither condition holds, start the missing wait, then end the turn. When work remains that no wait, park, or decision blocks, such as the next PR in the chain, do that work now instead of ending the turn. Nothing else wakes the run when a PR becomes ready, except the heartbeat below.
+
+When a wait can last more than 30 minutes, such as a wait for a dependency PR to merge, also keep a heartbeat in your own session, such as a `CronCreate` wake every 30 minutes that reads the PR state again. Stop it when the wait ends. A watcher's wake is lost when the turn it starts ends in an API error: in one run that left a worker idle 5 hours after its dependency merged.
 
 ### Run state
 

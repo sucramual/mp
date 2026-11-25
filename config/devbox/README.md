@@ -25,9 +25,20 @@ These files make the dotfiles work on the work devbox. The devbox is a headless 
 | `~/.config/devbox/on-start` | `config/devbox/on-start` | Starts the `dotfiles-sync` tmux session, and `verify-browser` when its Chrome is installed, on each devbox start |
 | `~/bin/verify-browser` | `config/devbox/verify-browser/verify-browser` | The verify-browser command |
 
+The installer also adds one line at the top of `~/.bashrc` that puts `~/.local/bin` on `PATH`. See [Remote access](#remote-access).
+
 The installer also registers the Chrome DevTools MCP server `chrome-devtools` for Claude Code (user scope) and Codex, through `claude mcp add` and `codex mcp add`. The server runs `npx -y chrome-devtools-mcp@latest --browserUrl http://127.0.0.1:9222`, so it drives the verify-browser Chrome and never launches its own. An existing `chrome-devtools` entry stays unchanged. The Mac never gets this server.
 
 A re-run changes nothing. A regular file at a target moves to `<target>.bak`. An existing `on-start` that you own stays in place. The installer prints a WARNING with the line to add to it.
+
+## Remote access
+
+The laptop reaches the devbox over SSH. `scripts/devbox.sh ssh-config` in the work repository writes the `Host devbox` block in the laptop's `~/.ssh/config`. The block tunnels through `gcloud workstations start-tcp-tunnel`. No Tailscale is needed.
+
+- Run `herdr --remote devbox` on the laptop. The Brewfile installs herdr. On the first attach, herdr copies its own binary to `~/.local/bin/herdr` on the devbox.
+- herdr panes and `ssh devbox <cmd>` start a non-interactive bash. That shell skips `~/.profile`, and the stock `~/.bashrc` returns early. So `install_devbox.sh` puts `~/.local/bin` on `PATH` at the top of `~/.bashrc`. Without it, panes cannot find `claude`.
+- A `PATH` change reaches panes only after the herdr server restarts. A restart closes the open panes.
+- From the phone, run `/remote-control` in Claude in a herdr pane, then open the session in the Claude app.
 
 ## Sync and logs
 

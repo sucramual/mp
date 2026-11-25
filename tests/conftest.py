@@ -43,7 +43,8 @@ exit 0
 class IsolatedEnv:
     """A minimal environment that keeps the user's HOME, Git config, and hooks out of tests.
 
-    ``env`` holds only HOME, PATH, GIT_CONFIG_GLOBAL, and GIT_CONFIG_NOSYSTEM, like ``env -i``.
+    ``env`` holds only HOME, PATH, GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM, and a missing DOTFILES_DEVBOX_MARKER,
+    like ``env -i``.
     So agent variables such as CLAUDECODE or CODEX_* do not leak in. PATH is ``bin`` followed
     by the caller's PATH, so fakes written to ``bin`` win over real commands.
     """
@@ -103,6 +104,8 @@ def isolated_env(tmp_path: Path) -> IsolatedEnv:
         "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
         "GIT_CONFIG_GLOBAL": str(gitconfig),
         "GIT_CONFIG_NOSYSTEM": "1",
+        # The host is not a devbox, even on one: a devbox test sets DOTFILES_DEVBOX=1 or its own marker.
+        "DOTFILES_DEVBOX_MARKER": str(root / "no-devbox"),
     }
     return IsolatedEnv(root=root, home=home, bin=bin_dir, gitconfig=gitconfig, env=env)
 

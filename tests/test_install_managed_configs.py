@@ -84,6 +84,8 @@ SYNC_PLIST = f"Library/LaunchAgents/{SYNC_LABEL}.plist"
 LEGACY_SYNC_PLIST = "Library/LaunchAgents/com.sucramual.dotfiles-sync.plist"
 COLLECT_LABEL = "com.sucramual.agent-trace-collect"
 COLLECT_PLIST = f"Library/LaunchAgents/{COLLECT_LABEL}.plist"
+RUNS_SYNC_LABEL = "com.sucramual.agent-runs-sync"
+RUNS_SYNC_PLIST = f"Library/LaunchAgents/{RUNS_SYNC_LABEL}.plist"
 
 
 BREWFILE = REPO_ROOT / "Brewfile"
@@ -277,8 +279,11 @@ def test_install_loads_the_sync_job_once_and_retires_the_legacy_job(installed: I
         f"bootstrap {domain} {plist_path}",
         f"bootout {domain}/{COLLECT_LABEL}",
         f"bootstrap {domain} {home / COLLECT_PLIST}",
+        f"bootout {domain}/{RUNS_SYNC_LABEL}",
+        f"bootstrap {domain} {home / RUNS_SYNC_PLIST}",
         f"print {domain}/{SYNC_LABEL}",
         f"print {domain}/{COLLECT_LABEL}",
+        f"print {domain}/{RUNS_SYNC_LABEL}",
     ], "the first install should load the jobs; the second should only check that they are loaded"
     assert file_state(plist_path) == installed.sync_plist_after_first, (
         "a second install should not rewrite the current sync plist (content, mtime, inode)"
@@ -295,6 +300,20 @@ def test_install_loads_the_agent_trace_collect_job(installed: Installed):
     assert job["ProgramArguments"][-2:] == [f"{home}/dotfiles/tools/agent-trace/bin/agent-trace", "collect"]
     assert job["StandardErrorPath"] == f"{home}/Library/Logs/agent-trace/collect.log"
     assert (home / "Library/Logs/agent-trace").is_dir(), "install should create the log directory for launchd"
+
+
+# Protects: the laptop copies agent run data to and from the devbox every 15 minutes, for cross-machine retros.
+# Bug caught: install.sh never loads the job, so a retro on either machine sees only its own runs.
+def test_install_loads_the_agent_runs_sync_job(installed: Installed):
+    home = installed.home
+    job = plistlib.loads((home / RUNS_SYNC_PLIST).read_bytes())
+
+    assert job["Label"] == RUNS_SYNC_LABEL
+    assert job["ProgramArguments"][-1] == f"{home}/dotfiles/tools/agent-runs-sync/bin/agent-runs-sync"
+    assert job["StartInterval"] == 900
+    assert f"{home}/.local/bin" in job["EnvironmentVariables"]["PATH"].split(":"), "devbox is in ~/.local/bin"
+    assert job["StandardErrorPath"] == f"{home}/Library/Logs/agent-runs-sync/sync.log"
+    assert (home / "Library/Logs/agent-runs-sync").is_dir(), "install should create the log directory for launchd"
 
 
 # Protects: a machine without the work overlay gets no bench config, and keeps the config.toml it has.
@@ -468,8 +487,17 @@ def test_install_warns_and_continues_without_bun_npm_or_brew(
     assert git, "the test needs git"
     (bin_dir / "git").symlink_to(git)
     fake_exe("uname", "echo Darwin\n")
-    path = os.pathsep.join([str(bin_dir), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
-    for tool in ("bun", "npm", "npx", "brew"):
+    # A host can have npm in /usr/bin (a devbox does), so the system dirs come in as links without these tools.
+    missing = ("bun", "npm", "npx", "brew")
+    system_bin = isolated_env.root / "system-bin"
+    system_bin.mkdir()
+    for system_dir in ("/usr/bin", "/bin", "/usr/sbin", "/sbin"):
+        for entry in sorted(Path(system_dir).iterdir()) if Path(system_dir).is_dir() else []:
+            link = system_bin / entry.name
+            if entry.name not in missing and not link.exists() and not link.is_symlink():
+                link.symlink_to(entry)
+    path = os.pathsep.join([str(bin_dir), str(system_bin)])
+    for tool in missing:
         assert shutil.which(tool, path=path) is None, f"precondition: {tool} must not be on the reduced PATH"
 
     checkout, output = run_copied_installer(isolated_env, run_tool, path)

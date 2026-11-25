@@ -169,9 +169,46 @@ class SaveTests(unittest.TestCase):
 
 
 class PatternTests(unittest.TestCase):
+    def setUp(self):
+        # Keep the copies of the other machine's reports (agent-runs-sync) out of these tests.
+        runs = TemporaryDirectory()
+        self.addCleanup(runs.cleanup)
+        self.runs_dir = Path(runs.name)
+        env = patch.dict(os.environ, {"AGENT_RUNS_DIR": runs.name})
+        env.start()
+        self.addCleanup(env.stop)
+
     def write(self, store: Path, name: str, created: str, findings: str) -> None:
         store.mkdir(parents=True, exist_ok=True)
         (store / name).write_text(report(created=created, topic=name, findings=findings), encoding="utf-8")
+
+    def test_reports_copied_from_the_other_machine_count_with_a_machine_label(self):
+        # Bug this guards: `patterns` on one machine ignores every retro saved on the other machine.
+        with TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            remote = self.runs_dir / "remotes" / "devbox" / "retro"
+            self.write(store, "a.md", "2026-11-01", finding("tool:agent-trace", "failure", "Local gate"))
+            self.write(remote, "b.md", "2026-11-02", finding("tool:agent-trace", "failure", "Devbox gate"))
+
+            code, out, _ = run(["--dir", str(store), "patterns", "--json"])
+
+            self.assertEqual(code, 0)
+            groups = json.loads(out)
+            self.assertEqual([(g["target"], g["runs"]) for g in groups], [("tool:agent-trace", 2)])
+            self.assertEqual(groups[0]["reports"], ["devbox:b.md", "a.md"])
+
+    def test_a_local_report_wins_over_a_copy_with_the_same_name(self):
+        # A store that was shared by hand can hold the same report twice. It must count once.
+        with TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            remote = self.runs_dir / "remotes" / "devbox" / "retro"
+            self.write(store, "a.md", "2026-11-01", finding("guide:shell", "failure"))
+            self.write(remote, "a.md", "2026-11-01", finding("guide:shell", "failure"))
+
+            code, out, _ = run(["--dir", str(store), "patterns", "--json"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out)[0]["reports"], ["a.md"])
 
     def test_groups_findings_by_target_and_kind_across_runs(self):
         with TemporaryDirectory() as tmp:

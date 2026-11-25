@@ -136,7 +136,7 @@ brew bundle check --no-upgrade --file Brewfile --verbose
 brew bundle cleanup --file Brewfile </dev/null
 ```
 
-**Third-party skills.** `skills/third-party.txt` holds pointers to skills from other repositories, not copies. The `skills` CLI cannot pin a version, so each install gets the latest. See [skills/README.md](skills/README.md#third-party-skills).
+**Third-party skills.** `skills/third-party.txt` holds pointers to skills from other repositories, not copies. The `skills` CLI cannot pin a version, so each install gets the latest. See [skills/MAINTAINING.md](skills/MAINTAINING.md#third-party-skills).
 
 - After you install or remove a third-party skill, run `python3 scripts/third_party_skills.py export`. Then ship the change as a PR.
 - To find drift between the list and this machine, run `python3 scripts/third_party_skills.py check`.

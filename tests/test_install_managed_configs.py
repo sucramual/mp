@@ -468,8 +468,17 @@ def test_install_warns_and_continues_without_bun_npm_or_brew(
     assert git, "the test needs git"
     (bin_dir / "git").symlink_to(git)
     fake_exe("uname", "echo Darwin\n")
-    path = os.pathsep.join([str(bin_dir), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
-    for tool in ("bun", "npm", "npx", "brew"):
+    # A host can have npm in /usr/bin (a devbox does), so the system dirs come in as links without these tools.
+    missing = ("bun", "npm", "npx", "brew")
+    system_bin = isolated_env.root / "system-bin"
+    system_bin.mkdir()
+    for system_dir in ("/usr/bin", "/bin", "/usr/sbin", "/sbin"):
+        for entry in sorted(Path(system_dir).iterdir()) if Path(system_dir).is_dir() else []:
+            link = system_bin / entry.name
+            if entry.name not in missing and not link.exists() and not link.is_symlink():
+                link.symlink_to(entry)
+    path = os.pathsep.join([str(bin_dir), str(system_bin)])
+    for tool in missing:
         assert shutil.which(tool, path=path) is None, f"precondition: {tool} must not be on the reduced PATH"
 
     checkout, output = run_copied_installer(isolated_env, run_tool, path)

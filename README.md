@@ -8,6 +8,8 @@
 
 My personal setup for macOS, a work devbox, and Claude Code cloud sessions. It holds shell, terminal, and Git configuration, Claude Code and Codex preferences and hooks, personal agent skills and guidance, and command-line tools.
 
+Only want the agent skills, such as the neo suite? Skip this page and follow [skills/README.md](skills/README.md). The `install.sh` below sets up the whole machine and replaces your `~/.zshrc`.
+
 ## Repository layout
 
 | Path | Purpose |

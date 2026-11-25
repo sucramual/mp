@@ -29,6 +29,7 @@ brew "felixkratz/formulae/borders", trusted: true
 
 # Terminal and shell (config/ghostty)
 cask "ghostty"
+brew "herdr"  # terminal workspace for agents; `herdr --remote devbox` installs its own devbox copy
 
 # Languages and runtimes
 brew "python@3.13"

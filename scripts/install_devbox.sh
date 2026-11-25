@@ -4,6 +4,7 @@
 #   ~/.config/devbox/bootstrap.d/30-verify-browser  the bootstrap step that installs the verify-browser Chrome
 #   ~/.config/devbox/on-start                       starts the sync loop and verify-browser on each devbox start
 #   ~/bin/verify-browser                            the verify-browser command
+#   ~/.bashrc                                       gets a ~/.local/bin PATH line at the top, for non-interactive shells
 # It also registers the Chrome DevTools MCP server, attached to the verify-browser Chrome, for Claude Code
 # (user scope) and Codex. The Mac never gets it, because this script stops there.
 # Detection: DOTFILES_DEVBOX=1 forces on, 0 forces off. Unset means on when
@@ -48,6 +49,24 @@ link_hook() {
 devbox_dir="$HOME/.config/devbox"
 on_start_source="$DOTFILES_DIR/config/devbox/on-start"
 on_start_target="$devbox_dir/on-start"
+
+# herdr panes and `ssh devbox <cmd>` start non-interactive bash, which skips ~/.profile and returns early in the
+# stock ~/.bashrc. Put ~/.local/bin (claude, herdr) on PATH at the top of ~/.bashrc, above that early return.
+bashrc="$HOME/.bashrc"
+path_line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac'
+if [ -f "$bashrc" ] && grep -qxF "$path_line" "$bashrc"; then
+  echo "  $bashrc already puts ~/.local/bin on PATH"
+else
+  tmp="$(mktemp)"
+  {
+    echo "# Added by dotfiles install_devbox.sh: non-interactive shells (herdr panes, ssh commands) need ~/.local/bin."
+    echo "$path_line"
+    if [ -f "$bashrc" ]; then cat "$bashrc"; fi
+  } >"$tmp"
+  cat "$tmp" >"$bashrc"
+  rm -f "$tmp"
+  echo "  Added ~/.local/bin to PATH at the top of $bashrc"
+fi
 
 link_hook "$DOTFILES_DIR/config/devbox/bootstrap.d/20-dotfiles" "$devbox_dir/bootstrap.d/20-dotfiles"
 link_hook "$DOTFILES_DIR/config/devbox/bootstrap.d/30-verify-browser" "$devbox_dir/bootstrap.d/30-verify-browser"

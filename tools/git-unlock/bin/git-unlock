@@ -23,7 +23,9 @@ if ! command -v lsof >/dev/null 2>&1; then
   exit 2
 fi
 
-if lsof_output=$(lsof -- "$lock_path" 2>&1); then
+# -w drops warnings about mounts that lsof cannot stat, such as Docker overlays on a devbox.
+# Without it, any warning reads as a failed lookup, and no lock can be cleared there.
+if lsof_output=$(lsof -w -- "$lock_path" 2>&1); then
   echo "git-unlock: refusing to remove an active lock: $lock_path" >&2
   printf '%s\n' "$lsof_output" >&2
   exit 1

@@ -103,6 +103,27 @@ def test_refuses_when_lsof_is_unavailable(repo: Path, isolated_env: IsolatedEnv,
     )
 
 
+def test_clears_an_unowned_lock_when_lsof_warns_about_mounts(
+    repo: Path, fake_exe: Callable[..., Path], run_tool: RunTool
+):
+    """On a host with Docker, lsof warns about mounts it cannot stat, even when no process holds the lock."""
+    lock = repo / ".git" / "index.lock"
+    fake_exe(
+        "lsof",
+        'for arg in "$@"; do [ "$arg" = -w ] && exit 1; done\n'
+        'echo "lsof: WARNING: can\'t stat() overlay file system /var/lib/docker/overlay2/x" >&2\n'
+        'echo "      Output information may be incomplete." >&2\n'
+        "exit 1\n",
+    )
+
+    result = run_tool([TOOL], cwd=repo)
+
+    assert result.returncode == 0, (
+        f"git-unlock should clear an unowned lock despite mount warnings\n{output_of(result)}"
+    )
+    assert not lock.exists(), "git-unlock should remove an unowned lock despite mount warnings"
+
+
 def test_refuses_when_lsof_fails(repo: Path, fake_exe: Callable[..., Path], run_tool: RunTool):
     lock = repo / ".git" / "index.lock"
     fake_exe("lsof", 'echo "lsof: test failure" >&2\nexit 2\n')

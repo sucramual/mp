@@ -4,7 +4,7 @@ Agent skills for Claude Code, Codex, and Cursor. The main set is the **neo suite
 
 ## Install
 
-You need Python 3.11 or newer, `gh` signed in, and Claude Code or Codex with the Linear MCP connected.
+You need Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), `gh` signed in, and Claude Code or Codex with the Linear MCP connected.
 
 1. Clone the repository. Do not run its `./install.sh`: that installs Marcus's whole machine setup and replaces your `~/.zshrc`.
 
@@ -12,15 +12,21 @@ You need Python 3.11 or newer, `gh` signed in, and Claude Code or Codex with the
    git clone https://github.com/sucramual/mp.git ~/mp && cd ~/mp
    ```
 
-2. Select the neo suite skills and link them into `~/.claude/skills` and `~/.agents/skills`:
+2. Choose your skills in a checklist, and link them into `~/.claude/skills` and `~/.agents/skills`:
+
+   ```bash
+   python3 scripts/link_skills.py --pick
+   ```
+
+   To see each skill and its description first, run `python3 scripts/link_skills.py --list`.
+
+   **For the neo suite**, skip the checklist and select its seven skills directly:
 
    ```bash
    mkdir -p ~/.config/dotfiles
    printf '%s\n' neo matrix perf open-pr review-pr verify retro > ~/.config/dotfiles/skills.txt
    python3 scripts/link_skills.py
    ```
-
-   Without `skills.txt`, the script links every skill. To pick from a checklist instead, run `python3 scripts/link_skills.py --pick` (needs `uv`).
 
 3. Link the tools (`agent-trace`, `auth-helper`, and others) into `~/bin`, and put `~/bin` on your `PATH`:
 
@@ -62,5 +68,4 @@ A run never does these things:
 
 - [How the neo suite works](neo-suite.md): the flow diagram and each part's job.
 - [Neo suite vocabulary](neo-vocabulary.md): chain, PR brief, park, and other terms.
-- Other skills: run `python3 scripts/link_skills.py --list` for each skill and its description.
 - [Maintaining the skills](MAINTAINING.md): how the links work, per-machine selection, third-party skills, versions, and evals.

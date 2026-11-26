@@ -7,11 +7,16 @@ These terms have one meaning in the `neo`, `matrix`, `retro`, and `review-pr` sk
 
 | Term | Meaning |
 | --- | --- |
-| **goal** | What Marcus asks `/matrix` to deliver. It has no ID. |
+| **goal** | What Marcus asks `/matrix` to deliver. It has no ID. A ticket's `## Goal` section states the outcome and why. It is never ticked. One goal can span several tickets. |
 | **ticket** | A tracked issue that holds the requirements of the work, usually a Linear issue. It is optional for `/matrix`. One ticket can cover several chains. |
+| **Done when** | The checklist in a ticket's description that says when the work is done. It is the one record of the checks: the plan file, PR briefs, and close drafts name its items by ID and keep no copy of their own. A goal with no ticket keeps it in the plan file. |
+| **item** | One line of a Done when list: `- [ ] **<ID>** <check> — proof: <live or unit only>, <the event it observes> — covers: <what the proof covers and does not> — owner: <chain ID, matrix, neo, or Marcus>`. The owner appends `— red: <link>` when the check first fails against the code before the change, or `— red: n/a, <reason>` when it cannot fail first. The ID is the ticket ID and a number, such as `ABC-123.2`. A goal with no ticket uses the chain ID, such as `CH-2.1`. An item keeps its number for its whole life: a new item takes the next number, and a dropped item is struck through, never renumbered. Each item belongs to one ticket. An item that waits on another adds `— after: <ID>`. |
+| **tick** | Set an item to `[x]` and append `— evidence: <link>`. Only the item's owner ticks it, after `verify` passes on the merged result, and only when the item has a `red:` field. A check that never failed proves nothing. |
+| **audit** | `/matrix` compares a ticked item's `red:` and evidence links with its proof and covers fields. A pass appends `— audited`. A fail sets the box back to `[ ]`. |
+| **PR check** | A check that one PR must pass before merge, such as a test or a reviewer finding. It lives in the PR brief and the PR body, never in the Done when list. |
 | **chain** | The PRs that one neo worker owns, in order. Often a `gh stack`, or small PRs in one area. `/matrix` gives each chain an ID such as `CH-2` in its plan file. |
 | **PR brief** | Everything one neo worker needs to build one PR. `/matrix` writes one for each PR. It has no ID of its own: name it by chain and PR, such as "CH-2, PR 1", and by its PR number after the PR opens. |
-| **work ID** | The ID that `agent-trace` groups a run's spans by: the ticket ID, or the chain ID when the chain has no ticket. |
+| **work ID** | The ID that `agent-trace` groups a run's spans by: the ticket ID, or the chain ID when the chain has no ticket or its items span several tickets. |
 
 ## The run
 
@@ -44,6 +49,9 @@ These terms have one meaning in the `neo`, `matrix`, `retro`, and `review-pr` sk
 | job | chain, or neo run | It already means a GitHub Actions job, a Cloud Run job, or a Temporal job. |
 | task list | chain | The Claude desktop app's task list is the agent's plan, and a list has no order. |
 | ticket, for the trace key | work ID | A chain with no ticket still has a work ID. |
+| goal check, ticket check | item | One check has one name, wherever it is read. |
+| goal table | Done when | A table beside the list became a second record that disagreed with it, and Linear cannot tick a table cell. |
+| Proof column | the item's proof field | The proof is part of the item. |
 
 ## In code
 

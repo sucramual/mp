@@ -95,7 +95,7 @@ def test_llm_triage_is_the_default() -> None:
             "Put no ticket ID in a worker's branch name or PR title. Only you close the ticket",
             "Linear closes a ticket when a merged PR's branch name or title holds its ID",
         ),
-        ("Close the ticket only when every goal check passes", "the router must not close a ticket early"),
+        ("Close a ticket only when every item in it is ticked and audited", "the router must not close a ticket early"),
     ],
 )
 def test_ticket_closes_only_with_the_goal(needle: str, message: str) -> None:

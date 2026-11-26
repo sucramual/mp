@@ -48,7 +48,7 @@ To update, run `git pull` in `~/mp`. The links point at your clone, so the chang
 
 | You have | Type | You get |
 | --- | --- | --- |
-| One ticket | `/neo ABC-123` | Merged PRs that pass each ticket check |
+| One ticket | `/neo ABC-123` | Merged PRs that pass each Done when item |
 | A goal too large for one PR | `/matrix <goal>` | The goal split across several `neo` workers, with one decision queue for you |
 | An idea to test, such as a speed-up | `/perf <idea>` | A decision record from experiments. It merges nothing. |
 | Finished runs | `/retro last 5 runs` | Suggested fixes to skills and tools |
@@ -62,7 +62,7 @@ A run never does these things:
 - Merge a guarded change: data, migrations, infra, auth, secrets, or CI workflows. It parks the PR for you with the merge command.
 - Merge a commit other than the one it reviewed.
 - Write to Spacelift.
-- Call the work done before each ticket check passes on the merged result.
+- Call the work done before each Done when item passes on the merged result.
 
 ## More
 

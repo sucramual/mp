@@ -1,11 +1,11 @@
 ---
 name: verify
-description: Prove a merged change works where it runs, scaled to the change, and record pass or fail with evidence for each ticket check. Use after a PR merges, for "/verify", "check it works in staging", "verify the deploy", "prove the merged change", or the post-merge proof step of /neo. Not for reviewing a diff or PR before merge (use /age or review-pr), and not for building a project's verification skill (create-verification-skill).
+description: Prove a merged change works where it runs, scaled to the change, and record pass or fail with evidence for each Done when item. Use after a PR merges, for "/verify", "check it works in staging", "verify the deploy", "prove the merged change", or the post-merge proof step of /neo. Not for reviewing a diff or PR before merge (use /age or review-pr), and not for building a project's verification skill (create-verification-skill).
 ---
 
 # Verify
 
-A merged PR is not done. Done means every ticket check passes on the deployed result.
+A merged PR is not done. Done means every Done when item passes on the deployed result.
 
 **Inputs:** the ticket's checks, each a requirement with a pass/fail check, the PR, and the SHA that the review covered.
 

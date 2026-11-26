@@ -13,7 +13,7 @@ Write three or four questions. Cover at least three of these kinds:
 | Failure | Explain a learning moment and its cause | "Why did <first attempt> fail, and what did the fix change?" |
 | Boundary | Say what the proof does not cover | "Which check is unit only, and what could still break live?" |
 
-- Ground each question in one source: a decision, a learning moment, or a goal check on the page.
+- Ground each question in one source: a decision, a learning moment, or a Done when item on the page.
 - Ask for a cause, not a name. "Which PR added X?" tests recall. "Why did X need its own PR?" tests understanding.
 - Put no answer in the question.
 

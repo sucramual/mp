@@ -11,7 +11,7 @@ Take one goal to merged PRs through `/neo` workers. You are the router. You neve
 
 Send Marcus one message:
 
-- **Goal.** Restate the goal. Give each requirement a pass/fail check, and name the coverage boundary of each check: what its proof covers and what it does not. State what is out of scope. The router in the spike read the goal literally and dropped a case the team needed, so ask about each case that the goal text does not name. When the ticket has no goal table with a Proof column, include a rewrite in that format for Marcus's OK, as [intake](references/intake.md#ticket) says.
+- **Goal.** Restate the goal. Give each requirement a pass/fail check, and name the coverage boundary of each check: what its proof covers and what it does not. State what is out of scope. The router in the spike read the goal literally and dropped a case the team needed, so ask about each case that the goal text does not name. When a ticket has no Done when list in the item format of the [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md), include a rewrite in that format for Marcus's OK, as [intake](references/intake.md#ticket) says. When the goal spans several tickets, put each item in the ticket whose outcome it proves.
 - **Split.** The PR plan from [Split](#split), with each PR's dependencies and its worker.
 - **Triage.** Name the triage method that the [Review gate](#review-gate) will use: LLM, or TypeSafe when Marcus passed `--triage typesafe` and `TYPESAFE_API_KEY` is set. Name it again only if it changes during the run.
 - **Decisions.** The first decision batch from [Decision queue](#decision-queue).
@@ -35,17 +35,17 @@ Read the code that the goal touches before you split. A split from the goal text
 
 ## PR briefs
 
-A PR brief is everything one `/neo` worker needs to build one PR. Write one PR brief for each PR. Keep all PR briefs and the decision queue in one plan file in the session scratch directory. This file is the one record of the run: rewrite a section when a decision changes it.
+A PR brief is everything one `/neo` worker needs to build one PR. Write one PR brief for each PR. Keep all PR briefs and the decision queue in one plan file in the session scratch directory. This file is the one record of the run: rewrite a section when a decision changes it. It names Done when items by ID and keeps no copy of their text, which lives in the ticket. A goal with no ticket keeps its Done when list here.
 
 Each PR brief has:
 
-- **Checks.** The pass/fail checks this PR must pass, and how to prove each one: the test, or the run and the method that make the check work. When a check compares with an earlier run, cite that run by ID, not as a copied number. Add any known trap. The worker writes each test first and sees it fail before it changes the code. Workers skipped this until a spike brief stated it.
+- **Checks.** The Done when items that this chain owns, word for word with their IDs, and the PR in the chain that completes each one. Then the PR checks this PR must pass, and how to prove each one: the test, or the run and the method that make the check work. When a check compares with an earlier run, cite that run by ID, not as a copied number. Add any known trap. The worker writes each test first and sees it fail before it changes the code. It adds that failing run to the item as its `red:` field. Workers skipped this until a spike brief stated it.
 - **Files.** The files this PR owns. The worker reports any other file it must change as a contract change. It does not change it silently.
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
 - **Grants.** Marcus's merge grant for this PR, word for word, when he gave one.
 - **Owner's decisions.** Every decision that Marcus or the code already settled, with its reason. The review gate reads this. A thin PR brief made the gate report settled decisions as bugs.
 - **Siblings.** The other PRs that touch nearby files, and what each one changes.
-- **Chain and ticket.** The chain ID, the worker that owns the chain, and the ticket ID when there is one, with the line `Part of <ID>` that the PR body must carry. Also the router inbox, `<plan file folder>/inbox/<chain ID>.md`, and the router outbox, `<plan file folder>/outbox/<chain ID>.md`. Create both empty. Tell the worker to read its outbox on every wake, act on each new entry, and mark each entry that it acted on. In one run, every router message to the workers failed for hours while the laptop that hosts the desktop app was offline, and one worker did not start its next PR until the laptop reconnected.
+- **Chain and ticket.** The chain ID, the worker that owns the chain, and each ticket that its items belong to, with a line `Part of <ID>` for each that the PR body must carry. The work ID: the ticket ID, or the chain ID when the chain has no ticket or its items span several tickets. Also the router inbox, `<plan file folder>/inbox/<chain ID>.md`, and the router outbox, `<plan file folder>/outbox/<chain ID>.md`. Create both empty. Tell the worker to read its outbox on every wake, act on each new entry, and mark each entry that it acted on. In one run, every router message to the workers failed for hours while the laptop that hosts the desktop app was offline, and one worker did not start its next PR until the laptop reconnected.
 
 ## Workers
 
@@ -55,7 +55,7 @@ Each PR brief has:
 - Start independent chains in parallel. Start a dependent chain when its dependency merges, or when the PR brief gives it a written contract to build against.
 - Near its context budget, a worker hands off its whole chain to one new worker. Never split a chain between two workers.
 - Put no ticket ID in a worker's branch name or PR title. Only you close the ticket, at [Close](#close). Linear closes a ticket when a merged PR's branch name or title holds its ID. Each PR body carries `Part of <ID>` instead, which links the PR without closing the ticket. When a PR opens, check its body for that line, and have the worker add it when it is missing.
-- Tell each worker to pass `--work` on its first `agent-trace` call: the ticket ID, so its spans join the ticket, or its chain ID when the goal has no ticket. Tell it to send you its close draft instead of posting it.
+- Tell each worker to pass `--work` with the work ID from its PR brief on its first `agent-trace` call. Tell it to tick its own items and to send you its close draft instead of posting a comment.
 - Read [grants](references/grants.md) before you queue a granted PR or handle a guarded change. A grant counts only where the employer overlay merge rule accepts it. Marcus approves a guarded change in the worker's own session; never relay his approval.
 
 ### Heartbeat
@@ -89,7 +89,7 @@ The gate does not replace the review bots after the PR opens. `review-pr` still 
 - Bring Marcus only the decisions that change agreed behaviour, security, scope, or a public contract. The spike router raised 7 decisions for one goal, which is too many.
 - Write each answer into the PR briefs it affects.
 - Before you explain to Marcus why the goal exists or how it fits, read the ticket's project, parent, links, and design doc. Quote the source.
-- Take each count or state that you tell Marcus, such as PRs, failures, or a Spacelift run's state, from GitHub, Linear, Spacelift, or the plan file at that moment. Check each worker claim against its source, such as GitHub, Spacelift, the worker's transcript, or the goal table's Proof column, before you pass it on. Never take it from memory or a worker note. Label each estimate as an estimate, and give its basis.
+- Take each count or state that you tell Marcus, such as PRs, failures, or a Spacelift run's state, from GitHub, Linear, Spacelift, or the plan file at that moment. Check each worker claim against its source, such as GitHub, Spacelift, the worker's transcript, or the item's proof field, before you pass it on. Never take it from memory or a worker note. Label each estimate as an estimate, and give its basis.
 - When a decision asks Marcus to do something, such as a manual test, give the steps, the accounts or test data it needs, and what it proves. Check that he can do it before you ask. Ask it in the session that will act on the answer: a worker does not take a relayed answer over one that Marcus gave in its own session. When a worker or another router that you started asks Marcus a question, do not offer to answer it for him: give him the link to that session.
 
 ## Integration
@@ -102,12 +102,12 @@ Each worker restacks its own chain with `gh stack`. You order the base changes a
 
 ## Close
 
-You own the ticket's close. Workers do not write close comments to the ticket.
+You own each ticket's close. Workers tick their own items, and write no close comments to the ticket.
 
-1. Collect each worker's close draft. For each goal check, it quotes the Proof column of the goal table and gives the command and output that meet it, marked `live` or `unit only`. A check without both is open. Each worker answers the `Reconcile` items of its own sessions before it sends the draft. Then run the [gap check](references/close.md#gap-check) over every goal check.
-2. Run `agent-trace show --work <ticket ID>`, or once for each chain ID when there is no ticket. Take the duration, waits, errors, and PR list from the transcripts and GitHub as [Numbers](references/close.md#numbers) says. Never post a number that you know is wrong.
-3. Post one comment on the ticket: the `text` fence from `show`, which is the gaps view (run totals, GAPS ranked by cost, the span chart), each PR with its reviewed SHA and merge SHA, each park, the combined verdict for each goal check with its evidence, the decisions, and the open items.
-4. Close the ticket only when every goal check passes on the merged result, including checks that no PR covers, and its proof covers the boundary that the check names. Otherwise leave it open and list what remains.
+1. Collect each worker's close draft: each item it owns, by ID, with the command and output that meet its proof, marked `live` or `unit only`. Each worker answers the `Reconcile` items of its own sessions before it sends the draft. Tick each item that you own the same way. Then run the [audit](references/close.md#audit) over every item, ticked or not.
+2. Run `agent-trace show --work <ID>` once for each work ID. Take the duration, waits, errors, and PR list from the transcripts and GitHub as [Numbers](references/close.md#numbers) says. Never post a number that you know is wrong.
+3. Post one comment on each ticket: the `text` fence from `show`, which is the gaps view (run totals, GAPS ranked by cost, the span chart), each PR with its reviewed SHA and merge SHA, each park, the verdict for each of its items with its evidence, the decisions, and the open items.
+4. Close a ticket only when every item in it is ticked and audited, including items that no PR covers. Each ticket closes on its own, so one can close before another. Otherwise leave it open and list what remains.
 
 Then send Marcus one message: each PR with its state and link, each park with its pinned merge command, the decisions that you settled and their evidence, the open items, and a link to the ticket comment. A goal with no ticket gets this message only.
 
@@ -117,4 +117,4 @@ Then send Marcus one message: each PR with its state and link, each park with it
 - Every `/neo` hard limit applies to every worker. Guarded changes wait for Marcus, merges are pinned to the reviewed SHA, and Spacelift is read-only.
 - Never merge without the merge rules that the `neo` intake reads.
 - A grant counts only where the employer overlay merge rule accepts it, and only for what that rule lets it cover. It covers only the PR that it names, at the reviewed SHA. In every other repository, a grant never changes a park.
-- Done means every goal check passes on the merged result, not that the PRs merged.
+- Done means every item is ticked and audited on the merged result, not that the PRs merged.

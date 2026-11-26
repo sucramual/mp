@@ -95,7 +95,7 @@ def test_guarded_line_names_each_guarded_item(item: str) -> None:
         ),
         ('a "merged" message is not proof', "only the GitHub receipt proves a merge (ENG-2655)"),
         (
-            "Done means every ticket check passes on the merged result, not that the PR merged.",
+            "Done means every Done when item passes on the merged result, not that the PR merged.",
             "a merged PR must not stand in for the ticket's checks",
         ),
         (

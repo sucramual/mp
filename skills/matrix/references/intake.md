@@ -27,7 +27,7 @@ Auto mode denies mutating commands that an acceptance step needs. Marcus then ha
 Each Done when item carries its proof: the evidence that the check needs, such as a live run on the target or a unit test. The audit at close compares each tick with that field. The item format is in the [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md). In one run, a ticket closed with every Done when box empty, and the goal table beside the list disagreed with it.
 
 - When a ticket has no Done when list in that format, draft it again: one item for each check, with its proof, covers, and owner fields. Keep the existing items and add only the missing fields. Keep no second list, such as a table, beside it.
-- When the goal spans several tickets, put each item in the ticket whose outcome it proves, with that ticket's ID prefix. An item that waits on another ticket's item lives in the ticket that it blocks, and names the other with `after:`.
+- When the goal spans several tickets, put each item in the ticket whose outcome it proves, and number it from that ticket's ID. An item that waits on another ticket's item lives in the ticket that it blocks, and names the other with `after:`.
 - Put the draft in the intake message. Update the ticket only after Marcus says OK.
 - For each live proof, name the event it observes and how the run makes that event happen, such as a throwaway draft PR. Put both in the PR brief. In two runs a live check had no event to observe, and the run stopped to ask Marcus.
 - For each live proof, name who runs it and with what access. A page behind a sign-in proxy needs Marcus in a signed-in browser, or a granted service-account identity: no worker has a signed-in browser. Ask for that at intake.

@@ -1,15 +1,14 @@
 """Checks that an agent cannot merge an edit to the rules that decide when an agent may merge.
 
-The controller may merge its own all-edges dotfiles PR, and /rogue may merge low and medium tiers.
+The controller may merge its own all-edges dotfiles PR, and /neo may merge low and medium tiers.
 Both exceptions must exclude a PR that changes a merge-rule file, or an agent could widen its own
-merge authority and then merge that change. pr-review.md and the /rogue reserved paths each list the
-files. A file missing from one list, or a listed path that no longer exists, lets such a PR merge.
+merge authority and then merge that change. pr-review.md lists the files, and /neo links that list.
+A file missing from the list, or a listed path that no longer exists, lets such a PR merge.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -17,13 +16,11 @@ from conftest import REPO_ROOT
 from skill_text import assert_contains, read_lines
 
 CONTROLLER_GUIDE = REPO_ROOT / "agents" / "guides" / "pr-review.md"
-ROGUE_SKILL = REPO_ROOT / "skills" / "rogue" / "SKILL.md"
 NEO_SKILL = REPO_ROOT / "skills" / "neo" / "SKILL.md"
 GLOBAL_RULES = REPO_ROOT / "AGENTS.md"
 GIT_GUIDE = REPO_ROOT / "agents" / "guides" / "git-and-worktrees.md"
 
 CONTROLLER_HEADING = "### Merge-rule files"
-ROGUE_ITEM = "- Merge and authority rules in `sucramual/mp`"
 PATH_BULLET = re.compile(r"^\s*- `([^`]+)`")
 
 
@@ -49,13 +46,8 @@ def controller_list() -> list[str]:
     return listed_paths(CONTROLLER_GUIDE, CONTROLLER_HEADING)
 
 
-def rogue_list() -> list[str]:
-    return listed_paths(ROGUE_SKILL, ROGUE_ITEM)
-
-
-@pytest.mark.parametrize("paths", [controller_list, rogue_list], ids=["pr-review", "rogue"])
-def test_each_list_names_existing_files_and_itself(paths: Callable[[], list[str]]) -> None:
-    listed = paths()
+def test_the_list_names_existing_files_and_itself() -> None:
+    listed = controller_list()
     assert listed, "an empty list reserves nothing"
     for path in listed:
         assert (REPO_ROOT / path).is_file(), f"{path} does not exist, so the file it was renamed to is not reserved"
@@ -63,16 +55,11 @@ def test_each_list_names_existing_files_and_itself(paths: Callable[[], list[str]
         "AGENTS.md",
         "agents/global.md",
         "agents/guides/pr-review.md",
-        "skills/rogue/SKILL.md",
         "skills/neo/SKILL.md",
         "skills/review-pr/references/risk-tiers.md",
         "agents/guides/self-repair.md",
     ):
         assert path in listed, f"the list should reserve {path}, or an agent can edit the rule and merge the edit"
-
-
-def test_both_lists_name_the_same_files() -> None:
-    assert sorted(controller_list()) == sorted(rogue_list()), "a file on one list only can merge under the other rule"
 
 
 @pytest.mark.parametrize(
@@ -84,7 +71,6 @@ def test_both_lists_name_the_same_files() -> None:
             "unless the PR changes a file that [PR review](agents/guides/pr-review.md#merge-rule-files) lists",
         ),
         (GIT_GUIDE, "unless the PR changes a file that [PR review](pr-review.md#merge-rule-files) lists"),
-        (ROGUE_SKILL, "and the merge and authority rules that [Repository specifics]"),
         (
             NEO_SKILL,
             "each file that [Merge-rule files]"

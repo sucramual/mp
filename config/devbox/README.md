@@ -1,6 +1,6 @@
 # Devbox hooks
 
-These files make the dotfiles work on the work devbox. The devbox is a headless Google Cloud Workstation with a persistent `/home`. The hooks give it the `/rogue` skill, the tools in `~/bin`, the automatic sync, and the verify-browser: a Chrome, signed in to Okta once, that agents drive for `/verify`.
+These files make the dotfiles work on the work devbox. The devbox is a headless Google Cloud Workstation with a persistent `/home`. The hooks give it the skills, the tools in `~/bin`, the automatic sync, and the verify-browser: a Chrome, signed in to Okta once, that agents drive for `/verify`.
 
 ## First install
 
@@ -50,7 +50,7 @@ The `dotfiles-sync` tmux session runs `tools/dotfiles-pr/sync-loop`. The loop ru
 
 ## verify-browser
 
-The unattended `/neo` and `/rogue` runs end with `/verify`, which clicks through staging. Staging needs Okta. So the devbox keeps one Chrome that Marcus signs in to once, and agents drive it through the Chrome DevTools MCP server.
+The unattended `/neo` runs end with `/verify`, which clicks through staging. Staging needs Okta. So the devbox keeps one Chrome that Marcus signs in to once, and agents drive it through the Chrome DevTools MCP server.
 
 The tmux session `verify-browser` has five windows:
 

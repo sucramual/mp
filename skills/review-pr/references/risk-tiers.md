@@ -1,6 +1,6 @@
 # Risk tiers
 
-/rogue, /neo, and [Self-repair](https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/self-repair.md) use this one definition to decide whether an agent may merge a PR without a person.
+/neo and [Self-repair](https://raw.githubusercontent.com/sucramual/mp/main/agents/guides/self-repair.md) use this one definition to decide whether an agent may merge a PR without a person.
 Classify the tier from the diff of the head that you will merge.
 
 ## Tiers
@@ -25,7 +25,7 @@ When you are not sure that a path is reserved, treat it as reserved.
 
 ## What each tier allows
 
-- **Low and Medium:** an agent may merge only when all of these are true: its skill or guide allows a merge in that repository, [Ready to merge](ready-to-merge.md) reports `ready` on the head, and the merge is pinned to the reviewed SHA. The one exception to the ready check is the low-tier missing-reviewer rule in /rogue step 6. Never pass `--admin` or `--auto`.
+- **Low and Medium:** an agent may merge only when all of these are true: its skill or guide allows a merge in that repository, [Ready to merge](ready-to-merge.md) reports `ready` on the head, and the merge is pinned to the reviewed SHA. Never pass `--admin` or `--auto`.
 - **High, or a reserved path:** park the PR for Marcus with one merge command pinned to the reviewed SHA.
 
 ## Employer repository rules

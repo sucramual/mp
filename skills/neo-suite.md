@@ -85,7 +85,6 @@ Upload the PNG with "Attach files" on the release edit page in Chrome, and embed
 Do not embed a `releases/download/<tag>/` URL: it shows a broken image until the release is published.
 The map goes in the release notes, not in this file, because its colours describe one version only.
 
-## neo and rogue
+## neo triggers
 
-`neo` is a slim version of `rogue`, kept beside it so the two can be compared on real tickets.
 `neo` fires on "/neo", "neo this ticket", or "run this ticket end to end without me", and not on a plain request to open a PR.

@@ -143,9 +143,4 @@ Every new or updated skill passes `/improve-skill`. `/eval-skill` is opt-in, and
 
 ## Autonomous run skill
 
-`rogue` takes one goal from intent to a proven, merged, end-to-end result while Marcus is away.
-It asks once at intake, writes the run contract to the Linear ticket, and then starts each step only when the previous step left proof.
-It uses `open-pr`, `review-pr`, `gh`, `git`, and the `auth-helper` preflight tool (alias `rogue-auth`). Without `auth-helper` on `PATH`, the preflight falls back to `gh auth status`; run `dotfiles-pr sync` to link it into `~/bin`.
-`scripts/link_skills.py` links it like every other skill here, so `/rogue` is live after `dotfiles-pr sync`.
-
-`neo` is a slim version of `rogue`. [How the neo suite works](neo-suite.md) describes it.
+`neo` takes one ticket to a merged and verified result while Marcus is away. [How the neo suite works](neo-suite.md) describes it.

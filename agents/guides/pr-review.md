@@ -47,14 +47,13 @@ Some employer repositories have an enqueue rule that reads any comment from the 
 
 ### Merge-rule files
 
-These files decide when an agent may merge, what blocks a merge or a push, or which tools an agent may run without a prompt. An agent never merges a PR that changes one of them, because the PR could widen the agent's own merge authority. The /rogue reserved paths in `skills/rogue/SKILL.md` list the same files. Keep the two lists in step.
+These files decide when an agent may merge, what blocks a merge or a push, or which tools an agent may run without a prompt. An agent never merges a PR that changes one of them, because the PR could widen the agent's own merge authority.
 
 - `AGENTS.md`
 - `agents/global.md`
 - `agents/guides/pr-review.md`
 - `agents/guides/git-and-worktrees.md`
 - `agents/guides/dotfiles-review.md`
-- `skills/rogue/SKILL.md`
 - `skills/neo/SKILL.md`
 - `skills/review-pr/SKILL.md`
 - `skills/review-pr/README.md`
@@ -91,4 +90,4 @@ In the private work overlay `sucramual/mp-private`, an agent may merge only a PR
 
 ## Ready to merge
 
-The ready check that `review-pr`, the controller, and `/rogue` use lives in [`skills/review-pr/references/ready-to-merge.md`](../../skills/review-pr/references/ready-to-merge.md). It is inside the skill folder so that isolated evals of `review-pr` can read it.
+The ready check that `review-pr`, the controller, and `/neo` use lives in [`skills/review-pr/references/ready-to-merge.md`](../../skills/review-pr/references/ready-to-merge.md). It is inside the skill folder so that isolated evals of `review-pr` can read it.

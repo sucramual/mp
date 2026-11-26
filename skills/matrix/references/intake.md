@@ -24,11 +24,12 @@ Auto mode denies mutating commands that an acceptance step needs. Marcus then ha
 
 ## Ticket
 
-The goal table gives each goal check its Proof column: the evidence that the check needs, such as a live run on the target or a unit test. The close compares each check with that column.
+Each Done when item carries its proof: the evidence that the check needs, such as a live run on the target or a unit test. The audit at close compares each tick with that field. The item format is in the [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md). In one run, a ticket closed with every Done when box empty, and the goal table beside the list disagreed with it.
 
-- When the ticket does not have a goal table, draft the ticket again in that format: one row for each goal check, with its pass/fail check, its Proof column, and its coverage boundary.
+- When a ticket has no Done when list in that format, draft it again: one item for each check, with its proof, covers, and owner fields. Keep the existing items and add only the missing fields. Keep no second list, such as a table, beside it.
+- When the goal spans several tickets, put each item in the ticket whose outcome it proves, with that ticket's ID prefix. An item that waits on another ticket's item lives in the ticket that it blocks, and names the other with `after:`.
 - Put the draft in the intake message. Update the ticket only after Marcus says OK.
 - For each live proof, name the event it observes and how the run makes that event happen, such as a throwaway draft PR. Put both in the PR brief. In two runs a live check had no event to observe, and the run stopped to ask Marcus.
 - For each live proof, name who runs it and with what access. A page behind a sign-in proxy needs Marcus in a signed-in browser, or a granted service-account identity: no worker has a signed-in browser. Ask for that at intake.
 - When several checks read one throwaway PR or its preview, the PR brief names the worker that closes it, and says to close it only after every check that reads it has passed, including checks that Marcus or another worker runs. In one run, the throwaway closed before the last check, and the run needed a second one.
-- Copy the Proof column word for word into every PR brief and acceptance brief that covers the check.
+- Copy each item word for word, with its ID, into the PR brief of the chain that owns it. Change an item only in the ticket, then copy it again.

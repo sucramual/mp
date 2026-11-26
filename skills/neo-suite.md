@@ -56,7 +56,7 @@ flowchart TD
 | `perf` | Skill | Runs a spike: it proves or refutes each idea by experiment, under the proof rule of its method. Its ticket carries a fixed hand-off for `neo` or `matrix`: baselines by run ID, methods, traps, dropped ideas, and open decisions. It never ships code. |
 | `open-pr` | Skill | Publishes each change as a PR. For a `neo` PR it runs with `--no-review` and starts no follow-up, so `neo` is the only writer on the branch. |
 | `review-pr` | Skill | Gives the procedure that takes a PR through review comments and required CI to ready. `neo` follows it inline. Its PR watcher, `scripts/watch-pr.sh`, wakes the run. |
-| `verify` | Skill | Proves each ticket check on the merged result, with evidence. |
+| `verify` | Skill | Proves each Done when item on the merged result, with evidence. |
 | `retro` | Skill | Reads finished runs, saves a report, finds patterns across the last N reports, and suggests fixes to skills and tools. |
 | `agent-trace` | Tool | Records the run as spans and friction notes, and prints the run log. |
 | `auth-helper` | Tool | Checks at intake that each login will last for the whole run. |
@@ -66,7 +66,7 @@ The hard limits apply at every step:
 - Guarded changes wait for you: data, migrations, infra, auth, secrets, and CI workflows.
 - A merge uses only the reviewed commit.
 - Spacelift is read-only.
-- Done means every ticket check passes on the merged result, not that the PR merged.
+- Done means every Done when item passes on the merged result, not that the PR merged.
 
 ## Release notes
 

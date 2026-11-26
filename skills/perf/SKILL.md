@@ -64,7 +64,7 @@ For each claim, start a fresh read-only reviewer with the claim, the raw numbers
 
 - Create one Linear ticket in the goal's team and project. Its description is the hand-off to the run that ships the changes. `/neo` and `/matrix` take the ticket as their goal, so put the hand-off in the description, not in a comment. Use these headings in this order. Write "None" under a heading that has nothing.
   - **Goal.** The problem, the metric, and the target.
-  - **Done when.** The pass/fail checks for the ship run. Write each one as a result someone can check on `main`, with its threshold, such as "slowest test shard ≤ 275 s p50". With no proven change, write "None" and put the next step under Open decisions.
+  - **Done when.** The items for the ship run, in the item format of the [vocabulary](https://raw.githubusercontent.com/sucramual/mp/main/skills/neo-vocabulary.md), with `owner: TBD` for the ship run to set. Write each check as a result someone can check on `main`, with its threshold, such as "slowest test shard ≤ 275 s p50". With no proven change, write "None" and put the next step under Open decisions.
   - **Baselines.** Each baseline run by run ID, with its date and conditions. In an earlier spike, a typed number without a run ID reached a worker wrong.
   - **Methods that prove a change.** How to get a valid measured run. For example, a throwaway PR can need one change before the run starts. In that spike, a worker that lacked this lost a run.
   - **Known traps.** The noise level and the repeats it needs, and each failure that cost a run.

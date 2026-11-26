@@ -2,14 +2,14 @@
 
 The `matrix` router reads this file before it posts the close comment or closes the ticket. The close steps are in `SKILL.md`.
 
-## Gap check
+## Audit
 
-A router nearly closed a ticket while three goal checks had only unit proof, and the goal table required live proof.
+A router nearly closed a ticket while three checks had only unit proof, and the checks required live proof.
 
-1. List every goal check from the goal table, including checks that no PR covers.
-2. For each check, quote its Proof column. Next to it, give the command and output that meet it, marked `live` or `unit only`.
-3. A check is open when its proof is missing, when it is `unit only` and the Proof column asks for live proof, or when the proof does not cover the boundary that the check names.
-4. Put each open check in the close comment as an open item. Do not close the ticket while one is open.
+1. List every item of every ticket, including items that no PR covers.
+2. For each ticked item, open its evidence link. Compare it with the item's proof and covers fields.
+3. An item fails when its evidence is missing, when it is `unit only` and its proof asks for live proof, or when the evidence does not cover what its covers field names. Set a failed item back to `[ ]`. Append `— audited` to each item that passes.
+4. Read each ticket again after the patch, and check each box against the audit. Put each open item in the close comment. Do not close a ticket while one of its items is open.
 
 ## Numbers
 

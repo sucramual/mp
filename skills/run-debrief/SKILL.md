@@ -15,7 +15,7 @@ Collect every source before you write. Record each source that you could not rea
 | Source | Where | Read for |
 | --- | --- | --- |
 | Ticket | Linear issue, its description and comments | The stated problem, the intake comment, the close comment |
-| Plan file | The run's plan file, usually in a session scratchpad under `/tmp` | Goal checks, split, decision queue, grants, facts that changed the ticket text |
+| Plan file | The run's plan file, usually in a session scratchpad under `/tmp` | Done when item IDs, split, decision queue, grants, facts that changed the ticket text |
 | PRs | `gh pr view <n> --json title,body,mergedAt,reviews` and `gh pr diff <n> --name-only` for each PR in the close comment | What each PR changed, review threads, follow-up fixes |
 | Transcripts | The router and worker sessions under `~/.claude/projects/*/` (Codex: `~/.codex/sessions/`) | Surprises, errors, corrections, and every point where the run waited on Marcus |
 | Trace | `agent-trace show --work <ticket>` when it exists | The timeline and the wait time on Marcus |
@@ -31,7 +31,7 @@ Copy `template.html` (same directory) and fill its slots in order. Keep the page
 
 1. **Problem.** The problem in two or three sentences, in the owner's terms. Then what the code on main showed that changed the ticket text.
 2. **What the run did and why.** The split as a lane per chain, each PR as a pill with its state. Then each decision: the choice, the strongest alternative, why it lost, and who settled it, Marcus or the agents.
-3. **Results.** One row for each goal check: verdict, proof marked `live`, `unit only`, or `CI only`, and the boundary that the proof does not cover. Then the open items.
+3. **Results.** One row for each Done when item: verdict, proof marked `live`, `unit only`, or `CI only`, and the boundary that the proof does not cover. Then the open items.
 4. **What was learned.** Three to six learning moments, most instructive first. Each one: what the run assumed, what actually happened with the verbatim quote, how it was found, the fix PR, and the general lesson in one sentence.
 5. **Key concepts.** Four to seven concepts that a reader needs to follow the run. Each card: a plain definition, then how it mattered in this run.
 6. **Closed-book questions.** Three or four questions, written by [Questions](references/questions.md). The answer criteria stay folded until the reader opens them.

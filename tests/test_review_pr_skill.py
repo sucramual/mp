@@ -166,7 +166,7 @@ def test_reviewer_mode_has_no_separate_reference() -> None:
     )
 
 
-# The shared ready check in references/ready-to-merge.md. review-pr, the controller, and /rogue all rely on it.
+# The shared ready check in references/ready-to-merge.md. review-pr, the controller, and /neo all rely on it.
 # It lives in the skill folder so that isolated evals, which copy only that folder, can read it.
 @pytest.mark.parametrize(
     ("needle", "message"),
@@ -225,7 +225,7 @@ def test_controller_merge_line(needle: str, message: str) -> None:
         SKILL,
         README,
         CONTROLLER_GUIDE,
-        REPO_ROOT / "skills" / "rogue" / "SKILL.md",
+        REPO_ROOT / "skills" / "neo" / "SKILL.md",
         REPO_ROOT / "skills" / "open-pr" / "references" / "stack.md",
     ],
 )

@@ -32,7 +32,7 @@ When `/matrix` starts you with a PR brief, the PR brief is your ticket, and thes
 - Write to Linear only to add `red:` to the items that the PR brief assigns to you, and to tick them, as [Close](#close) step 4 says. Never change an item's text: send a change to `/matrix`.
 - Put no ticket ID in your branch name or PR title, and write `Part of <ID>` in the PR body. Linear closes a ticket when a merged PR's branch name or title holds its ID, and only `/matrix` closes the ticket.
 - Trace the run as [Loop](#loop) says. On your first `agent-trace` call, pass `--work` with the work ID that the PR brief names, so `/matrix` can join your sessions with the other workers'.
-- Do not post the [Close](#close) comments. `/matrix` posts one close comment for the whole ticket. Do Close steps 1 and 2 for your own sessions with `agent-trace show --session <id>`. Do steps 4 and 6 for the items you own. Then send your close draft to `/matrix`: the verdict, each item you own by ID with its evidence marked `live` or `unit only`, each PR with its reviewed SHA and merge SHA, each park, the decisions, and the open items.
+- Do not post the [Close](#close) comments. `/matrix` posts one close comment for the whole ticket. Do Close steps 1 and 2 for your own sessions with `agent-trace show --session <id>`. Do steps 4 and 7 for the items you own. Then send your close draft to `/matrix`: the verdict, each item you own by ID with its evidence marked `live` or `unit only`, each PR with its reviewed SHA and merge SHA, each park, the decisions, and the open items.
 
 ## Loop
 
@@ -88,8 +88,9 @@ Make reversible choices yourself and continue. Write to the ticket only at the s
 2. Answer each item in its `Reconcile` list: `agent-trace note friction ... --ref <ref>`, or `agent-trace note none --ref <ref>` when the item was no friction. Run `show` again until it prints `Reconcile: none`.
 3. Post the run log comment: the `text` fence from `show`, which is the gaps view (run totals, GAPS ranked by cost, the span chart), each PR with its reviewed SHA and merge SHA, each CI or deploy run as a link, and each park.
 4. Tick each item you own whose check passed on the merged result with the proof that the item names, with a `save_issue` patch. Tick only an item with a `red:` field, which you add when its check first fails before your change. Leave each other item `[ ]`, and list it as an open item.
-5. Then post the closing comment: the verdict; for each item, its evidence marked `live` or `unit only`; the decisions and their evidence as text and links; the open items; and a link to the run log comment.
-6. Read the ticket again with `get_issue`. Each item must match its verdict in the closing comment. When one does not, fix it. The verdict is done only when every item is ticked. Otherwise move the ticket out of a Done state if Linear closed it on merge, and say why in the closing comment.
+5. In a standalone run, audit the ticks before the closing comment. Start one fresh-context, read-only subagent. Give it each ticked item with its `red:` and evidence links, and each PR with its merge SHA, but not your verdict. Ask it to disprove each tick: evidence that is missing or unrelated, `unit only` where the proof asks for live proof, or evidence outside the covers field. Untick each item that it refutes, and list it as an open item. Append `— audited` to each item that stands. A run that checks only its own ticks has no second reader. Under `/matrix`, skip this step, because `/matrix` audits.
+6. Then post the closing comment: the verdict; for each item, its evidence marked `live` or `unit only`; the decisions and their evidence as text and links; the open items; and a link to the run log comment.
+7. Read the ticket again with `get_issue`. Each item must match its verdict in the closing comment. When one does not, fix it. The verdict is done only when every item is ticked. Otherwise move the ticket out of a Done state if Linear closed it on merge, and say why in the closing comment.
 
 ## Hard limits
 

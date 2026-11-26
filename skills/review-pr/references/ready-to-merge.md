@@ -1,6 +1,6 @@
 # Ready to merge
 
-`review-pr`, the controller, and `/rogue` use this one check. Run it on the current head right before a merge, and before you report a PR as ready. Read every value again each time. Use REST reads: `gh pr view` uses GraphQL, which cloud sessions block. A failed or incomplete read means `not ready`, never `ready`.
+`review-pr`, the controller, and `/neo` use this one check. Run it on the current head right before a merge, and before you report a PR as ready. Read every value again each time. Use REST reads: `gh pr view` uses GraphQL, which cloud sessions block. A failed or incomplete read means `not ready`, never `ready`.
 
 The PR is `ready` only when all of these hold:
 
@@ -18,4 +18,4 @@ The PR is `ready` only when all of these hold:
 
    A bot `COMMENTED` review with a body and no inline comment is not coverage.
 
-When checks 1 to 5 hold but a configured reviewer has not covered the head, the repository has no configured reviewer, or the head has no checks at all, the result is `ready with gaps`. List each gap. An agent never merges a PR that is `ready with gaps`. It reports the gaps to me. The one exception is /rogue's low-tier rule: a /rogue run may merge a low-tier PR whose only gap is a missing reviewer or a missing reviewer configuration, and it records the gap in its proof bundle. A head with no checks is never covered by that exception. Any other failure is `not ready`.
+When checks 1 to 5 hold but a configured reviewer has not covered the head, the repository has no configured reviewer, or the head has no checks at all, the result is `ready with gaps`. List each gap. An agent never merges a PR that is `ready with gaps`. It reports the gaps to me. Any other failure is `not ready`.

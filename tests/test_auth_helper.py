@@ -673,7 +673,7 @@ def test_default_check_requires_only_gh(run: RunTool, fakes: Fakes):
 
 
 # Protects: a CLI that is not installed reads as missing, with an install hint, instead of a crash.
-# Bug caught: FileNotFoundError escapes as a traceback, so the /rogue skill gets no JSON at all.
+# Bug caught: FileNotFoundError escapes as a traceback, so the /neo skill gets no JSON at all.
 def test_missing_clis_are_reported_missing(run: RunTool, fakes: Fakes):
     for name in ("gcloud", "spacectl", "signadot"):
         fakes.remove(name)
@@ -934,7 +934,7 @@ def test_provider_expiry_that_is_not_full_rfc3339_is_unknown(run: RunTool, fakes
     assert signadot["warning"] == UNKNOWN_LIFETIME
 
 
-# Protects: the JSON shape that the /rogue skill parses.
+# Protects: the JSON shape that the /neo skill parses.
 # Bug caught: a renamed, dropped, or retyped field, or a non-RFC3339 time.
 def test_json_output_matches_the_contract(run: RunTool, fakes: Fakes):
     fakes.mode("spacectl", "expired")
@@ -1370,7 +1370,7 @@ def test_spacelift_expiry_follows_spacelift_config_dir(run: RunTool, isolated_en
 
 # Protects: a missing or malformed Spacelift config or token gives an unknown expiry and a full report.
 # Bug caught: a KeyError, a base64 or JSON error, or an out-of-range exp escapes as a traceback, so the
-# /rogue skill gets no JSON; or a boolean exp reads as 1970, so a working login fails preflight.
+# /neo skill gets no JSON; or a boolean exp reads as 1970, so a working login fails preflight.
 @pytest.mark.parametrize(
     "config",
     [
@@ -1555,7 +1555,7 @@ def test_history_file_is_user_only_and_outside_the_repo(run: RunTool, isolated_e
     assert found == {path}
 
 
-# Protects: the hook that the /rogue skill calls after a Chrome check. `record okta expired` records one
+# Protects: the hook that the /neo skill calls after a Chrome check. `record okta expired` records one
 # expired_seen, the first `record okta ok` after it records the refresh, and check then estimates Okta's
 # expiry from those records while Okta stays manual.
 # Bug caught: `record okta ok` on a session of unknown age records a refresh, which gives a too-short
@@ -1817,7 +1817,7 @@ ACCEPTED_DIFFERENCES = (
 GOLDEN_CASES = ("gh-only", "missing-provider", "probes-team", "horizon", "horizon-table", "usage-error")
 
 
-# Protects: the /rogue preflight reads the same report, fixes, and exit codes as before.
+# Protects: the /neo preflight reads the same report, fixes, and exit codes as before.
 # Bug caught: a field, fix, status, or probe that changes in the port, such as a probe set that loses a
 # probe or changes its order, or a fix that names ro.
 @pytest.mark.parametrize("case", GOLDEN_CASES)
@@ -1833,7 +1833,7 @@ def test_output_matches_the_golden_file_of_the_old_tool(
     assert actual == expected
 
 
-# Protects: `auth-helper check --help` shows the forms that the /rogue intake tells an agent to read.
+# Protects: `auth-helper check --help` shows the forms that the /neo intake tells an agent to read.
 # Bug caught: help that names another program, or --probes help that does not name the configured set.
 def test_check_help_names_the_tool_the_providers_and_the_probe_set(run: RunTool, fakes: Fakes):
     result = run("check", "--help")

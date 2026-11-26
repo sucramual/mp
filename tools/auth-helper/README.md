@@ -1,6 +1,6 @@
 # auth-helper
 
-`auth-helper` checks the logins that an unattended agent run needs, and refreshes them. The `/rogue` and `/neo` skills run `auth-helper check` at intake. Run `auth-helper refresh` yourself before you leave an agent to run alone.
+`auth-helper` checks the logins that an unattended agent run needs, and refreshes them. The `/neo` skill runs `auth-helper check` at intake. Run `auth-helper refresh` yourself before you leave an agent to run alone.
 
 `rogue-auth`, the old name, is an alias: `bin/rogue-auth` is a link to `bin/auth-helper`, so old commands and docs keep working.
 
@@ -31,7 +31,7 @@ If your shell cannot find `auth-helper`, run `dotfiles-pr sync`. It links every 
 | `check --json` | Prints the JSON report below instead of the table. |
 | `auth-helper refresh [PROVIDER...]` | Interactive. Runs the login flow of each named provider (all providers when you name none), then checks that provider again and prints the result. Exits 1 when a login command fails or a login is still not ok. A failed login command fails refresh even when the old credential still works, because the credential was not renewed. |
 | `refresh --horizon DURATION` | Applies the same horizon rule as `check`. It runs a conditional login (gh, signadot) when its known or estimated expiry falls inside the duration, and it fails when the new login still expires inside it. The table that `check --horizon` prints suggests a `refresh` command with the same horizon. |
-| `auth-helper record okta ok\|expired` | Records the result of a check that the shell cannot run: the `/rogue` skill's Chrome check of Okta. See [Login history](#login-history). |
+| `auth-helper record okta ok\|expired` | Records the result of a check that the shell cannot run: an agent's Chrome check of Okta. See [Login history](#login-history). |
 
 A mistyped provider, probe set, duration, or `record` value exits 2 before any check, login, or record runs. So does a horizon longer than `3650d`, and a team config that exists but is not valid.
 
@@ -123,7 +123,7 @@ Log in with `auth-helper refresh`. A login made outside it records no refresh ti
 
 auth-helper only reads the file and appends to it. To remove a wrong observation, for example a revoked token that looked like an expiry, delete its two lines. A malformed line is skipped, and the check goes on; one stderr warning names the number of each skipped line.
 
-Okta has no shell check, so the `/rogue` skill records its Chrome check:
+Okta has no shell check, so an agent records its Chrome check:
 
 - `auth-helper record okta expired`: the check saw the Okta sign-in page. It records `expired_seen` with the same rule as `check`.
 - `auth-helper record okta ok`: the check saw the dashboard. It records `refreshed` only when the last Okta record is `expired_seen`, because only then does it prove a new login. Otherwise it records nothing.
@@ -146,7 +146,7 @@ To add a probe, add an entry to its set in the team config.
 
 ## JSON contract
 
-The `/rogue` skill parses this output. Keep it stable.
+The `/neo` skill parses this output. Keep it stable.
 
 ```json
 {

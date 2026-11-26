@@ -46,6 +46,6 @@ In the dotfiles repository, read `references/dotfiles.md` before step 1.
    When Auto-fix (the Claude desktop app's PR monitor) watches the PR, start no agent, because two writers would push to one branch. Say that Auto-fix handles feedback and CI. Neither Auto-fix nor `review-pr` merges, so a caller such as `/neo` keeps the ready check and the merge.
    For a Spacelift PR, add the Spacelift tasks from [references/spacelift.md](references/spacelift.md) to the agent brief. When no agent starts for any reason, including `--no-review` or Auto-fix (the Claude desktop app's PR monitor) that watches the PR, the parent does the post-merge watch itself, as item 4 of that file describes.
 
-7. **Run signatures.** Skip the "Sign the writes of a run" section that the publish steps link. A caller such as `/rogue` signs its own commits and PR text.
+7. **Run signatures.** Skip the "Sign the writes of a run" section that the publish steps link. A calling skill signs its own commits and PR text.
 
 If any step (1–8) fails, stop and report the error clearly. Step 9 runs in the background and does not block.

@@ -1,6 +1,6 @@
 """Checks the shared risk-tier definition and the files that rely on it to decide an agent merge.
 
-/rogue, /neo, and the self-repair guide let an agent merge a Low or Medium PR without Marcus.
+/neo and the self-repair guide let an agent merge a Low or Medium PR without Marcus.
 Each phrase below guards one rule whose loss lets a risky PR merge unattended.
 The tests do not check wording that an agent can rephrase safely.
 """
@@ -15,7 +15,6 @@ from skill_text import assert_contains
 
 RISK_TIERS = REPO_ROOT / "skills" / "review-pr" / "references" / "risk-tiers.md"
 SELF_REPAIR = REPO_ROOT / "agents" / "guides" / "self-repair.md"
-ROGUE_SKILL = REPO_ROOT / "skills" / "rogue" / "SKILL.md"
 NEO_SKILL = REPO_ROOT / "skills" / "neo" / "SKILL.md"
 
 
@@ -48,14 +47,6 @@ def test_risk_tiers_rule(needle: str, message: str) -> None:
     ("path", "needle"),
     [
         (
-            ROGUE_SKILL,
-            "[Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md)",
-        ),
-        (
-            ROGUE_SKILL,
-            "[Reserved paths](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md#reserved-paths)",
-        ),
-        (
             NEO_SKILL,
             "[Risk tiers](https://raw.githubusercontent.com/sucramual/mp/main/skills/review-pr/references/risk-tiers.md)",
         ),
@@ -66,7 +57,7 @@ def test_merging_files_link_the_tier_definition(path: Path, needle: str) -> None
     assert_contains(path, needle, f"{path.name} should classify the tier with the shared definition before a merge")
 
 
-@pytest.mark.parametrize("path", [ROGUE_SKILL, NEO_SKILL])
+@pytest.mark.parametrize("path", [NEO_SKILL])
 def test_merging_skills_park_when_the_remote_rules_cannot_be_read(path: Path) -> None:
     # Bug caught: a failed read of the rules from GitHub leaves no tier rule, and the agent merges anyway.
     assert_contains(path, "`curl -fsSL <URL>`", f"{path.name} should read the rules as exact text")

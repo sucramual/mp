@@ -8,7 +8,7 @@ A router nearly closed a ticket while three checks had only unit proof, and the 
 
 1. List every item of every ticket, including items that no PR covers.
 2. For each ticked item, open its evidence link. Compare it with the item's proof and covers fields.
-3. An item fails when its evidence is missing, when it is `unit only` and its proof asks for live proof, or when the evidence does not cover what its covers field names. Set a failed item back to `[ ]`. Append `— audited` to each item that passes.
+3. An item fails when its evidence is missing, when it has no `red:` field or an `n/a` without a reason, when it is `unit only` and its proof asks for live proof, or when the evidence does not cover what its covers field names. Set a failed item back to `[ ]`. Append `— audited` to each item that passes.
 4. Read each ticket again after the patch, and check each box against the audit. Put each open item in the close comment. Do not close a ticket while one of its items is open.
 
 ## Numbers

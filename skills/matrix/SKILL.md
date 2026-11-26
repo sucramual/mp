@@ -39,7 +39,7 @@ A PR brief is everything one `/neo` worker needs to build one PR. Write one PR b
 
 Each PR brief has:
 
-- **Checks.** The Done when items that this chain owns, word for word with their IDs, and the PR in the chain that completes each one. Then the PR checks this PR must pass, and how to prove each one: the test, or the run and the method that make the check work. When a check compares with an earlier run, cite that run by ID, not as a copied number. Add any known trap. The worker writes each test first and sees it fail before it changes the code. Workers skipped this until a spike brief stated it.
+- **Checks.** The Done when items that this chain owns, word for word with their IDs, and the PR in the chain that completes each one. Then the PR checks this PR must pass, and how to prove each one: the test, or the run and the method that make the check work. When a check compares with an earlier run, cite that run by ID, not as a copied number. Add any known trap. The worker writes each test first and sees it fail before it changes the code. It adds that failing run to the item as its `red:` field. Workers skipped this until a spike brief stated it.
 - **Files.** The files this PR owns. The worker reports any other file it must change as a contract change. It does not change it silently.
 - **Dependencies.** The PRs or merged code that this PR needs first, and the base branch.
 - **Grants.** Marcus's merge grant for this PR, word for word, when he gave one.
